@@ -3,7 +3,6 @@ local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 local tohex = bit.tohex
 local byte = string.byte
-local char = string.char
 local concat = table.concat
 
 local Nibs = require './encode-nibs.lua'
@@ -23,19 +22,20 @@ local tests = {
     false, "\x20",
     true, "\x21",
     nil, "\x22",
-    -- binary
+    -- Binary
     -- null terminated C string
     ffi.new("const char*", "Binary!"), "\x48Binary!\0",
     -- C byte array
     ffi.new("uint8_t[3]", {1,2,3}), "\x43\x01\x02\x03",
     -- C double array
     ffi.new("double[1]", {math.pi}), "\x48\x18\x2d\x44\x54\xfb\x21\x09\x40",
-    -- string
+    -- String
     "Hello", "\x55Hello",
     -- list
     {1,2,3}, "\x63\x01\x02\x03",
     -- map
     {name="Tim"},"\x79\x54name\x53Tim",
+    {{[{}]={}},{foo=true}}, "\x69\x72\x60\x60\x75\x53\x66\x6f\x6f\x21",
 }
 
 local function dump_string(str)
