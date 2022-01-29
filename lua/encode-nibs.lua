@@ -6,11 +6,10 @@ local band = bit.band
 
 local insert = table.insert
 
-local byte = string.byte
-
 local ffi = require 'ffi'
 local Buffer = ffi.typeof "uint8_t[?]"
 local sizeof = ffi.sizeof
+local copy = ffi.copy
 
 local Nibs = { Buffer = Buffer }
 
@@ -117,24 +116,19 @@ function Nibs.encode(val)
     local buf = Buffer(size)
     local function write(d)
         local kind = type(d)
-        if kind == "string" then
-            for j = 1, #d do
-                buf[i] = byte(d, j)
-                i = i + 1
-            end
-        elseif kind == "number" then
+        if kind == "number" then
             buf[i] = d
             i = i + 1
+        elseif kind == "cdata" then
+            local len = sizeof(d)
+            copy(buf+i, d, len)
+            i = i + len
+        elseif kind == "string" then
+            copy(buf+i,d)
+            i = i + #d
         elseif kind == "table" then
             for j = 1, #d do
                 write(d[j])
-            end
-        elseif kind == "cdata" then
-            local len = sizeof(val)
-            val = ffi.cast("uint8_t*", val)
-            for j = 0, len - 1 do
-                buf[i] = val[j]
-                i = i + 1
             end
         end
     end
