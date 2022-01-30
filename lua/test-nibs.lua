@@ -5,7 +5,7 @@ local tohex = bit.tohex
 local byte = string.byte
 local concat = table.concat
 
-local Nibs = require './encode-nibs.lua'
+local Nibs = require './nibs.lua'
 
 local tests = {
     -- Integer
@@ -35,7 +35,8 @@ local tests = {
     {1,2,3}, "\x63\x01\x02\x03",
     -- map
     {name="Tim"},"\x79\x54name\x53Tim",
-    {{[{}]={}},{foo=true}}, "\x69\x72\x60\x60\x75\x53\x66\x6f\x6f\x21",
+    {{[10]=100,[20]=50,[true]=false},{foo=true}},
+        "\x6c\x10\x79\x21\x20\x0a\x0c\x64\x0c\x14\x0c\x32\x75\x53\x66\x6f\x6f\x21",
 }
 
 local function dump_string(str)
@@ -46,12 +47,47 @@ local function dump_string(str)
     return '"' .. concat(parts) .. '"'
 end
 
+local function equal(a,b)
+    if a == b then return true end
+    local kind = type(a)
+    if kind ~= type(b) then return false end
+    if kind == "cdata" then
+        local len = sizeof(a)
+        if len ~= sizeof(b) then return false end
+        local abin = ffi.cast("const uint8_t*", a)
+        local bbin = ffi.cast("const uint8_t*", b)
+        for i = 0, len - 1 do
+            if abin[i] ~= bbin[i] then return false end
+        end
+        return true
+    end
+    if kind == "table" then
+        if #a ~= #b then return false end
+        for k, v in pairs(a) do
+            if not equal(v,b[k]) then return false end
+        end
+        for k, v in pairs(b) do
+            if not equal(v,a[k]) then return false end
+        end
+        return true
+    end
+    if kind == "number" or kind == "string" or kind == "boolean" then
+        return false
+    end
+    error("Unknown Type: " .. kind)
+end
+
 for i = 1, #tests, 2 do
+    print()
     local input = tests[i]
+    p("input", input)
     local expected = tests[i+1]
     local buf = Nibs.encode(input)
     local str = ffi.string(buf, sizeof(buf))
-    p(input, str)
-    print(dump_string(str))
+    p("encoded", str)
+    print("'encoded'\t" .. dump_string(str))
     assert(ffi.string(buf, sizeof(buf)) == expected)
+    local decoded = Nibs.decode(buf)
+    p("decoded", decoded)
+    assert(equal(decoded, input), "decode failed")
 end
