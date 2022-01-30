@@ -2,6 +2,8 @@ local bit = require 'bit'
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 local tohex = bit.tohex
+local istype = ffi.istype
+
 local byte = string.byte
 local concat = table.concat
 
@@ -50,7 +52,14 @@ end
 local function equal(a,b)
     if a == b then return true end
     local kind = type(a)
-    if kind ~= type(b) then return false end
+    if kind == "cdata" and Nibs.is(a) then
+        kind = "table"
+    end
+    local kindb = type(b)
+    if kindb == "cdata" and Nibs.is(b) then
+        kindb = "table"
+    end
+    if kind ~= kindb then return false end
     if kind == "cdata" then
         local len = sizeof(a)
         if len ~= sizeof(b) then return false end
