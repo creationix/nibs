@@ -11,8 +11,6 @@ local Buffer = ffi.typeof "uint8_t[?]"
 local sizeof = ffi.sizeof
 local copy = ffi.copy
 
-local Nibs = { Buffer = Buffer }
-
 local function encode_pair(small, big)
     local pair = lshift(small, 4)
     if big < 0xc then
@@ -50,11 +48,13 @@ local function is_list(val)
     return true
 end
 
-function Nibs.encode_list(list)
+local encode_any
+
+local function encode_list(list)
     local total = 0
     local body = {}
     for i = 1, #list do
-        local size, entry = Nibs.encode_any(list[i])
+        local size, entry = encode_any(list[i])
         insert(body, entry)
         total = total + size
     end
@@ -62,14 +62,14 @@ function Nibs.encode_list(list)
     return size + total, {head, body}
 end
 
-function Nibs.encode_map(map)
+local function encode_map(map)
     local total = 0
     local body = {}
     for k, v in pairs(map) do
-        local size, entry = Nibs.encode_any(k)
+        local size, entry = encode_any(k)
         insert(body, entry)
         total = total + size
-        size, entry = Nibs.encode_any(v)
+        size, entry = encode_any(v)
         insert(body, entry)
         total = total + size
     end
@@ -79,7 +79,7 @@ end
 
 
 ---@param val any
-function Nibs.encode_any(val)
+function encode_any(val)
     local kind = type(val)
     if kind == "number" then
         if val >= 0 then
@@ -101,18 +101,18 @@ function Nibs.encode_any(val)
         return size + len, {head, val}
     elseif kind == "table" then
         if is_list(val) then
-            return Nibs.encode_list(val)
+            return encode_list(val)
         else
-            return Nibs.encode_map(val)
+            return encode_map(val)
         end
     else
         error("Unsupported value type: " .. kind)
     end
 end
 
-function Nibs.encode(val)
+local function encode(val)
     local i = 0
-    local size, data = Nibs.encode_any(val)
+    local size, data = encode_any(val)
     local buf = Buffer(size)
     local function write(d)
         local kind = type(d)
@@ -137,4 +137,4 @@ function Nibs.encode(val)
     return buf
 end
 
-return Nibs
+return encode

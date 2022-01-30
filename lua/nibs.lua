@@ -1,8 +1,6 @@
-local Decoder = require './read-nibs'
-local Encoder = require './encode-nibs'
-local Nibs = {}
-
-Nibs.encode = Encoder.encode
-Nibs.decode = Decoder.decode
-
-return Nibs
+local encode = require './encoder'
+local decode = require './decoder'
+return {
+    encode = encode,
+    decode = decode,
+}

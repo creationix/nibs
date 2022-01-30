@@ -10,7 +10,6 @@ local U16Ptr = ffi.typeof "uint16_t*"
 local U32Ptr = ffi.typeof "uint32_t*"
 local U64Ptr = ffi.typeof "uint64_t*"
 
-local Nibs = {}
 local NibsList = {}
 local NibsMap = {}
 
@@ -32,7 +31,7 @@ local function decode_pair(ptr)
     end
 end
 
-function Nibs.decode(ptr)
+local function decode(ptr)
     ptr = cast(U8Ptr, ptr)
     local offset, little, big = decode_pair(ptr)
     if little == 0 then
@@ -64,7 +63,7 @@ function Nibs.decode(ptr)
     end
 end
 
-function Nibs.skip(ptr)
+local function skip(ptr)
     local offset, little, big = decode_pair(ptr)
     if little <= 4 then
         return ptr + offset
@@ -75,7 +74,6 @@ function Nibs.skip(ptr)
     end
 end
 
-
 function NibsList.new(ptr, len)
     return setmetatable({ __nibs_ptr = ptr, __nibs_len = len }, NibsList)
 end
@@ -85,7 +83,7 @@ function NibsList:__len()
     local last = current + self.__nibs_len
     local count = 0
     while current < last do
-        current = Nibs.skip(current)
+        current = skip(current)
         count = count + 1
     end
     return count
@@ -97,12 +95,11 @@ function NibsList:__index(index)
     while current < last do
         index = index - 1
         if index == 0 then
-            return Nibs.decode(current)
+            return decode(current)
         end
-        current = Nibs.skip(current)
+        current = skip(current)
     end
 end
-
 
 function NibsList:__ipairs()
     local current = self.__nibs_ptr
@@ -110,7 +107,7 @@ function NibsList:__ipairs()
     local i = 0
     return function ()
         if current < last then
-            local val, size = Nibs.decode(current)
+            local val, size = decode(current)
             current = current + size
             i = i + 1
             return i, val
@@ -124,11 +121,11 @@ function NibsMap.new(ptr, len)
     return setmetatable({ __nibs_ptr = ptr, __nibs_len = len }, NibsMap)
 end
 
-function NibsMap:__len()
+function NibsMap.__len()
     return 0
 end
 
-function NibsMap:__ipairs()
+function NibsMap.__ipairs()
     return function () end
 end
 
@@ -138,10 +135,10 @@ function NibsMap:__pairs()
     return function ()
         if current >= last then return end
         local key, value, size
-        key, size = Nibs.decode(current)
+        key, size = decode(current)
         current = current + size
         if current >= last then return end
-        value, size = Nibs.decode(current)
+        value, size = decode(current)
         current = current + size
         return key, value
     end
@@ -151,29 +148,15 @@ function NibsMap:__index(index)
     local current = self.__nibs_ptr
     local last = current + self.__nibs_len
     while current < last do
-        local key, size = Nibs.decode(current)
+        local key, size = decode(current)
         current = current + size
         if current >= last then return end
 
         if key == index then
-            return (Nibs.decode(current))
+            return (decode(current))
         end
-        current = Nibs.skip(current)
+        current = skip(current)
     end
 end
 
-
-
-local l = Nibs.decode "\x63\x01\x02\x03"
-p(l)
-for k,v in ipairs(l) do
-    p{k,v}
-end
-
-for i = 1, #l do
-    p{i, l[i]}
-end
--- local n = Nibs.from_string "\x63\x01\x02\x03"
--- -- p(n)
-
-return Nibs
+return decode
