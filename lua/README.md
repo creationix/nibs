@@ -2,6 +2,8 @@
 
 This is a generic nibs serializtion implementaion for any LuaJit runtime such as OpenResty or [Luvit](https://luvit.io/).
 
+![Unit Tests](https://github.com/creationix/nibs/actions/workflows/test-lua.yaml/badge.svg)
+
 ## Install
 
 If you're using luvit, install with lit:
