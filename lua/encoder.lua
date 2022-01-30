@@ -1,39 +1,29 @@
 local bit = require 'bit'
 local lshift = bit.lshift
-local rshift = bit.rshift
 local bor = bit.bor
-local band = bit.band
 
 local insert = table.insert
 
 local ffi = require 'ffi'
-local Buffer = ffi.typeof "uint8_t[?]"
 local sizeof = ffi.sizeof
 local copy = ffi.copy
+local Slice = ffi.typeof "uint8_t[?]"
+local U16Box = ffi.typeof "uint16_t[1]"
+local U32Box = ffi.typeof "uint32_t[1]"
+local U64Box = ffi.typeof "uint64_t[1]"
 
 local function encode_pair(small, big)
     local pair = lshift(small, 4)
     if big < 0xc then
         return 1, bor(pair, big)
     elseif big < 0x100 then
-        return 2, {bor(pair, 12), big}
+        return 2, { bor(pair, 12), big }
     elseif big < 0x10000 then
-        return 3, {bor(pair, 13),
-            band(big,0xff), rshift(big, 8)}
+        return 3, { bor(pair, 13), U16Box {big} }
     elseif big < 0x100000000 then
-        return 5, {bor(pair, 14),
-            band(big,0xff), band(rshift(big, 8),0xff),
-            band(rshift(big, 16),0xff), rshift(big, 24)}
+        return 5, { bor(pair, 14), U32Box {big} }
     else
-        return 9, {bor(pair, 15),
-            band(big,0xff),
-            band(rshift(big, 8),0xff),
-            band(rshift(big, 16),0xff),
-            band(rshift(big, 24),0xff),
-            band(rshift(big, 32),0xff),
-            band(rshift(big, 40),0xff),
-            band(rshift(big, 48),0xff),
-            rshift(big, 56)}
+        return 9, { bor(pair, 15), U64Box {big} }
     end
 end
 
@@ -113,7 +103,7 @@ end
 local function encode(val)
     local i = 0
     local size, data = encode_any(val)
-    local buf = Buffer(size)
+    local buf = Slice(size)
     local function write(d)
         local kind = type(d)
         if kind == "number" then
