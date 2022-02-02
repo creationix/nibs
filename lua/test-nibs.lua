@@ -2,7 +2,6 @@ local bit = require 'bit'
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 local tohex = bit.tohex
-local istype = ffi.istype
 
 local byte = string.byte
 local concat = table.concat
