@@ -193,127 +193,201 @@ NibsMap.handler = {
 
 ///////////////////////////////////////////////////////////////////////////
 
-// local function encode_pair(small, big)
-//     local pair = lshift(small, 4)
-// if big < 0xc then
-// return 1, bor(pair, big)
-//     elseif big < 0x100 then
-// return 2, { bor(pair, 12), big }
-//     elseif big < 0x10000 then
-// return 3, { bor(pair, 13), U16Box { big }
-// }
-//     elseif big < 0x100000000 then
-// return 5, { bor(pair, 14), U32Box { big } }
-//     else
-// return 9, { bor(pair, 15), U64Box { big } }
-// end
-// end
+/**
+ * Calculate number of bytes needed to encode pair based on big value.
+ * @param {number} big number to encode up to 64bits
+ * @returns number of bytes needed
+ */
+function sizePair(big) {
+    return (big < 0xc) ? 1
+        : (big < 0x100) ? 2
+            : (big < 0x10000) ? 3
+                : (big < 0x100000000) ? 5
+                    : 9
+}
 
-// ---@type table
-// ---@return boolean
-// local function is_list(val)
-//     local i = 1
-// for key in pairs(val) do
-//     if key ~= i then return false end
-// i = i + 1
-// end
-// return true
-// end
+/**
+ * Calculate number of bytes needed to store a list
+ * @param {any[]} list
+ * @returns number of bytes needed
+ */
+function sizeArray(list) {
+    let total = 0
+    for (const item of list) {
+        total += sizeAny(item)
+    }
+    return sizePair(total) + total
+}
 
-// local encode_any
+/**
+ * Calculate number of bytes needed to store a map
+ * @param {Record<string,any>} map
+ * @returns number of bytes needed
+ */
+function sizeObject(map) {
+    let total = 0
+    for (const key in map) {
+        total += sizeAny(key)
+        total += sizeAny(map[key])
+    }
+    return sizePair(total) + total
+}
 
-// local function encode_list(list)
-//     local total = 0
-//     local body = {}
-// for i = 1, #list do
-//         local size, entry = encode_any(list[i])
-//         insert(body, entry)
-// total = total + size
-// end
-//     local size, head = encode_pair(6, total)
-// return size + total, { head, body }
-// end
+/**
+ * @param {any} val
+ * @returns number of bytes needed
+ */
+function sizeAny(val) {
+    const type = Object.prototype.toString.call(val)
+    switch (type) {
+        case "[object Number]":
+            if (val === Math.floor(val)) {
+                return sizePair(Math.abs(val))
+            }
+            throw new Error("TODO: support floats")
+        case "[object Boolean]":
+        case "[object Null]":
+            return 1
+        case "[object String]": {
+            // TODO: see if there is a faster way to get this length.
+            const len = (new TextEncoder().encode(val)).byteLength
+            return sizePair(len) + len
+        }
+        case "[object Uint8Array]": {
+            return sizePair(val.byteLength) + val.byteLength
+        }
+        case "[object Array]":
+            return sizeArray(val)
+        case "[object Object]":
+            return sizeObject(val)
+    }
+    throw new TypeError("Unsupported type " + type)
+}
 
-// local function encode_map(map)
-//     local total = 0
-//     local body = {}
-// for k, v in pairs(map) do
-//         local size, entry = encode_any(k)
-//         insert(body, entry)
-// total = total + size
-// size, entry = encode_any(v)
-// insert(body, entry)
-// total = total + size
-// end
-//     local size, head = encode_pair(7, total)
-// return size + total, { head, body }
-// end
+export function encode(val) {
+    const len = sizeAny(val)
+    const data = new DataView(new ArrayBuffer(len))
+    const offset = encodeAny(data, 0, val)
+    if (offset !== len) {
+        console.log({ data, offset, len })
+        throw new Error("length mismatch when encoding")
+    }
+    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+}
 
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} val
+ * @returns {number}
+ */
+function encodeAny(data, offset, val) {
+    const type = Object.prototype.toString.call(val)
+    switch (type) {
+        case "[object Number]":
+            if (val === Math.floor(val)) {
+                if (val >= 0) {
+                    return encodePair(data, offset, 0, val)
+                } else {
+                    return encodePair(data, offset, 1, -val)
+                }
+            }
+            throw new Error("TODO: support floats")
+        case "[object Boolean]":
+            return encodePair(data, offset, 2, val ? 1 : 0)
+        case "[object Null]":
+            return encodePair(data, offset, 2, 2)
+        case "[object Uint8Array]":
+            return encodeUint8Array(data, offset, val)
+        case "[object String]":
+            return encodeString(data, offset, val)
+        case "[object Array]":
+            return encodeArray(data, offset, val)
+        case "[object Object]":
+            return encodeObject(data, offset, val)
+    }
+    throw new TypeError("Unsupported type " + type)
+}
 
-// ---@param val any
-// function encode_any(val)
-//     local kind = type(val)
-// if kind == "number" then
-// if val >= 0 then
-// return encode_pair(0, val)-- Integer
-//         else
-// return encode_pair(1, -val)-- Negative Integer
-// end
-//     elseif kind == "boolean" then
-// return encode_pair(2, val and 1 or 0)-- Simple true / false
-//     elseif kind == "nil" then
-// return encode_pair(2, 2)-- Simple nil
-//     elseif kind == "cdata" then
-//         local len = sizeof(val)
-//         local size, head = encode_pair(4, len)
-// return size + len, { head, val }
-//     elseif kind == "string" then
-//         local len = #val
-//         local size, head = encode_pair(5, len)
-// return size + len, { head, val }
-//     elseif kind == "table" then
-// if is_list(val) then
-// return encode_list(val)
-//         else
-// return encode_map(val)
-// end
-//     else
-// error("Unsupported value type: "..kind)
-// end
-// end
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {string} str
+ * @returns {number}
+ */
+function encodeString(data, offset, str) {
+    return encodeUint8Array(data, offset, new TextEncoder().encode(str), 6)
+}
 
-// local function encode(val)
-//     local i = 0
-//     local size, data = encode_any(val)
-//     local buf = Slice(size)
-//     local function write(d)
-//         local kind = type(d)
-// if kind == "number" then
-// buf[i] = d
-// i = i + 1
-//         elseif kind == "cdata" then
-//             local len = sizeof(d)
-// copy(buf + i, d, len)
-// i = i + len
-//         elseif kind == "string" then
-// copy(buf + i, d)
-// i = i + #d
-//         elseif kind == "table" then
-// for j = 1, #d do
-//     write(d[j])
-//             end
-//         end
-// end
-// write(data)
-// assert(size == i)
-// return buf
-// end
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {Uint8Array} buf
+ * @param {number} small?
+ * @returns {number}
+ */
+function encodeUint8Array(data, offset, buf, small = 5) {
+    offset = encodePair(data, offset, small, buf.byteLength)
+    const target = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    target.set(buf, offset)
+    return offset + buf.byteLength
+}
 
-// metatype(StructNibsList, NibsList)
-// metatype(StructNibsMap, NibsMap)
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {any[]} list
+ * @returns {number}
+ */
+function encodeArray(data, offset, list) {
+    offset = encodePair(data, offset, 6, sizeArray(list))
+    for (const item of list) {
+        offset = encodeAny(data, offset, item)
+    }
+    return offset
+}
 
-// --- Returns true if a value is a virtual nibs container.
-// local function is(val)
-// return istype(StructNibsList, val)
-//         or istype(StructNibsMap, val)
-// end
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {Record<string,any>} map
+ * @returns {number}
+ */
+function encodeObject(data, offset, map) {
+    offset = encodePair(data, offset, 7, sizeObject(map))
+    for (const key in map) {
+        offset = encodeAny(data, offset, key)
+        offset = encodeAny(data, offset, map[key])
+    }
+    return offset
+}
+
+/**
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} small u4 sized number to encode
+ * @param {number} big up to u64 sized number to encode
+ * @returns {number} new offset
+ */
+function encodePair(data, offset, small, big) {
+    const high = small << 4
+    if (big < 0xc) {
+        data.setUint8(offset++, high | big)
+    } else if (big < 0x100) {
+        data.setUint8(offset++, high | 12)
+        data.setUint8(offset++, big)
+    } else if (big < 0x10000) {
+        data.setUint8(offset++, high | 13)
+        data.setUint16(offset, big)
+        offset += 2
+    } else if (big < 0x100000000) {
+        data.setUint8(offset++, high | 14)
+        data.setUint32(offset, big)
+        offset += 4
+    } else {
+        data.setUint8(offset++, high | 15)
+        data.setBigUint64(offset, big)
+        offset += 8
+    }
+    return offset
+}
