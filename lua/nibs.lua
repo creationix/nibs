@@ -1,6 +1,6 @@
 --[[lit-meta
     name = "creationix/nibs"
-    version = "1.0.1"
+    version = "1.1.0"
     homepage = "https://github.com/creationix/nibs"
     description = "An implementation of nibs serialization format for luajit."
     tags = {"nibs","serialization","jit"}
