@@ -64,7 +64,7 @@ Some examples:
 - `0` -> `Integer(0)` -> `0000 0000`
 - `-2` -> `NegativeInteger(2)` - `0001 0010`
 - `42` -> `Integer(42)` -> `0000 1100 00101010`
-- `true` -> `Simple(1)` -> `0010 0001`
+- `true` -> `Simple(1)` -> `0011 0001`
 
 Note that it is possible to skip over any value by only reading the initial nibs pair except for `Tag(n)` where you have to recurse to the next value to know the full length.
 
@@ -82,7 +82,7 @@ Floating point numbers are stored as 64 bit IEEE floats cast to u64.
 
 ### Simple SubType
 
-Currently only `true`, `false`, and `nil` are specified and the rest of the range is reserved.  Use application-level tags for other values.
+Currently only `true`, `false`, and `nil` and some special float values are specified and the rest of the range is reserved.
 
 ### String
 
