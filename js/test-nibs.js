@@ -11,10 +11,15 @@ const tests = [
     -42, "\x1c\x2a",
     -500, "\x1d\xf4\x01",
     -0xdeadbeef, "\x1e\xef\xbe\xad\xde",
+    // Float
+    Math.PI, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40",
     // Simple
-    false, "\x20",
-    true, "\x21",
-    null, "\x22",
+    false, "\x30",
+    true, "\x31",
+    null, "\x32",
+    NaN, "\x33",
+    Infinity, "\x34",
+    -Infinity, "\x35",
     // Binary
     // null terminated C string
     new TextEncoder().encode("Binary!\0"), "\x48Binary!\0",
@@ -79,6 +84,7 @@ function equalObject(a, b) {
  */
 function equal(a, b) {
     if (a === b) return true
+    if (isNaN(a) && isNaN(b)) return true
     if (ArrayBuffer.isView(a) && ArrayBuffer.isView(b)) {
         return equalBinary(
             new Uint8Array(a.buffer, a.byteOffset, a.byteLength),
@@ -112,6 +118,7 @@ for (let i = 0, l = tests.length; i < l; i += 2) {
     const encoded = encode(val)
     console.log("encoded ", encoded)
     if (!equalBinary(encoded, expected)) {
+        console.log(Buffer.from(encoded))
         throw new Error("Encoding mismatch")
     }
     const decoded = decode(encoded)

@@ -22,6 +22,16 @@ local cast = ffi.cast
 local istype = ffi.istype
 local metatype = ffi.metatype
 
+local converter = ffi.new "union {double f;uint64_t i;}"
+local function encode_float(val)
+    converter.f = val
+    return converter.i
+end
+local function decode_float(val)
+    converter.i = val
+    return converter.f
+end
+
 ffi.cdef[[struct NibsList { const uint8_t* first; const uint8_t* last; }]]
 ffi.cdef[[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
 
@@ -66,14 +76,22 @@ local function decode(ptr)
     elseif little == 1 then
         return -big, offset
     elseif little == 2 then
+        return decode_float(big), offset
+    elseif little == 3 then
         if big == 0 then
             return false, offset
         elseif big == 1 then
             return true, offset
         elseif big == 2 then
             return nil, offset
+        elseif big == 3 then
+            return 0/0, offset
+        elseif big == 4 then
+            return 1/0, offset
+        elseif big == 5 then
+            return -1/0, offset
         else
-            error("Unexpected nibs simple subtype: " .. big)
+            error("Unexpected nibs simple subtype: " .. tostring(big))
         end
     elseif little == 4 then
         local slice = Slice(big)
@@ -238,20 +256,32 @@ local function encode_map(map)
     return size + total, {head, body}
 end
 
+local Inf = 1/0
 
 ---@param val any
 function encode_any(val)
     local kind = type(val)
     if kind == "number" then
-        if val >= 0 then
-            return encode_pair(0, val)  -- Integer
+        if val ~= val then
+            return encode_pair(3,3) -- NaN
+        elseif val == Inf then
+            return encode_pair(3,4) -- Infinity
+        elseif val == -Inf then
+            return encode_pair(3,5) -- -Infinity
+        end
+        if val == math.floor(val) then
+            if val >= 0 then
+                return encode_pair(0, val)  -- Integer
+            else
+                return encode_pair(1, -val) -- Negative Integer
+            end
         else
-            return encode_pair(1, -val) -- Negative Integer
+            return encode_pair(2, encode_float(val)) -- Floating Point
         end
     elseif kind == "boolean" then
-        return encode_pair(2, val and 1 or 0) -- Simple true/false
+        return encode_pair(3, val and 1 or 0) -- Simple true/false
     elseif kind == "nil" then
-        return encode_pair(2, 2) -- Simple nil
+        return encode_pair(3, 2) -- Simple nil
     elseif kind == "cdata" then
         local len = sizeof(val)
         local size, head = encode_pair(4, len)
