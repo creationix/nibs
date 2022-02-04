@@ -33,20 +33,14 @@ enum Type {
     // Inline types.
     Integer         = 0, // big = num
     NegativeInteger = 1, // big = -num
-    Simple          = 2, // big = subtype
-    Ref             = 3, // big = referenceId
+    FloatingPoint   = 2, // big = binary encoding of float
+    Simple          = 3, // big = subtype
 
     // Prefixed length types.
     Bytes       = 4, // big = len
     String      = 5, // big = len
     List        = 6, // big = len
     Map         = 7, // big = len
-    IndexedList = 8, // big = len
-    IndexedMap  = 9, // big = len
-
-    // Recursive type.
-    Tag = 15, // big = customTag
-
 };
 ```
 
@@ -56,9 +50,12 @@ The simple type has it's own subtype enum:
 
 ```c++
 enum SubType {
-    False = 0,
-    True  = 1,
-    Nil   = 2,
+    False     = 0,
+    True      = 1,
+    Nil       = 2,
+    NaN       = 3,
+    Infinity  = 4,
+    -Infinity = 5,
 };
 ```
 
@@ -81,15 +78,11 @@ Integers outside the 64-bit range can be encoded using application-level tags.
 
 ### Floating Point Number
 
-There is no native encoding for these in the spec yet, but applications can encode them using application-level tags.
+Floating point numbers are stored as 64 bit IEEE floats cast to u64.
 
 ### Simple SubType
 
 Currently only `true`, `false`, and `nil` are specified and the rest of the range is reserved.  Use application-level tags for other values.
-
-### Ref
-
-Ref is used to reference cached values that are provided via some out of band mechanism.  For example a TCP stream using nibs values might also allow for caching/compressing nibs values by assigning then reference IDs.
 
 ### String
 
@@ -103,18 +96,10 @@ Decoders are free to interpret bad encodings as makes sense for their applicatio
 
 Byte arrays are for storing bulk binary octets.  To attach semantic meaning, prefix with application level tags.
 
-### List and IndexedList
+### List
 
 List payloads are encoded as zero or more nibs encoded values concatenated back to back.  The difference in the indexed variant is the payload is prefixed by a second nibs pair and a pointer array.
 
-TODO: document index format exactly.
-
-### Map and IndexedMap
+### Map
 
 Map payloads are encoded as zero or more nibs encoded key and value pairs concatenated back to back.  The difference in the indexed variant is the payload is prefixed by a second nibs pair and a pointer trie.
-
-TODO: document index format exactly.
-
-### Tags
-
-Tags allow applications to extend the format for their particular use case.  The format is to use other existing nibs types to encode their value (for example a Bytes value or a list or anything really) and then prefix it with a tag to assign it semantic meaning the application knows about.

@@ -19,10 +19,15 @@ local tests = {
     -42, "\x1c\x2a",
     -500, "\x1d\xf4\x01",
     -0xdeadbeef, "\x1e\xef\xbe\xad\xde",
+    -- Float
+    math.pi, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40",
     -- Simple
-    false, "\x20",
-    true, "\x21",
-    nil, "\x22",
+    false, "\x30",
+    true, "\x31",
+    nil, "\x32",
+    0/0, "\x33",
+    1/0, "\x34",
+    -1/0, "\x35",
     -- Binary
     -- null terminated C string
     ffi.new("const char*", "Binary!"), "\x48Binary!\0",
@@ -37,7 +42,7 @@ local tests = {
     -- map
     {name="Tim"},"\x79\x54name\x53Tim",
     {{[10]=100,[20]=50,[true]=false},{foo=true}},
-        "\x6c\x10\x79\x21\x20\x0a\x0c\x64\x0c\x14\x0c\x32\x75\x53\x66\x6f\x6f\x21",
+        "\x6c\x10\x79\x31\x30\x0a\x0c\x64\x0c\x14\x0c\x32\x75\x53\x66\x6f\x6f\x31",
 }
 
 local function dump_string(str)
@@ -49,7 +54,7 @@ local function dump_string(str)
 end
 
 local function equal(a,b)
-    if a == b then return true end
+    if ((a ~= a) and (b ~= b)) or a == b then return true end
     local kind = type(a)
     if kind == "cdata" and Nibs.is(a) then
         kind = "table"

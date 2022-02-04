@@ -42,7 +42,9 @@ function decodeAny(data, offset) {
             return big
         case 1: // NegInteger
             return -big
-        case 2: // Simple
+        case 2: // FloatingPoint
+            return decodeFloat(big)
+        case 3: // Simple
             switch (big) {
                 case 0: // false
                     return false
@@ -50,6 +52,12 @@ function decodeAny(data, offset) {
                     return true
                 case 2: // null
                     return null
+                case 3: // NaN
+                    return NaN
+                case 4: // Infinity
+                    return Infinity
+                case 5: // -Infinity
+                    return -Infinity
             }
             throw new Error("Unexpected nibs simple subtype: " + big)
         case 4: // Binary
@@ -192,10 +200,13 @@ function sizeAny(val) {
     const type = typeof val
     switch (type) {
         case "number":
+            if (val === Infinity || val === -Infinity || isNaN(val)) {
+                return 1
+            }
             if (val === Math.floor(val)) {
                 return sizePair(Math.abs(val))
             }
-            throw new Error("TODO: support floats")
+            return sizePair(encodeFloat(val))
         case "string":
             // TODO: see if there is a faster way to get this length.
             const len = (new TextEncoder().encode(val)).byteLength
@@ -225,6 +236,26 @@ export function encode(val) {
     return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
 }
 
+const converter = new DataView(new ArrayBuffer(8))
+
+/**
+ * @param {number} val
+ * @returns {BigInt}
+ */
+function encodeFloat(val) {
+    converter.setFloat64(0, val, true)
+    return converter.getBigUint64(0, true)
+}
+
+/**
+ * @param {BigInt} val
+ * @returns {number}
+ */
+function decodeFloat(val) {
+    converter.setBigUint64(0, val, true)
+    return converter.getFloat64(0, true)
+}
+
 /**
  * @param {DataView} data
  * @param {number} offset
@@ -235,6 +266,12 @@ function encodeAny(data, offset, val) {
     const type = typeof val
     switch (type) {
         case "number":
+            if (isNaN(val))
+                return encodePair(data, offset, 3, 3)
+            if (val === Infinity)
+                return encodePair(data, offset, 3, 4)
+            if (val === -Infinity)
+                return encodePair(data, offset, 3, 5)
             if (val === Math.floor(val)) {
                 if (val >= 0) {
                     return encodePair(data, offset, 0, val)
@@ -242,12 +279,12 @@ function encodeAny(data, offset, val) {
                     return encodePair(data, offset, 1, -val)
                 }
             }
-            throw new Error("TODO: support floats")
+            return encodePair(data, offset, 2, encodeFloat(val))
         case "boolean":
-            return encodePair(data, offset, 2, val ? 1 : 0)
+            return encodePair(data, offset, 3, val ? 1 : 0)
         case "object":
             if (val === null)
-                return encodePair(data, offset, 2, 2)
+                return encodePair(data, offset, 3, 2)
             if (ArrayBuffer.isView(val))
                 return encodeBinary(data, offset, val)
             if (Array.isArray(val))
@@ -346,7 +383,7 @@ function encodePair(data, offset, small, big) {
         offset += 4
     } else {
         data.setUint8(offset++, high | 15)
-        data.setBigUint64(offset, big, true)
+        data.setBigUint64(offset, BigInt(big), true)
         offset += 8
     }
     return offset
