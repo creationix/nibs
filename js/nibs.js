@@ -82,13 +82,13 @@ function decodeAny(data, offset) {
 function size(data, offset) {
     const h = decodePair(data, offset)
     const { little, big, len } = h
-    if (little < 4) {
+    if (little <= 4) {
         return len
     }
-    if (little < 15) {
-        return len + big
+    if (little <= 8) {
+        return len + Number(big)
     }
-    return len + size(data, offset + len)
+    throw new Error("Unknown nibs type: " + h.little)
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -154,7 +154,7 @@ function lazyList(buffer, byteOffset, byteLength) {
 
 /**
  * Calculate number of bytes needed to encode pair based on big value.
- * @param {number} big number to encode up to 64bits
+ * @param {number|bigint} big number to encode up to 64bits
  * @returns number of bytes needed
  */
 function sizePair(big) {
@@ -277,7 +277,7 @@ function decodeFloat(val) {
 }
 
 /**
- * @param {len:number} state
+ * @param {{len:number}} state
  * @param {any} val
  */
 function encodeAny(state, val) {
