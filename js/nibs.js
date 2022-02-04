@@ -57,9 +57,9 @@ function decodeAny(data, offset) {
         case 5: // String
             return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset + offset + len, big))
         case 6: // List
-            return new NibsList(data.buffer, data.byteOffset + offset + len, big)
+            return lazyList(data.buffer, data.byteOffset + offset + len, big)
         case 7: // Map
-            return new NibsMap(data.buffer, data.byteOffset + offset + len, big)
+            return lazyMap(data.buffer, data.byteOffset + offset + len, big)
     }
     throw new Error("Unexpected nibs type: " + little)
 }
@@ -85,106 +85,54 @@ function size(data, offset) {
 
 ///////////////////////////////////////////////////////////////////////////
 
-const nibsTag = Symbol("nibs")
-
-class NibsList extends Array {
-
-    /**
-     * @param {ArrayBuffer} buffer
-     * @param {number} byteOffset
-     * @param {number} byteLength
-     */
-    constructor(buffer, byteOffset, byteLength) {
-        const data = new DataView(buffer, byteOffset, byteLength)
-        let count = 0
-        let offset = 0
-        while (offset < data.byteLength) {
-            count++
-            offset += size(data, offset)
-        }
-        super(count)
-        this[nibsTag] = data
-        return new Proxy(this, NibsList.handler)
-    }
-
-    *[Symbol.iterator]() {
-        const data = this[nibsTag]
-        let offset = 0
-        while (offset < data.byteLength) {
-            yield decodeAny(data, offset)
-            offset += size(data, offset)
-        }
-    }
-}
-
-
-/**@type {ProxyHandler<NibsList>} */
-NibsList.handler = {
-    get(target, property, receiver) {
-        if (typeof property === "string") {
-            let index = +property
-            if (index === index | 0) {
-                const data = target[nibsTag]
-                let offset = 0
-                while (offset < data.byteLength) {
-                    if (index <= 0) {
-                        return decodeAny(data, offset)
-                    }
-                    offset += size(data, offset)
-                    index--
-                }
-            }
-        }
-        return Reflect.get(target, property, receiver)
-    }
-};
-
-///////////////////////////////////////////////////////////////////////////
-
-class NibsMap {
-    /**
-     * @param {ArrayBuffer} buffer
-     * @param {number} byteOffset
-     * @param {number} byteLength
-     */
-    constructor(buffer, byteOffset, byteLength) {
-        this[nibsTag] = new DataView(buffer, byteOffset, byteLength)
-        return new Proxy(this, NibsMap.handler)
-    }
-}
-
-
-/**@type {ProxyHandler<NibsMap>} */
-NibsMap.handler = {
-    get(target, property, receiver) {
-        const data = target[nibsTag]
-        let offset = 0
-        while (offset < data.byteLength) {
-            const key = decodeAny(data, offset)
-            offset += size(data, offset)
-            if (key == property) {
-                return decodeAny(data, offset)
-            }
-            offset += size(data, offset)
-        }
-    },
-    ownKeys(target) {
-        const keys = [];
-        const data = target[nibsTag]
-        let offset = 0
-        while (offset < data.byteLength) {
-            keys.push(decodeAny(data, offset))
-            offset += size(data, offset)
-            offset += size(data, offset)
-        }
-        return keys
-    },
-    getOwnPropertyDescriptor(target, property) {
-        return {
+/**
+ * @param {ArrayBuffer} buffer
+ * @param {number} byteOffset
+ * @param {number} byteLength
+ */
+function lazyMap(buffer, byteOffset, byteLength) {
+    const data = new DataView(buffer, byteOffset, byteLength)
+    let offset = 0
+    const obj = {}
+    while (offset < data.byteLength) {
+        const key = decodeAny(data, offset)
+        offset += size(data, offset)
+        const current = offset
+        Object.defineProperty(obj, key, {
+            get() {
+                return decodeAny(data, current)
+            },
             enumerable: true,
             configurable: true,
-        }
+        })
+        offset += size(data, offset)
     }
+    return obj
+}
+
+/**
+ * @param {ArrayBuffer} buffer
+ * @param {number} byteOffset
+ * @param {number} byteLength
+ */
+function lazyList(buffer, byteOffset, byteLength) {
+    const data = new DataView(buffer, byteOffset, byteLength)
+    let offset = 0
+    const arr = []
+    let i = 0
+    while (offset < data.byteLength) {
+        const current = offset
+        Object.defineProperty(arr, i++, {
+            get() {
+                return decodeAny(data, current)
+            },
+            enumerable: true,
+            configurable: true,
+        })
+        offset += size(data, offset)
+    }
+    arr.length = i
+    return arr
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -234,34 +182,26 @@ function sizeObject(map) {
  * @returns number of bytes needed
  */
 function sizeAny(val) {
-    const type = Object.prototype.toString.call(val)
+    const type = typeof val
     switch (type) {
-        case "[object Number]":
+        case "number":
             if (val === Math.floor(val)) {
                 return sizePair(Math.abs(val))
             }
             throw new Error("TODO: support floats")
-        case "[object Boolean]":
-        case "[object Null]":
-            return 1
-        case "[object String]": {
+        case "string":
             // TODO: see if there is a faster way to get this length.
             const len = (new TextEncoder().encode(val)).byteLength
             return sizePair(len) + len
-        }
-        case "[object Uint8Array]":
-        case "[object Uint8Array]":
-        case "[object Uint16Array]":
-        case "[object Uint32Array]":
-        case "[object Int8Array]":
-        case "[object Int16Array]":
-        case "[object Int32Array]":
-        case "[object Float32Array]":
-        case "[object Float64Array]":
-            return sizePair(val.byteLength) + val.byteLength
-        case "[object Array]":
-            return sizeArray(val)
-        case "[object Object]":
+        case "boolean":
+            return 1
+        case "object":
+            if (val === null)
+                return 1
+            if (ArrayBuffer.isView(val))
+                return sizePair(val.byteLength) + val.byteLength
+            if (Array.isArray(val))
+                return sizeArray(val)
             return sizeObject(val)
     }
     throw new TypeError("Unsupported type " + type)
@@ -285,9 +225,9 @@ export function encode(val) {
  * @returns {number}
  */
 function encodeAny(data, offset, val) {
-    const type = Object.prototype.toString.call(val)
+    const type = typeof val
     switch (type) {
-        case "[object Number]":
+        case "number":
             if (val === Math.floor(val)) {
                 if (val >= 0) {
                     return encodePair(data, offset, 0, val)
@@ -296,25 +236,18 @@ function encodeAny(data, offset, val) {
                 }
             }
             throw new Error("TODO: support floats")
-        case "[object Boolean]":
+        case "boolean":
             return encodePair(data, offset, 2, val ? 1 : 0)
-        case "[object Null]":
-            return encodePair(data, offset, 2, 2)
-        case "[object Uint8Array]":
-        case "[object Uint16Array]":
-        case "[object Uint32Array]":
-        case "[object Int8Array]":
-        case "[object Int16Array]":
-        case "[object Int32Array]":
-        case "[object Float32Array]":
-        case "[object Float64Array]":
-            return encodeBinary(data, offset, val)
-        case "[object String]":
-            return encodeString(data, offset, val)
-        case "[object Array]":
-            return encodeArray(data, offset, val)
-        case "[object Object]":
+        case "object":
+            if (val === null)
+                return encodePair(data, offset, 2, 2)
+            if (ArrayBuffer.isView(val))
+                return encodeBinary(data, offset, val)
+            if (Array.isArray(val))
+                return encodeArray(data, offset, val)
             return encodeObject(data, offset, val)
+        case "string":
+            return encodeString(data, offset, val)
     }
     throw new TypeError("Unsupported type " + type)
 }
