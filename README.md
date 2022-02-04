@@ -66,15 +66,13 @@ Some examples:
 - `42` -> `Integer(42)` -> `0000 1100 00101010`
 - `true` -> `Simple(1)` -> `0011 0001`
 
-Note that it is possible to skip over any value by only reading the initial nibs pair except for `Tag(n)` where you have to recurse to the next value to know the full length.
+Note that it is possible to skip over any value by only reading the initial nibs pair.
 
 ### Integer and NegativeInteger
 
 Encoders should use `Integer(0)` when encoding zero unless the application/language has both positive and negative zero.
 
 Decoders should decode `NegativeInteger(0)` the same as `Integer(0)` unless the application/language has both values.
-
-Integers outside the 64-bit range can be encoded using application-level tags.
 
 ### Floating Point Number
 
@@ -94,12 +92,12 @@ Decoders are free to interpret bad encodings as makes sense for their applicatio
 
 ### Bytes
 
-Byte arrays are for storing bulk binary octets.  To attach semantic meaning, prefix with application level tags.
+Byte arrays are for storing bulk binary octets.
 
 ### List
 
-List payloads are encoded as zero or more nibs encoded values concatenated back to back.  The difference in the indexed variant is the payload is prefixed by a second nibs pair and a pointer array.
+List payloads are encoded as zero or more nibs encoded values concatenated back to back.
 
 ### Map
 
-Map payloads are encoded as zero or more nibs encoded key and value pairs concatenated back to back.  The difference in the indexed variant is the payload is prefixed by a second nibs pair and a pointer trie.
+Map payloads are encoded as zero or more nibs encoded key and value pairs concatenated back to back.
