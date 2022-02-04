@@ -46,6 +46,36 @@ local U64Box = ffi.typeof "uint64_t[1]"
 local StructNibsList = ffi.typeof "struct NibsList"
 local StructNibsMap = ffi.typeof "struct NibsMap"
 
+local int_types = {
+    ffi.typeof "uint8_t",
+    ffi.typeof "uint16_t",
+    ffi.typeof "uint32_t",
+    ffi.typeof "uint64_t",
+    ffi.typeof "int8_t",
+    ffi.typeof "int16_t",
+    ffi.typeof "int32_t",
+    ffi.typeof "int64_t",
+}
+
+local float_types = {
+    ffi.typeof "float",
+    ffi.typeof "double",
+}
+
+local function is_int_type(val)
+    for _, typ in ipairs(int_types) do
+        if istype(typ,val) then return true end
+    end
+    return false
+end
+
+local function is_float_type(val)
+    for _, typ in ipairs(float_types) do
+        if istype(typ,val) then return true end
+    end
+    return false
+end
+
 local insert = table.insert
 
 local NibsList = {}
@@ -283,6 +313,15 @@ function encode_any(val)
     elseif kind == "nil" then
         return encode_pair(3, 2) -- Simple nil
     elseif kind == "cdata" then
+        if is_int_type(val) then
+            if val >= 0 then
+                return encode_pair(0, val)  -- Integer
+            else
+                return encode_pair(1, -val) -- Negative Integer
+            end
+        elseif is_float_type(val) then
+            return encode_pair(2, encode_float(val)) -- Floating Point
+        end
         local len = sizeof(val)
         local size, head = encode_pair(4, len)
         return size + len, {head, val}
