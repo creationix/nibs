@@ -21,11 +21,11 @@ function decodePair(data, offset) {
         case 0xc:
             return { little, big: data.getUint8(offset), len: 2 }
         case 0xd:
-            return { little, big: data.getUint16(offset), len: 3 }
+            return { little, big: data.getUint16(offset, true), len: 3 }
         case 0xe:
-            return { little, big: data.getUint32(offset), len: 5 }
+            return { little, big: data.getUint32(offset, true), len: 5 }
         case 0xf:
-            return { little, big: data.getBigUint64(offset), len: 9 }
+            return { little, big: data.getBigUint64(offset, true), len: 9 }
     }
     return { little, big, len: 1 }
 }
@@ -95,8 +95,15 @@ class NibsList extends Array {
      * @param {number} byteLength
      */
     constructor(buffer, byteOffset, byteLength) {
-        super(0)
-        this[nibsTag] = new DataView(buffer, byteOffset, byteLength)
+        const data = new DataView(buffer, byteOffset, byteLength)
+        let count = 0
+        let offset = 0
+        while (offset < data.byteLength) {
+            count++
+            offset += size(data, offset)
+        }
+        super(count)
+        this[nibsTag] = data
         return new Proxy(this, NibsList.handler)
     }
 
@@ -108,16 +115,6 @@ class NibsList extends Array {
             offset += size(data, offset)
         }
     }
-    // get length() {
-    //     const data = this[nibsTag]
-    //     let count = 0
-    //     let offset = 0
-    //     while (offset < data.byteLength) {
-    //         count++
-    //         offset += size(data, offset)
-    //     }
-    //     return count
-    // }
 }
 
 
@@ -126,7 +123,7 @@ NibsList.handler = {
     get(target, property, receiver) {
         console.log("GET", { property })
         if (typeof property === "string") {
-            const index = +property
+            let index = +property
             if (index === index | 0) {
                 const data = target[nibsTag]
                 let offset = 0
@@ -253,9 +250,16 @@ function sizeAny(val) {
             const len = (new TextEncoder().encode(val)).byteLength
             return sizePair(len) + len
         }
-        case "[object Uint8Array]": {
+        case "[object Uint8Array]":
+        case "[object Uint8Array]":
+        case "[object Uint16Array]":
+        case "[object Uint32Array]":
+        case "[object Int8Array]":
+        case "[object Int16Array]":
+        case "[object Int32Array]":
+        case "[object Float32Array]":
+        case "[object Float64Array]":
             return sizePair(val.byteLength) + val.byteLength
-        }
         case "[object Array]":
             return sizeArray(val)
         case "[object Object]":
@@ -298,7 +302,14 @@ function encodeAny(data, offset, val) {
         case "[object Null]":
             return encodePair(data, offset, 2, 2)
         case "[object Uint8Array]":
-            return encodeUint8Array(data, offset, val)
+        case "[object Uint16Array]":
+        case "[object Uint32Array]":
+        case "[object Int8Array]":
+        case "[object Int16Array]":
+        case "[object Int32Array]":
+        case "[object Float32Array]":
+        case "[object Float64Array]":
+            return encodeBinary(data, offset, val)
         case "[object String]":
             return encodeString(data, offset, val)
         case "[object Array]":
@@ -316,20 +327,21 @@ function encodeAny(data, offset, val) {
  * @returns {number}
  */
 function encodeString(data, offset, str) {
-    return encodeUint8Array(data, offset, new TextEncoder().encode(str), 6)
+    return encodeBinary(data, offset, new TextEncoder().encode(str), 5)
 }
 
 /**
  * @param {DataView} data
  * @param {number} offset
- * @param {Uint8Array} buf
+ * @param {ArrayBufferView} buf
  * @param {number} small?
  * @returns {number}
  */
-function encodeUint8Array(data, offset, buf, small = 5) {
+function encodeBinary(data, offset, buf, small = 4) {
     offset = encodePair(data, offset, small, buf.byteLength)
     const target = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-    target.set(buf, offset)
+    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    target.set(bytes, offset)
     return offset + buf.byteLength
 }
 
@@ -340,7 +352,11 @@ function encodeUint8Array(data, offset, buf, small = 5) {
  * @returns {number}
  */
 function encodeArray(data, offset, list) {
-    offset = encodePair(data, offset, 6, sizeArray(list))
+    let len = 0
+    for (const item of list) {
+        len += sizeAny(item)
+    }
+    offset = encodePair(data, offset, 6, len)
     for (const item of list) {
         offset = encodeAny(data, offset, item)
     }
@@ -354,7 +370,12 @@ function encodeArray(data, offset, list) {
  * @returns {number}
  */
 function encodeObject(data, offset, map) {
-    offset = encodePair(data, offset, 7, sizeObject(map))
+    let len = 0
+    for (const key in map) {
+        len += sizeAny(key)
+        len += sizeAny(map[key])
+    }
+    offset = encodePair(data, offset, 7, len)
     for (const key in map) {
         offset = encodeAny(data, offset, key)
         offset = encodeAny(data, offset, map[key])
@@ -378,15 +399,15 @@ function encodePair(data, offset, small, big) {
         data.setUint8(offset++, big)
     } else if (big < 0x10000) {
         data.setUint8(offset++, high | 13)
-        data.setUint16(offset, big)
+        data.setUint16(offset, big, true)
         offset += 2
     } else if (big < 0x100000000) {
         data.setUint8(offset++, high | 14)
-        data.setUint32(offset, big)
+        data.setUint32(offset, big, true)
         offset += 4
     } else {
         data.setUint8(offset++, high | 15)
-        data.setBigUint64(offset, big)
+        data.setBigUint64(offset, big, true)
         offset += 8
     }
     return offset
