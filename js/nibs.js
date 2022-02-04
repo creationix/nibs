@@ -121,7 +121,6 @@ class NibsList extends Array {
 /**@type {ProxyHandler<NibsList>} */
 NibsList.handler = {
     get(target, property, receiver) {
-        console.log("GET", { property })
         if (typeof property === "string") {
             let index = +property
             if (index === index | 0) {
