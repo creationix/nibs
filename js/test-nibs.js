@@ -7,11 +7,13 @@ const tests = [
     [42, "\x0c\x2a"],
     [500, "\x0d\xf4\x01"],
     [0xdeadbeef, "\x0e\xef\xbe\xad\xde"],
+    [0x123456789abcdef0n, "\x0f\xf0\xde\xbc\x9a\x78\x56\x34\x12"],
     // NegInt
     [-1, "\x11"],
     [-42, "\x1c\x2a"],
     [-500, "\x1d\xf4\x01"],
     [-0xdeadbeef, "\x1e\xef\xbe\xad\xde"],
+    [-0x123456789abcdef0n, "\x1f\xf0\xde\xbc\x9a\x78\x56\x34\x12"],
     // Float
     [Math.PI, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40"],
     // Simple
@@ -131,7 +133,9 @@ for (const [val, exp] of tests) {
     if (!equal(decoded, val)) {
         throw new Error("Decoding mismatch")
     }
-    if (ArrayBuffer.isView(val)) continue
+
+    // JSON can't encode binary of bigint, so skip json tests for those
+    if (ArrayBuffer.isView(val) || typeof val === "bigint") continue
     const json = JSON.stringify(val)
     console.log(json)
     const out = JSON.stringify(decoded)

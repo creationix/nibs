@@ -298,6 +298,12 @@ function encodeAny(state, val) {
                 }
             }
             return encodePair(state, 2, encodeFloat(val))
+        case "bigint":
+            if (val >= 0) {
+                return encodePair(state, 0, val)
+            } else {
+                return encodePair(state, 1, -val)
+            }
         case "boolean":
             return encodePair(state, 3, val ? 1 : 0)
         case "object":
