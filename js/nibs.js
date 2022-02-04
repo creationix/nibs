@@ -100,7 +100,9 @@ function lazyMap(buffer, byteOffset, byteLength) {
         const current = offset
         Object.defineProperty(obj, key, {
             get() {
-                return decodeAny(data, current)
+                const value = decodeAny(data, current)
+                Object.defineProperty(obj, key, { value })
+                return value
             },
             enumerable: true,
             configurable: true,
@@ -122,9 +124,14 @@ function lazyList(buffer, byteOffset, byteLength) {
     let i = 0
     while (offset < data.byteLength) {
         const current = offset
-        Object.defineProperty(arr, i++, {
+        const index = i++
+        Object.defineProperty(arr, index, {
             get() {
-                return decodeAny(data, current)
+                const value = decodeAny(data, current)
+                Object.defineProperty(arr, index, {
+                    value
+                })
+                return value
             },
             enumerable: true,
             configurable: true,

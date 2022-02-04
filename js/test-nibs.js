@@ -128,3 +128,18 @@ for (let i = 0, l = tests.length; i < l; i += 2) {
         throw new Error("JSON mismatch in decoded")
     }
 }
+
+const val = decode(encode([1, 2, [3, 4], 5, 6]))
+console.log(val)
+console.log(val[2])
+console.log(val)
+console.log(val[2][0])
+console.log(val)
+const val2 = decode(encode({ name: "Tim", colors: ["red", "blue", "orange", "green"] }))
+console.log(val2)
+console.log(val2.name)
+console.log(val2)
+console.log(val2.colors)
+console.log(val2)
+console.log(val2.colors[1])
+console.log(val2)
