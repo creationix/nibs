@@ -1,38 +1,39 @@
 import { decode, encode } from "./nibs.js"
 
+/** @type [any,string][] */
 const tests = [
     // Integer
-    1, "\x01",
-    42, "\x0c\x2a",
-    500, "\x0d\xf4\x01",
-    0xdeadbeef, "\x0e\xef\xbe\xad\xde",
+    [1, "\x01"],
+    [42, "\x0c\x2a"],
+    [500, "\x0d\xf4\x01"],
+    [0xdeadbeef, "\x0e\xef\xbe\xad\xde"],
     // NegInt
-    -1, "\x11",
-    -42, "\x1c\x2a",
-    -500, "\x1d\xf4\x01",
-    -0xdeadbeef, "\x1e\xef\xbe\xad\xde",
+    [-1, "\x11"],
+    [-42, "\x1c\x2a"],
+    [-500, "\x1d\xf4\x01"],
+    [-0xdeadbeef, "\x1e\xef\xbe\xad\xde"],
     // Float
-    Math.PI, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    [Math.PI, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40"],
     // Simple
-    false, "\x30",
-    true, "\x31",
-    null, "\x32",
-    NaN, "\x33",
-    Infinity, "\x34",
-    -Infinity, "\x35",
+    [false, "\x30"],
+    [true, "\x31"],
+    [null, "\x32"],
+    [NaN, "\x33"],
+    [Infinity, "\x34"],
+    [-Infinity, "\x35"],
     // Binary
     // null terminated C string
-    new TextEncoder().encode("Binary!\0"), "\x48Binary!\0",
+    [new TextEncoder().encode("Binary!\0"), "\x48Binary!\0"],
     // C byte array
-    new Uint8Array([1, 2, 3]), "\x43\x01\x02\x03",
+    [new Uint8Array([1, 2, 3]), "\x43\x01\x02\x03"],
     // C double array
-    new Float64Array([Math.PI]), "\x48\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    [new Float64Array([Math.PI]), "\x48\x18\x2d\x44\x54\xfb\x21\x09\x40"],
     // String
-    "Hello", "\x55Hello",
+    ["Hello", "\x55Hello"],
     // list
-    [1, 2, 3], "\x63\x01\x02\x03",
+    [[1, 2, 3], "\x63\x01\x02\x03"],
     // map
-    { name: "Tim" }, "\x79\x54name\x53Tim",
+    [{ name: "Tim" }, "\x79\x54name\x53Tim"],
 ]
 
 /**
@@ -108,12 +109,16 @@ function equal(a, b) {
 
 }
 
+/**
+ * @param {string} str
+ * @returns {Uint8Array}
+ */
 const tobin = str => new Uint8Array(str.split("").map(c => c.charCodeAt(0)))
 
-for (let i = 0, l = tests.length; i < l; i += 2) {
-    const val = tests[i]
+for (const [val, exp] of tests) {
+    console.log("\n\n")
     console.log("val", val)
-    const expected = tobin(tests[i + 1])
+    const expected = tobin(exp)
     console.log("expected", expected)
     const encoded = encode(val)
     console.log("encoded ", encoded)
@@ -136,12 +141,15 @@ for (let i = 0, l = tests.length; i < l; i += 2) {
     }
 }
 
+console.log("\n\n")
 const val = decode(encode([1, 2, [3, 4], 5, 6]))
 console.log(val)
 console.log(val[2])
 console.log(val)
 console.log(val[2][0])
 console.log(val)
+
+console.log("\n\n")
 const val2 = decode(encode({ name: "Tim", colors: ["red", "blue", "orange", "green"] }))
 console.log(val2)
 console.log(val2.name)
