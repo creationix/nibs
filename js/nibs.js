@@ -11,7 +11,7 @@ export function decode(input) {
 /**
  * @param {DataView} data
  * @param {number} offset
- * @returns {{little:number,big:number,len:number}}
+ * @returns {{little:number,big:number|bigint,len:number}}
  */
 function decodePair(data, offset) {
     const head = data.getUint8(offset++)
@@ -33,7 +33,7 @@ function decodePair(data, offset) {
 /**
  * @param {DataView} data
  * @param {number} offset
- * @returns {number|boolean|null|Uint8Array|string|NibsList|NibsMap}
+ * @returns {number|boolean|null|Uint8Array|string|array|object}
  */
 function decodeAny(data, offset) {
     const { little, big, len } = decodePair(data, offset)
@@ -43,7 +43,7 @@ function decodeAny(data, offset) {
         case 1: // NegInteger
             return -big
         case 2: // FloatingPoint
-            return decodeFloat(big)
+            return decodeFloat(BigInt(big))
         case 3: // Simple
             switch (big) {
                 case 0: // false
@@ -61,13 +61,13 @@ function decodeAny(data, offset) {
             }
             throw new Error("Unexpected nibs simple subtype: " + big)
         case 4: // Binary
-            return new Uint8Array(data.buffer, data.byteOffset + offset + len, big)
+            return new Uint8Array(data.buffer, data.byteOffset + offset + len, Number(big))
         case 5: // String
-            return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset + offset + len, big))
+            return new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset + offset + len, Number(big)))
         case 6: // List
-            return lazyList(data.buffer, data.byteOffset + offset + len, big)
+            return lazyList(data.buffer, data.byteOffset + offset + len, Number(big))
         case 7: // Map
-            return lazyMap(data.buffer, data.byteOffset + offset + len, big)
+            return lazyMap(data.buffer, data.byteOffset + offset + len, Number(big))
     }
     throw new Error("Unexpected nibs type: " + little)
 }
@@ -226,21 +226,41 @@ function sizeAny(val) {
 }
 
 export function encode(val) {
-    const len = sizeAny(val)
-    const data = new DataView(new ArrayBuffer(len))
-    const offset = encodeAny(data, 0, val)
-    if (offset !== len) {
-        console.log({ data, offset, len })
-        throw new Error("length mismatch when encoding")
+    const state = { len: 0 }
+    const parts = encodeAny(state, val)
+    const data = new DataView(new ArrayBuffer(state.len))
+    const buf = new Uint8Array(data.buffer)
+    let offset = 0;
+    write(parts)
+    /**
+     * @param {number|ArrayBuffer|ArrayBufferView|(number|ArrayBuffer|ArrayBufferView)[]} v
+     */
+    function write(v) {
+        if (typeof v === "number") {
+            data.setUint8(offset++, v)
+        } else if (Array.isArray(v)) {
+            for (const i of v) {
+                write(i)
+            }
+        } else if (v instanceof ArrayBuffer) {
+            buf.set(new Uint8Array(v), offset)
+            offset += v.byteLength
+        } else if (ArrayBuffer.isView(v)) {
+            const b = new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
+            buf.set(b, offset)
+            offset += v.byteLength
+        } else {
+            throw new TypeError("Unexpected data in results " + typeof v)
+        }
     }
-    return new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    return buf
 }
 
 const converter = new DataView(new ArrayBuffer(8))
 
 /**
  * @param {number} val
- * @returns {BigInt}
+ * @returns {bigint}
  */
 function encodeFloat(val) {
     converter.setFloat64(0, val, true)
@@ -248,7 +268,7 @@ function encodeFloat(val) {
 }
 
 /**
- * @param {BigInt} val
+ * @param {bigint} val
  * @returns {number}
  */
 function decodeFloat(val) {
@@ -257,134 +277,122 @@ function decodeFloat(val) {
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
- * @param {number} val
- * @returns {number}
+ * @param {len:number} state
+ * @param {any} val
  */
-function encodeAny(data, offset, val) {
+function encodeAny(state, val) {
     const type = typeof val
     switch (type) {
         case "number":
             if (isNaN(val))
-                return encodePair(data, offset, 3, 3)
+                return encodePair(state, 3, 3)
             if (val === Infinity)
-                return encodePair(data, offset, 3, 4)
+                return encodePair(state, 3, 4)
             if (val === -Infinity)
-                return encodePair(data, offset, 3, 5)
+                return encodePair(state, 3, 5)
             if (val === Math.floor(val)) {
                 if (val >= 0) {
-                    return encodePair(data, offset, 0, val)
+                    return encodePair(state, 0, val)
                 } else {
-                    return encodePair(data, offset, 1, -val)
+                    return encodePair(state, 1, -val)
                 }
             }
-            return encodePair(data, offset, 2, encodeFloat(val))
+            return encodePair(state, 2, encodeFloat(val))
         case "boolean":
-            return encodePair(data, offset, 3, val ? 1 : 0)
+            return encodePair(state, 3, val ? 1 : 0)
         case "object":
             if (val === null)
-                return encodePair(data, offset, 3, 2)
+                return encodePair(state, 3, 2)
             if (ArrayBuffer.isView(val))
-                return encodeBinary(data, offset, val)
+                return encodeBinary(state, val)
             if (Array.isArray(val))
-                return encodeArray(data, offset, val)
-            return encodeObject(data, offset, val)
+                return encodeArray(state, val)
+            return encodeObject(state, val)
         case "string":
-            return encodeString(data, offset, val)
+            return encodeString(state, val)
     }
     throw new TypeError("Unsupported type " + type)
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
+ * @param {{len:number}} state
  * @param {string} str
- * @returns {number}
  */
-function encodeString(data, offset, str) {
-    return encodeBinary(data, offset, new TextEncoder().encode(str), 5)
+function encodeString(state, str) {
+    return encodeBinary(state, new TextEncoder().encode(str), 5)
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
+ * @param {{len:number}} state
  * @param {ArrayBufferView} buf
  * @param {number} small?
- * @returns {number}
  */
-function encodeBinary(data, offset, buf, small = 4) {
-    offset = encodePair(data, offset, small, buf.byteLength)
-    const target = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
-    const bytes = new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
-    target.set(bytes, offset)
-    return offset + buf.byteLength
+function encodeBinary(state, buf, small = 4) {
+    state.len += buf.byteLength
+    return [
+        encodePair(state, small, buf.byteLength),
+        new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength)
+    ]
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
+ * @param {{len:number}} state
  * @param {any[]} list
- * @returns {number}
  */
-function encodeArray(data, offset, list) {
-    let len = 0
+function encodeArray(state, list) {
+    const start = state.len
+    const parts = []
     for (const item of list) {
-        len += sizeAny(item)
+        parts.push(encodeAny(state, item))
     }
-    offset = encodePair(data, offset, 6, len)
-    for (const item of list) {
-        offset = encodeAny(data, offset, item)
-    }
-    return offset
+    const len = state.len - start
+    parts.unshift(encodePair(state, 6, len))
+    return parts.flat()
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
+ * @param {{len:number}} state
  * @param {Record<string,any>} map
- * @returns {number}
  */
-function encodeObject(data, offset, map) {
-    let len = 0
+function encodeObject(state, map) {
+    const start = state.len
+    const parts = []
     for (const key in map) {
-        len += sizeAny(key)
-        len += sizeAny(map[key])
+        parts.push(encodeAny(state, key))
+        parts.push(encodeAny(state, map[key]))
     }
-    offset = encodePair(data, offset, 7, len)
-    for (const key in map) {
-        offset = encodeAny(data, offset, key)
-        offset = encodeAny(data, offset, map[key])
-    }
-    return offset
+    const len = state.len - start
+    parts.unshift(encodePair(state, 7, len))
+    return parts.flat()
 }
 
 /**
- * @param {DataView} data
- * @param {number} offset
+ * @param {{len:number}} state
  * @param {number} small u4 sized number to encode
- * @param {number} big up to u64 sized number to encode
- * @returns {number} new offset
+ * @param {number|bigint} big up to u64 sized number to encode
  */
-function encodePair(data, offset, small, big) {
+function encodePair(state, small, big) {
     const high = small << 4
     if (big < 0xc) {
-        data.setUint8(offset++, high | big)
+        state.len++
+        return high | Number(big)
     } else if (big < 0x100) {
-        data.setUint8(offset++, high | 12)
-        data.setUint8(offset++, big)
+        state.len += 2
+        return [high | 12, Number(big)]
     } else if (big < 0x10000) {
-        data.setUint8(offset++, high | 13)
-        data.setUint16(offset, big, true)
-        offset += 2
+        state.len += 3
+        const view = new DataView(new ArrayBuffer(2))
+        view.setUint16(0, Number(big), true)
+        return [high | 13, view.buffer]
     } else if (big < 0x100000000) {
-        data.setUint8(offset++, high | 14)
-        data.setUint32(offset, big, true)
-        offset += 4
+        state.len += 5
+        const view = new DataView(new ArrayBuffer(4))
+        view.setUint32(0, Number(big), true)
+        return [high | 14, view.buffer]
     } else {
-        data.setUint8(offset++, high | 15)
-        data.setBigUint64(offset, BigInt(big), true)
-        offset += 8
+        state.len += 9
+        const view = new DataView(new ArrayBuffer(8))
+        view.setBigUint64(0, BigInt(big), true)
+        return [high | 15, view.buffer]
     }
-    return offset
 }
