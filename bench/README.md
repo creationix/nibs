@@ -17,11 +17,12 @@ Nibs decoding is nearly instant and almost 6000x faster than JSON for this giant
 
 Part of what makes nibs decoding so fast is it's lazy and so you pay the cost when walking the resulting object. But thanks to the memoizing in JS, it's basically free for repeated values and same speed of decode for uncached values.
 
-- V8 Nibs Walk - 49,6812,275 walks per minute (0.12 μs each)
+- V8 Nibs Walk - 496,812,275 walks per minute (0.12 μs each)
+- Luvit Nibs Walk - 199,315 walks per minute
 
 ## Nibs Encoding
 
-Nibs is intended to be optimied for read-heavy workloads, but here are numbers for encodes:
+Nibs is intended to be optimized for read-heavy workloads, but here are numbers for encodes:
 
 - V8 `JSON.stringify` - 48.1 encodes per minute (1.2s each)
 - V8 `Nibs.encode` - 1.35 encodes per minute (44s each)
