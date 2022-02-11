@@ -10,11 +10,11 @@ However _"must"_ means that it is not considered spec compliant without said beh
 There are 5 possible encoding patterns depending on the size of the second number:
 
 ```js
-xxx 0yyyy // (0-15)
-xxx 10yyy yyyyyyyy // (16-2047)
-xxx 110yy yyyyyyyy yyyyyyyy // (2048-262143)
-xxx 1110y yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy // (262144-8589934591)
-xxx 11110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy // (8589934592-18446744073709551615)
+xxxx 0yyy // (0-7)
+xxxx 10yy yyyyyyyy // (8 - 1023)
+xxxx 110y yyyyyyyy yyyyyyyy yyyyyyyy // (1024 - 32M-1)
+xxxx 1110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy // (32M - 64P-1)
+xxxx 1111 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy // (64P - 16E-1)
 ```
 
 Here the `x`s are a `u3` and the `y`s are semantically a `u64` using zero extension on the smaller numbers.
@@ -30,33 +30,39 @@ For each encoded integer pair, the first small number is the type and the big nu
 ```c++
 enum Type {
 
-    // Inline types.
-    Integer        = 0, // big = zigzag num
-    FloatingPoint  = 1, // big = binary encoding of float
-    Ref            = 2, // big = reference id
-    Simple         = 3, // big = subtype
+    // Inline Types (no bytes followinf big)
+    Integer    = 0, // big = num
+    NegInteger = 1, // big = -num
+    Float      = 2, // big = double cast to u64 as num
+    Ref        = 3, // big = ref index
 
-    // Prefixed length types.
-    Bytes       = 4, // big = len
-    String      = 5, // big = len
-    List        = 6, // big = len
-    Map         = 7, // big = len
+    // Length delimtied types (big is byte count following big)
+    Binary     = 4, // big = length of byte array
+    String     = 5, // big = length of byte array
+    List       = 6, // big = length of byte array
+    Map        = 7, // big = length of byte array
+    Array      = 8, // big = length of byte array
+    Trie       = 9, // big = length of byte array
+
+    // 10,11,12 are reserved
+
+    // Irregular Types
+    Tag        = 13, // big = tag id, followed by exactly one value
+    Stream     = 14, // big = tag id, followed by 0-n values
+    End        = 15, // big = tag id or 0, marks end of stream
 };
-```
 
-Types 10-11 are reserved for future use.
-
-The simple type has it's own subtype enum:
-
-```c++
-enum SubType {
-    False     = 0,
-    True      = 1,
-    Nil       = 2,
-    NaN       = 3,
-    Infinity  = 4,
-    -Infinity = 5,
-};
+enum Ref {
+    // Builtin Refs
+    False = 0,
+    True = 1,
+    Nil = 2,
+    NaN = 3,
+    Infinity = 4,
+    NegInfinity = 5,
+    // 6 and 7 are reserved
+    // Application defined refs start at 8
+}
 ```
 
 Some examples:
