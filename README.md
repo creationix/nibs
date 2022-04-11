@@ -7,14 +7,14 @@ However *"must"* means that it is not considered spec compliant without said beh
 
 ## Integer Pair Encoding
 
-There are 5 possible encoding patterns depending on the size of the second number:
+There are 5 possible encoding patterns depending on the prefix of the second number:
 
 ```js
-xxxx yyyy
-xxxx 1100 yyyyyyyy
-xxxx 1101 yyyyyyyy yyyyyyyy
-xxxx 1110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
-xxxx 1111 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
+xxxx 0yyy (u3 0x8 values)
+xxxx 10yy yyyyyyyy (u10 0x400 values)
+xxxx 110y yyyyyyyy yyyyyyyy yyyyyyyy (u25 0x2000000 values)
+xxxx 1110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy (u56 0x1000000 values)
+xxxx 1111 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy (u64 0x100000000 values)
 ```
 
 Here the `x`s are a `u4` and the `y`s are semantically a `u64` using zero extension on the smaller numbers.
