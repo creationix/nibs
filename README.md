@@ -10,6 +10,12 @@ To enable this random access, all values are either inline (just the nibs pair) 
 
 Userspace types using the [proposed tags](https://github.com/creationix/nibs/issues/4) can enable O(1) misses and O(log n) hits for trees via userspace bloom filters and hash array mapped tries.
 
+## Self Documenting
+
+Nibs documents are similar to JSON in that the objects are self documenting (unlike protobuf that depends on implicit external schemas).  This works very well for dynamic programming environments like JavaScript and Lua or for replacing existing JSON workloads.
+
+But if a developer chooses to also have schemas, it's possible to encode values as a nibs `list` and then the code would know what each positional value it.
+
 ## Compact on the Wire
 
 Nibs tries to balance between compactness and simplicity and finds a nice middle ground.  Especially when combined with the [proposed `ref` type](https://github.com/creationix/nibs/issues/4) typical JSON payloads can be made considerably smaller.  Numbers are very compact, binary can be enbedded as-is without base64 or hex encoding, etc.
