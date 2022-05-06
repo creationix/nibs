@@ -20,6 +20,12 @@ One of the main goals of nibs vs existing formats is it aims to be simple implem
 
 Another goal is for the format itself to be simple to understand and think about.  The nibs-pair encoding is the same for all value types.  The types are grouped into similar behavior.  Anything complex is pushed out to userspace.
 
+## Superset of JSON
+
+Any value that can be encoded in JSON can also be encoded in nibs.  In this way it's similar to msgpack and cbor format, but it's much faster to read since it doesn't require parsing the whole document first.
+
+There is also a [proposal to add a textual representation that is a superset of JSON](https://github.com/creationix/nibs/issues/3).  This would make it even easier to integrate into systems that use JSON or need textual representations of data (like config files or documentation).
+
 # Format Specification 
 
 All multi-byte numbers in this spec are assumed to be little-endian.
