@@ -1,5 +1,27 @@
 # Nibs Serialization Format
 
+Nibs is a new binary serialization format with the following set of priorities:
+
+## Fast Random Access Reads
+
+This format is designed to be read in-place (similar to cap'n proto) so that arbitrarily large documents can be read with minimal memory or compute requirements.  For example a 1 TiB mega nibs document could be read from a virtual block device where blocks are fetched from the network on-demand and the initial latency to start walking the data structure would be nearly instant.  Large documents could also be written to local NVMe drives and loaded to RAM using memmap.
+
+To enable this random access, all values are either inline (just the nibs pair) or contain a prefix length so that a single indirection can jump to the next value.  Also some types like the [proposed `array` type](https://github.com/creationix/nibs/issues/4) enable O(1) lookup of arrays of any size.  Userspace types using the proposed tags can enable O(1) misses and O(log n) hits for trees.
+
+## Compact on the Wire
+
+Nibs tries to balance between compactness and simplicity and finds a nice middle ground.  Especially when combined with the [proposed `ref` type](https://github.com/creationix/nibs/issues/4), typical JSON payloads can be made considerably smaller.  Numbers are very compact, binary can be enbedded as-is without base64 or hex encoding, etc.
+
+## Simple to Implement
+
+One of the main goals of nibs vs existing formats is it aims to be simple implement.  It should be possible for a single developer with experience writing serilization libraries to have an initial working version very quickly so that new languages/tools can easily adopt it.  This also means that these libraries are likely to have no dependencies themselves keeping it lean.
+
+## Simple to Understand
+
+Another goal is for the format itself to be simple to understand and think about.  The nibs-pair encoding is the same for all value types.  The types are grouped into similar behavior.  Anything complex is pushed out to userspace.
+
+# Format Specification 
+
 All multi-byte numbers in this spec are assumed to be little-endian.
 
 In this document *"should"* means that an implementation is recommended to work this way.
