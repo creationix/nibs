@@ -16,6 +16,8 @@ Nibs tries to balance between compactness and simplicity and finds a nice middle
 
 One of the main goals of nibs vs existing formats is it aims to be simple implement.  It should be possible for a single developer with experience writing serilization libraries to have an initial working version very quickly so that new languages/tools can easily adopt it.  This also means that these libraries are likely to have no dependencies themselves keeping it lean.
 
+This is a much simpler format than pretty much any of the existing formats except for JSON.
+
 ## Simple to Understand
 
 Another goal is for the format itself to be simple to understand and think about.  The nibs-pair encoding is the same for all value types.  The types are grouped into similar behavior.  Anything complex is pushed out to userspace.
