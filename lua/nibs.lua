@@ -7,12 +7,12 @@
     license = "MIT"
     author = { name = "Tim Caswell" }
 ]]
-
 local bit = require 'bit'
 local rshift = bit.rshift
 local band = bit.band
 local lshift = bit.lshift
 local bor = bit.bor
+local bxor = bit.bxor
 
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
@@ -22,65 +22,99 @@ local cast = ffi.cast
 local istype = ffi.istype
 local metatype = ffi.metatype
 
-local converter = ffi.new "union {double f;uint64_t i;}"
-local function encode_float(val)
-    converter.f = val
-    return converter.i
-end
-local function decode_float(val)
-    converter.i = val
-    return converter.f
-end
+local insert = table.insert
 
-ffi.cdef[[struct NibsList { const uint8_t* first; const uint8_t* last; }]]
-ffi.cdef[[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
+local U8 = ffi.typeof 'uint8_t'
+local U16 = ffi.typeof 'uint16_t'
+local U32 = ffi.typeof 'uint32_t'
+local U64 = ffi.typeof 'uint64_t'
+local I8 = ffi.typeof 'int8_t'
+local I16 = ffi.typeof 'int16_t'
+local I32 = ffi.typeof 'int32_t'
+local I64 = ffi.typeof 'int64_t'
+local F32 = ffi.typeof 'float'
+local F64 = ffi.typeof 'double'
 
-local Slice = ffi.typeof "uint8_t[?]"
-local U8Ptr = ffi.typeof "uint8_t*"
-local U16Ptr = ffi.typeof "uint16_t*"
-local U32Ptr = ffi.typeof "uint32_t*"
-local U64Ptr = ffi.typeof "uint64_t*"
-local U16Box = ffi.typeof "uint16_t[1]"
-local U32Box = ffi.typeof "uint32_t[1]"
-local U64Box = ffi.typeof "uint64_t[1]"
-local StructNibsList = ffi.typeof "struct NibsList"
-local StructNibsMap = ffi.typeof "struct NibsMap"
+ffi.cdef [[struct NibsList { const uint8_t* first; const uint8_t* last; }]]
+ffi.cdef [[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
+local StructNibsList = ffi.typeof 'struct NibsList'
+local StructNibsMap = ffi.typeof 'struct NibsMap'
+local Slice = ffi.typeof 'uint8_t[?]'
 
-local int_types = {
-    ffi.typeof "uint8_t",
-    ffi.typeof "uint16_t",
-    ffi.typeof "uint32_t",
-    ffi.typeof "uint64_t",
-    ffi.typeof "int8_t",
-    ffi.typeof "int16_t",
-    ffi.typeof "int32_t",
-    ffi.typeof "int64_t",
-}
+local U8Ptr = ffi.typeof 'uint8_t*'
+local U16Ptr = ffi.typeof 'uint16_t*'
+local U32Ptr = ffi.typeof 'uint32_t*'
+local U64Ptr = ffi.typeof 'uint64_t*'
 
-local float_types = {
-    ffi.typeof "float",
-    ffi.typeof "double",
-}
+local U16Box = ffi.typeof 'uint16_t[1]'
+local U32Box = ffi.typeof 'uint32_t[1]'
+local U64Box = ffi.typeof 'uint64_t[1]'
+
+local int_types = { U8, U16, U32, U64, I8, I16, I32, I64 }
+local float_types = { F32, F64 }
 
 local function is_int_type(val)
     for _, typ in ipairs(int_types) do
-        if istype(typ,val) then return true end
+        if istype(typ, val) then return true end
     end
     return false
 end
 
 local function is_float_type(val)
     for _, typ in ipairs(float_types) do
-        if istype(typ,val) then return true end
+        if istype(typ, val) then return true end
     end
     return false
 end
 
-local insert = table.insert
+local converter = ffi.new 'union {double f;uint64_t i;}'
+local function encode_float(val)
+    converter.f = val
+    return converter.i
+end
+
+local function decode_float(val)
+    converter.i = val
+    return converter.f
+end
+
+local function decode_simple(big)
+    if big == 0 then
+        return false
+    elseif big == 1 then
+        return true
+    elseif big == 2 then
+        return nil
+    end
+end
+
+local function tonumberMaybe(n)
+    local nn = tonumber(n)
+    return nn == n and nn or n
+end
+
+---Convert a nibs big from zigzag to I64
+---@param big integer
+---@return integer
+local function decode_zigzag(big)
+    local i = I64(big)
+    return tonumberMaybe(bxor(rshift(i, 1), -band(i, 1)))
+end
+
+---@param num integer
+---@return integer
+local function encode_zigzag(num)
+    return num < 0 and num * -2 - 1 or num * 2
+end
 
 local NibsList = {}
 local NibsMap = {}
 
+---comment
+---@param ptr cdata
+---@return integer
+---@return integer
+---@return integer
 local function decode_pair(ptr)
     local head = ptr[0]
     local little = rshift(head, 4)
@@ -88,11 +122,11 @@ local function decode_pair(ptr)
     if big == 0xc then
         return 2, little, ptr[1]
     elseif big == 0xd then
-        return 3, little, cast(U16Ptr,ptr+1)[0]
+        return 3, little, cast(U16Ptr, ptr + 1)[0]
     elseif big == 0xe then
-        return 5, little, cast(U32Ptr,ptr+1)[0]
+        return 5, little, cast(U32Ptr, ptr + 1)[0]
     elseif big == 0xf then
-        return 9, little, cast(U64Ptr,ptr+1)[0]
+        return 9, little, cast(U64Ptr, ptr + 1)[0]
     else
         return 1, little, big
     end
@@ -102,27 +136,11 @@ local function decode(ptr)
     ptr = cast(U8Ptr, ptr)
     local offset, little, big = decode_pair(ptr)
     if little == 0 then
-        return big, offset
+        return decode_zigzag(big), offset
     elseif little == 1 then
-        return -big, offset
-    elseif little == 2 then
         return decode_float(big), offset
-    elseif little == 3 then
-        if big == 0 then
-            return false, offset
-        elseif big == 1 then
-            return true, offset
-        elseif big == 2 then
-            return nil, offset
-        elseif big == 3 then
-            return 0/0, offset
-        elseif big == 4 then
-            return 1/0, offset
-        elseif big == 5 then
-            return -1/0, offset
-        else
-            error("Unexpected nibs simple subtype: " .. tostring(big))
-        end
+    elseif little == 2 then
+        return decode_simple(big), offset
     elseif little == 4 then
         local slice = Slice(big)
         copy(slice, ptr + offset, big)
@@ -134,7 +152,7 @@ local function decode(ptr)
     elseif little == 7 then
         return NibsMap.new(ptr + offset, big), offset + big
     else
-        error("Unexpected nibs type: " .. little)
+        error('Unexpected nibs type: ' .. little)
     end
 end
 
@@ -145,13 +163,11 @@ local function skip(ptr)
     elseif little < 10 then
         return ptr + offset + big
     else
-        error("Unexpected nibs type: " .. little)
+        error('Unexpected nibs type: ' .. little)
     end
 end
 
-function NibsList.new(ptr, len)
-    return StructNibsList {ptr, ptr + len}
-end
+function NibsList.new(ptr, len) return StructNibsList { ptr, ptr + len } end
 
 function NibsList:__len()
     local current = self.first
@@ -167,9 +183,7 @@ function NibsList:__index(index)
     local current = self.first
     while current < self.last do
         index = index - 1
-        if index == 0 then
-            return decode(current)
-        end
+        if index == 0 then return decode(current) end
         current = skip(current)
     end
 end
@@ -177,7 +191,7 @@ end
 function NibsList:__ipairs()
     local current = self.first
     local i = 0
-    return function ()
+    return function()
         if current < self.last then
             local val, size = decode(current)
             current = current + size
@@ -190,21 +204,20 @@ end
 NibsList.__pairs = NibsList.__ipairs
 
 function NibsMap.new(ptr, len)
-    return setmetatable({ __nibs_ptr = ptr, __nibs_len = len }, NibsMap)
+    return setmetatable({
+        __nibs_ptr = ptr,
+        __nibs_len = len,
+    }, NibsMap)
 end
 
-function NibsMap.__len()
-    return 0
-end
+function NibsMap.__len() return 0 end
 
-function NibsMap.__ipairs()
-    return function () end
-end
+function NibsMap.__ipairs() return function() end end
 
 function NibsMap:__pairs()
     local current = self.__nibs_ptr
     local last = current + self.__nibs_len
-    return function ()
+    return function()
         if current >= last then return end
         local key, value, size
         key, size = decode(current)
@@ -224,9 +237,7 @@ function NibsMap:__index(index)
         current = current + size
         if current >= last then return end
 
-        if key == index then
-            return (decode(current))
-        end
+        if key == index then return (decode(current)) end
         current = skip(current)
     end
 end
@@ -234,15 +245,15 @@ end
 local function encode_pair(small, big)
     local pair = lshift(small, 4)
     if big < 0xc then
-        return 1, bor(pair, big)
+        return 1, tonumber(bor(pair, big))
     elseif big < 0x100 then
-        return 2, { bor(pair, 12), big }
+        return 2, { bor(pair, 12), tonumber(big) }
     elseif big < 0x10000 then
-        return 3, { bor(pair, 13), U16Box {big} }
-    elseif big < 0x100000000 then
-        return 5, { bor(pair, 14), U32Box {big} }
+        return 3, { bor(pair, 13), U16Box { big } }
+    elseif big < 0x100000000ULL then
+        return 5, { bor(pair, 14), U32Box { big } }
     else
-        return 9, { bor(pair, 15), U64Box {big} }
+        return 9, { bor(pair, 15), U64Box { big } }
     end
 end
 
@@ -268,7 +279,7 @@ local function encode_list(list)
         total = total + size
     end
     local size, head = encode_pair(6, total)
-    return size + total, {head, body}
+    return size + total, { head, body }
 end
 
 local function encode_map(map)
@@ -283,39 +294,31 @@ local function encode_map(map)
         total = total + size
     end
     local size, head = encode_pair(7, total)
-    return size + total, {head, body}
+    return size + total, { head, body }
 end
 
-local Inf = 1/0
+local Inf = 1 / 0
 
 ---@param val any
 function encode_any(val)
     local kind = type(val)
-    if kind == "number" then
-        if val ~= val then
-            return encode_pair(3,3) -- NaN
-        elseif val == Inf then
-            return encode_pair(3,4) -- Infinity
-        elseif val == -Inf then
-            return encode_pair(3,5) -- -Infinity
-        end
+    if is_int_type(val) then
+        return encode_pair(0, encode_zigzag(val))
+    end
+    if kind == 'number' then
         if val == math.floor(val) then
-            if val >= 0 then
-                return encode_pair(0, val)  -- Integer
-            else
-                return encode_pair(1, -val) -- Negative Integer
-            end
+            return encode_pair(0, encode_zigzag(val))
         else
             return encode_pair(2, encode_float(val)) -- Floating Point
         end
-    elseif kind == "boolean" then
+    elseif kind == 'boolean' then
         return encode_pair(3, val and 1 or 0) -- Simple true/false
-    elseif kind == "nil" then
+    elseif kind == 'nil' then
         return encode_pair(3, 2) -- Simple nil
-    elseif kind == "cdata" then
+    elseif kind == 'cdata' then
         if is_int_type(val) then
             if val >= 0 then
-                return encode_pair(0, val)  -- Integer
+                return encode_pair(0, val) -- Integer
             else
                 return encode_pair(1, -val) -- Negative Integer
             end
@@ -324,19 +327,19 @@ function encode_any(val)
         end
         local len = sizeof(val)
         local size, head = encode_pair(4, len)
-        return size + len, {head, val}
-    elseif kind == "string" then
+        return size + len, { head, val }
+    elseif kind == 'string' then
         local len = #val
         local size, head = encode_pair(5, len)
-        return size + len, {head, val}
-    elseif kind == "table" then
+        return size + len, { head, val }
+    elseif kind == 'table' then
         if is_list(val) then
             return encode_list(val)
         else
             return encode_map(val)
         end
     else
-        error("Unsupported value type: " .. kind)
+        error('Unsupported value type: ' .. kind)
     end
 end
 
@@ -346,22 +349,22 @@ local function encode(val)
     local buf = Slice(size)
     local function write(d)
         local kind = type(d)
-        if kind == "number" then
+        if kind == 'number' then
             buf[i] = d
             i = i + 1
-        elseif kind == "cdata" then
+        elseif kind == 'cdata' then
             local len = sizeof(d)
-            copy(buf+i, d, len)
+            copy(buf + i, d, len)
             i = i + len
-        elseif kind == "string" then
-            copy(buf+i,d)
+        elseif kind == 'string' then
+            copy(buf + i, d)
             i = i + #d
-        elseif kind == "table" then
-            for j = 1, #d do
-                write(d[j])
-            end
+        elseif kind == 'table' then
+            for j = 1, #d do write(d[j]) end
         end
     end
+
+    p(data)
     write(data)
     assert(size == i)
     return buf
@@ -371,11 +374,9 @@ metatype(StructNibsList, NibsList)
 metatype(StructNibsMap, NibsMap)
 
 --- Returns true if a value is a virtual nibs container.
-local function is(val)
-    return istype(StructNibsList, val)
-        or istype(StructNibsMap, val)
-end
+local function is(val) return istype(StructNibsList, val) or istype(StructNibsMap, val) end
 
+-- p(encode_zigzag(-1))
 return {
     encode = encode,
     decode = decode,
