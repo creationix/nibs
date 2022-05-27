@@ -7,6 +7,11 @@
     license = "MIT"
     author = { name = "Tim Caswell" }
 ]]
+
+local Ordered = require './ordered.lua'
+local OrderedMap = Ordered.OrderedMap
+local OrderedList = Ordered.OrderedList
+
 local bit = require 'bit'
 local rshift = bit.rshift
 local band = bit.band
@@ -169,7 +174,10 @@ end
 
 ---@type table
 ---@return boolean
-local function is_tuple(val)
+local function is_array_like(val)
+    local meta = getmetatable(val)
+    if meta == OrderedList then return true end
+    if meta == OrderedMap then return false end
     local i = 1
     for key in pairs(val) do
         if key ~= i then return false end
@@ -365,7 +373,7 @@ function Nibs.new()
             local size, head = encode_pair(STRING, len)
             return size + len, { head, val }
         elseif kind == 'table' then
-            if is_tuple(val) then
+            if is_array_like(val) then
                 return encode_tuple(val)
             else
                 return encode_map(val)

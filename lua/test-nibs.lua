@@ -9,6 +9,8 @@ local concat = table.concat
 local Nibs = require './nibs.lua'
 local nibs = Nibs.new()
 local Ordered = require './ordered.lua'
+local OrderedMap = Ordered.OrderedMap
+local OrderedList = Ordered.OrderedList
 
 local Zero = {id=0,name="Zero"}
 local One = {id=1,name="One"}
@@ -114,6 +116,7 @@ local tests = {
     Zero, "\x30",
     One, "\x31",
     Two, "\x32",
+    Three, "\x33",
 
     -- Binary
     -- null terminated C string
@@ -124,12 +127,14 @@ local tests = {
     ffi.new("double[1]", {math.pi}), "\x88\x18\x2d\x44\x54\xfb\x21\x09\x40",
     -- String
     "Hello", "\x95Hello",
-    -- list
+    -- Tuple
     {1,2,3}, "\xa3\x02\x04\x06",
-    -- map
+    OrderedList.new(), "\xa0",
+    -- Map
     {name="Tim"}, "\xb9\x94name\x93Tim",
-    -- Complex (uses Ordered constructor to preserve map order and nil value)
-    { Ordered.new(10,100,20,50,true,false), Ordered.new("foo",nil) },
+    OrderedMap.new(), "\xb0",
+    -- Complex (uses OrderedMap to preserve map order and nil value)
+    { OrderedMap.new(10,100,20,50,true,false), OrderedMap.new("foo",nil) },
         "\xac\x11" .. -- Tuple(17)
             "\xba" .. -- Map(10)
                 "\x0c\x14" .. -- Int(20) -> 10
