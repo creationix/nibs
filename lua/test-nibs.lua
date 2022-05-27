@@ -10,6 +10,15 @@ local Nibs = require './nibs.lua'
 local nibs = Nibs.new()
 local Ordered = require './ordered.lua'
 
+local Zero = {id=0,name="Zero"}
+local One = {id=1,name="One"}
+local Two = {id=2,name="Two"}
+local Three = "Three"
+nibs.registerRef(0, Zero)
+nibs.registerRef(1, One)
+nibs.registerRef(2, Two)
+nibs.registerRef(3, Three)
+
 local tests = {
     -- ZigZag Integer
     0, "\x00",
@@ -100,6 +109,11 @@ local tests = {
     false, "\x20",
     true, "\x21",
     nil, "\x22",
+
+    -- Ref
+    Zero, "\x30",
+    One, "\x31",
+    Two, "\x32",
 
     -- Binary
     -- null terminated C string
