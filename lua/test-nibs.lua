@@ -7,6 +7,7 @@ local byte = string.byte
 local concat = table.concat
 
 local Nibs = require './nibs.lua'
+local Ordered = require './ordered.lua'
 
 local tests = {
     -- ZigZag Integer
@@ -58,17 +59,13 @@ local tests = {
     0x10000000000001, "\x0f\x02\x00\x00\x00\x00\x00\x20\x00",
     0x100000000000001LL, "\x0f\x02\x00\x00\x00\x00\x00\x00\x02",
     0x1000000000000001LL, "\x0f\x02\x00\x00\x00\x00\x00\x00\x20",
-    -- -0x10, "",
-    -- -0x100, "",
-    -- -0x1000, "",
-    -- -0x10000, "",
-    -- 42, "\x0c\x54",
-    -- 500, "\x0d\xe8\x03",
-    -- 0xdedbeef, "\x0e\xde\x7d\xdb\x1b",
-    -- 0xdeadbeef, "\x0f\xde\x7d\x5b\xbd\x01\x00\x00\x00",
-    -- 0x20000000000000, "\x0f\x00\x00\x00\x00\x00\x00\x40\x00",
-    -- 0x123456789abcdef0LL, "\x0f\xf0\xde\xbc\x9a\x78\x56\x34\x12",
-    -- NegInt
+
+    42, "\x0c\x54",
+    500, "\x0d\xe8\x03",
+    0xdedbeef, "\x0e\xde\x7d\xdb\x1b",
+    0xdeadbeef, "\x0f\xde\x7d\x5b\xbd\x01\x00\x00\x00",
+    0x20000000000000, "\x0f\x00\x00\x00\x00\x00\x00\x40\x00",
+    0x123456789abcdef0LL, "\x0f\xe0\xbd\x79\x35\xf1\xac\x68\x24",
     -1, "\x01",
     -42, "\x0c\x53",
     -500, "\x0d\xe7\x03",
@@ -76,29 +73,40 @@ local tests = {
     -0xdeadbeef, "\x0f\xdd\x7d\x5b\xbd\x01\x00\x00\x00",
     -0x123456789abcdef0LL, "\x0f\xdf\xbd\x79\x35\xf1\xac\x68\x24",
     -- Float
-    math.pi, "\x2f\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    math.pi, "\x1f\x18\x2d\x44\x54\xfb\x21\x09\x40",
     -- Simple
-    false, "\x30",
-    true, "\x31",
-    nil, "\x32",
-    0/0, "\x33",
-    1/0, "\x34",
-    -1/0, "\x35",
+    false, "\x20",
+    true, "\x21",
+    nil, "\x22",
+    0/0, "\x1f\x00\x00\x00\x00\x00\x00\xf8\xff", -- luajit representation of NaN
+    1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\x7f", -- luajit representation of Inf
+    -1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\xff", -- luajit representation of -Inf
     -- Binary
     -- null terminated C string
-    ffi.new("const char*", "Binary!"), "\x48Binary!\0",
+    ffi.new("const char*", "Binary!"), "\x88Binary!\0",
     -- C byte array
-    ffi.new("uint8_t[3]", {1,2,3}), "\x43\x01\x02\x03",
+    ffi.new("uint8_t[3]", {1,2,3}), "\x83\x01\x02\x03",
     -- C double array
-    ffi.new("double[1]", {math.pi}), "\x48\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    ffi.new("double[1]", {math.pi}), "\x88\x18\x2d\x44\x54\xfb\x21\x09\x40",
     -- String
-    "Hello", "\x55Hello",
+    "Hello", "\x95Hello",
     -- list
-    {1,2,3}, "\x63\x01\x02\x03",
+    {1,2,3}, "\xa3\x02\x04\x06",
     -- map
-    {name="Tim"},"\x79\x54name\x53Tim",
-    {{[10]=100,[20]=50,[true]=false},{foo=true}},
-        "\x6c\x10\x79\x31\x30\x0a\x0c\x64\x0c\x14\x0c\x32\x75\x53\x66\x6f\x6f\x31",
+    {name="Tim"}, "\xb9\x94name\x93Tim",
+    -- Complex (uses Ordered constructor to preserve map order and nil value)
+    { Ordered.new(10,100,20,50,true,false), Ordered.new("foo",nil) },
+        "\xac\x11" .. -- Tuple(17)
+            "\xba" .. -- Map(10)
+                "\x0c\x14" .. -- Int(20) -> 10
+                "\x0c\xc8" .. -- Int(200) -> 100
+                "\x0c\x28" .. -- Int(40) -> 20
+                "\x0c\x64" .. -- Int(100) -> 50
+                "\x21" .. -- Simple(1) -> true
+                "\x20" .. -- Simple(0) -> false
+                "\xb5" .. -- Map(5)
+                "\x93foo" .. -- String(3) "foo"
+                "\x22", -- Simple(2) -> null
 }
 
 local function dump_string(str)

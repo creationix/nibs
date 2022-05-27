@@ -35,9 +35,9 @@ local I64 = ffi.typeof 'int64_t'
 local F32 = ffi.typeof 'float'
 local F64 = ffi.typeof 'double'
 
-ffi.cdef [[struct NibsList { const uint8_t* first; const uint8_t* last; }]]
+ffi.cdef [[struct NibsTuple { const uint8_t* first; const uint8_t* last; }]]
 ffi.cdef [[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
-local StructNibsList = ffi.typeof 'struct NibsList'
+local StructNibsTuple = ffi.typeof 'struct NibsTuple'
 local StructNibsMap = ffi.typeof 'struct NibsMap'
 local Slice = ffi.typeof 'uint8_t[?]'
 
@@ -52,6 +52,22 @@ local U64Box = ffi.typeof 'uint64_t[1]'
 
 local int_types = { U8, U16, U32, U64, I8, I16, I32, I64 }
 local float_types = { F32, F64 }
+
+-- Toplevel type tags
+local INT = 0
+local FLOAT = 1
+local SIMPLE = 2
+local REF = 3
+local TAG = 7
+local BYTE = 8
+local STRING = 9
+local TUPLE = 10
+local MAP = 11
+local ARRAY = 12
+-- Simple subtype tags
+local FALSE = 0
+local TRUE = 1
+local NULL = 2
 
 local function is_int_type(val)
     for _, typ in ipairs(int_types) do
@@ -79,13 +95,14 @@ local function decode_float(val)
 end
 
 local function decode_simple(big)
-    if big == 0 then
+    if big == FALSE then
         return false
-    elseif big == 1 then
+    elseif big == TRUE then
         return true
-    elseif big == 2 then
+    elseif big == NULL then
         return nil
     end
+    error(string.format("Invalid simple type %d", big))
 end
 
 local function tonumberMaybe(n)
@@ -107,7 +124,7 @@ local function encode_zigzag(num)
     return num < 0 and num * -2 - 1 or num * 2
 end
 
-local NibsList = {}
+local NibsTuple = {}
 local NibsMap = {}
 
 ---comment
@@ -135,21 +152,21 @@ end
 local function decode(ptr)
     ptr = cast(U8Ptr, ptr)
     local offset, little, big = decode_pair(ptr)
-    if little == 0 then
+    if little == INT then
         return decode_zigzag(big), offset
-    elseif little == 1 then
+    elseif little == FLOAT then
         return decode_float(big), offset
-    elseif little == 2 then
+    elseif little == SIMPLE then
         return decode_simple(big), offset
-    elseif little == 4 then
+    elseif little == BYTE then
         local slice = Slice(big)
         copy(slice, ptr + offset, big)
         return slice, offset + big
-    elseif little == 5 then
+    elseif little == STRING then
         return ffi_string(ptr + offset, big), offset + big
-    elseif little == 6 then
-        return NibsList.new(ptr + offset, big), offset + big
-    elseif little == 7 then
+    elseif little == TUPLE then
+        return NibsTuple.new(ptr + offset, big), offset + big
+    elseif little == MAP then
         return NibsMap.new(ptr + offset, big), offset + big
     else
         error('Unexpected nibs type: ' .. little)
@@ -158,18 +175,20 @@ end
 
 local function skip(ptr)
     local offset, little, big = decode_pair(ptr)
-    if little <= 4 then
+    if little <= 5 then -- skip pair for small types
         return ptr + offset
-    elseif little < 10 then
+    elseif little >= 8 then -- skip body for big types
         return ptr + offset + big
-    else
+    elseif little == TAG then -- recurse for tags
+        return skip(ptr + offset)
+    else -- error for unknown types
         error('Unexpected nibs type: ' .. little)
     end
 end
 
-function NibsList.new(ptr, len) return StructNibsList { ptr, ptr + len } end
+function NibsTuple.new(ptr, len) return StructNibsTuple { ptr, ptr + len } end
 
-function NibsList:__len()
+function NibsTuple:__len()
     local current = self.first
     local count = 0
     while current < self.last do
@@ -179,7 +198,7 @@ function NibsList:__len()
     return count
 end
 
-function NibsList:__index(index)
+function NibsTuple:__index(index)
     local current = self.first
     while current < self.last do
         index = index - 1
@@ -188,7 +207,7 @@ function NibsList:__index(index)
     end
 end
 
-function NibsList:__ipairs()
+function NibsTuple:__ipairs()
     local current = self.first
     local i = 0
     return function()
@@ -201,7 +220,7 @@ function NibsList:__ipairs()
     end
 end
 
-NibsList.__pairs = NibsList.__ipairs
+NibsTuple.__pairs = NibsTuple.__ipairs
 
 function NibsMap.new(ptr, len)
     return setmetatable({
@@ -259,7 +278,7 @@ end
 
 ---@type table
 ---@return boolean
-local function is_list(val)
+local function is_tuple(val)
     local i = 1
     for key in pairs(val) do
         if key ~= i then return false end
@@ -270,15 +289,15 @@ end
 
 local encode_any
 
-local function encode_list(list)
+local function encode_tuple(tuple)
     local total = 0
     local body = {}
-    for i = 1, #list do
-        local size, entry = encode_any(list[i])
+    for i = 1, #tuple do
+        local size, entry = encode_any(tuple[i])
         insert(body, entry)
         total = total + size
     end
-    local size, head = encode_pair(6, total)
+    local size, head = encode_pair(TUPLE, total)
     return size + total, { head, body }
 end
 
@@ -293,48 +312,42 @@ local function encode_map(map)
         insert(body, entry)
         total = total + size
     end
-    local size, head = encode_pair(7, total)
+    local size, head = encode_pair(MAP, total)
     return size + total, { head, body }
 end
-
-local Inf = 1 / 0
 
 ---@param val any
 function encode_any(val)
     local kind = type(val)
     if is_int_type(val) then
-        return encode_pair(0, encode_zigzag(val))
+        return encode_pair(INT, encode_zigzag(val))
     end
     if kind == 'number' then
-        if val == math.floor(val) then
-            return encode_pair(0, encode_zigzag(val))
+        if val % 1 == 0 then
+            return encode_pair(INT, encode_zigzag(val))
         else
-            return encode_pair(2, encode_float(val)) -- Floating Point
+            return encode_pair(FLOAT, encode_float(val)) -- Floating Point
         end
     elseif kind == 'boolean' then
-        return encode_pair(3, val and 1 or 0) -- Simple true/false
+        return encode_pair(SIMPLE, val and TRUE or FALSE) -- Simple true/false
     elseif kind == 'nil' then
-        return encode_pair(3, 2) -- Simple nil
+        return encode_pair(SIMPLE, NULL) -- Simple nil
     elseif kind == 'cdata' then
         if is_int_type(val) then
-            if val >= 0 then
-                return encode_pair(0, val) -- Integer
-            else
-                return encode_pair(1, -val) -- Negative Integer
-            end
+            return encode_pair(INT, encode_zigzag(val)) -- Integer
         elseif is_float_type(val) then
-            return encode_pair(2, encode_float(val)) -- Floating Point
+            return encode_pair(FLOAT, encode_float(val)) -- Floating Point
         end
         local len = sizeof(val)
-        local size, head = encode_pair(4, len)
+        local size, head = encode_pair(BYTE, len)
         return size + len, { head, val }
     elseif kind == 'string' then
         local len = #val
-        local size, head = encode_pair(5, len)
+        local size, head = encode_pair(STRING, len)
         return size + len, { head, val }
     elseif kind == 'table' then
-        if is_list(val) then
-            return encode_list(val)
+        if is_tuple(val) then
+            return encode_tuple(val)
         else
             return encode_map(val)
         end
@@ -364,17 +377,16 @@ local function encode(val)
         end
     end
 
-    p(data)
     write(data)
     assert(size == i)
     return buf
 end
 
-metatype(StructNibsList, NibsList)
+metatype(StructNibsTuple, NibsTuple)
 metatype(StructNibsMap, NibsMap)
 
 --- Returns true if a value is a virtual nibs container.
-local function is(val) return istype(StructNibsList, val) or istype(StructNibsMap, val) end
+local function is(val) return istype(StructNibsTuple, val) or istype(StructNibsMap, val) end
 
 -- p(encode_zigzag(-1))
 return {
