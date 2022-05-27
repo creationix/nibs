@@ -7,6 +7,7 @@ local byte = string.byte
 local concat = table.concat
 
 local Nibs = require './nibs.lua'
+local nibs = Nibs.new()
 local Ordered = require './ordered.lua'
 
 local tests = {
@@ -59,7 +60,6 @@ local tests = {
     0x10000000000001, "\x0f\x02\x00\x00\x00\x00\x00\x20\x00",
     0x100000000000001LL, "\x0f\x02\x00\x00\x00\x00\x00\x00\x02",
     0x1000000000000001LL, "\x0f\x02\x00\x00\x00\x00\x00\x00\x20",
-
     42, "\x0c\x54",
     500, "\x0d\xe8\x03",
     0xdedbeef, "\x0e\xde\x7d\xdb\x1b",
@@ -72,15 +72,35 @@ local tests = {
     -0xdedbeef, "\x0e\xdd\x7d\xdb\x1b",
     -0xdeadbeef, "\x0f\xdd\x7d\x5b\xbd\x01\x00\x00\x00",
     -0x123456789abcdef0LL, "\x0f\xdf\xbd\x79\x35\xf1\xac\x68\x24",
+    -- Luajit version also treats cdata integers as integers
+    ffi.new("uint8_t", 42), "\x0c\x54",
+    ffi.new("int8_t", 42), "\x0c\x54",
+    ffi.new("int8_t", -42), "\x0c\x53",
+    ffi.new("uint16_t", 42), "\x0c\x54",
+    ffi.new("int16_t", 42), "\x0c\x54",
+    ffi.new("int16_t", -42), "\x0c\x53",
+    ffi.new("uint32_t", 42), "\x0c\x54",
+    ffi.new("int32_t", 42), "\x0c\x54",
+    ffi.new("int32_t", -42), "\x0c\x53",
+    ffi.new("uint64_t", 42), "\x0c\x54",
+    ffi.new("int64_t", 42), "\x0c\x54",
+    ffi.new("int64_t", -42), "\x0c\x53",
+
     -- Float
     math.pi, "\x1f\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    0/0, "\x1f\x00\x00\x00\x00\x00\x00\xf8\xff", -- luajit representation of NaN
+    1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\x7f", -- luajit representation of Inf
+    -1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\xff", -- luajit representation of -Inf
+    ffi.new("double", math.pi), "\x1f\x18\x2d\x44\x54\xfb\x21\x09\x40",
+    ffi.new("double", -math.pi), "\x1f\x18\x2d\x44\x54\xfb\x21\x09\xc0",
+    ffi.new("float", math.pi), "\x1f\x00\x00\x00\x60\xfb\x21\x09\x40",
+    ffi.new("float", -math.pi), "\x1f\x00\x00\x00\x60\xfb\x21\x09\xc0",
+
     -- Simple
     false, "\x20",
     true, "\x21",
     nil, "\x22",
-    0/0, "\x1f\x00\x00\x00\x00\x00\x00\xf8\xff", -- luajit representation of NaN
-    1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\x7f", -- luajit representation of Inf
-    -1/0, "\x1f\x00\x00\x00\x00\x00\x00\xf0\xff", -- luajit representation of -Inf
+
     -- Binary
     -- null terminated C string
     ffi.new("const char*", "Binary!"), "\x88Binary!\0",
@@ -120,11 +140,11 @@ end
 local function equal(a,b)
     if ((a ~= a) and (b ~= b)) or a == b then return true end
     local kind = type(a)
-    if kind == "cdata" and Nibs.is(a) then
+    if kind == "cdata" and nibs.is(a) then
         kind = "table"
     end
     local kindb = type(b)
-    if kindb == "cdata" and Nibs.is(b) then
+    if kindb == "cdata" and nibs.is(b) then
         kindb = "table"
     end
     if kind ~= kindb then return false end
@@ -159,12 +179,12 @@ for i = 1, #tests, 2 do
     local input = tests[i]
     p("input", input)
     local expected = tests[i+1]
-    local buf = Nibs.encode(input)
+    local buf = nibs.encode(input)
     local str = ffi.string(buf, sizeof(buf))
     print("'expected'\t" .. dump_string(expected))
     print("'actual'\t" .. dump_string(str))
     assert(ffi.string(buf, sizeof(buf)) == expected)
-    local decoded = Nibs.decode(buf)
+    local decoded = nibs.decode(buf)
     p("decoded", decoded)
     assert(equal(decoded, input), "decode failed")
 end
