@@ -50,10 +50,7 @@ local U16Box = ffi.typeof 'uint16_t[1]'
 local U32Box = ffi.typeof 'uint32_t[1]'
 local U64Box = ffi.typeof 'uint64_t[1]'
 
-local int_types = { U8, U16, U32, U64, I8, I16, I32, I64 }
-local float_types = { F32, F64 }
-
--- Toplevel type tags
+-- Main types
 local INT = 0
 local FLOAT = 1
 local SIMPLE = 2
@@ -64,21 +61,33 @@ local STRING = 9
 local TUPLE = 10
 local MAP = 11
 local ARRAY = 12
--- Simple subtype tags
+-- Simple subtypes
 local FALSE = 0
 local TRUE = 1
 local NULL = 2
 
-local function is_int_type(val)
-    for _, typ in ipairs(int_types) do
-        if istype(typ, val) then return true end
+local function is_integer(kind, val)
+    if kind == "number" then
+        return val % 1 == 0
+    elseif kind == "cdata" then
+        return istype(I64, val)
+            or istype(I32, val)
+            or istype(I16, val)
+            or istype(I8, val)
+            or istype(U64, val)
+            or istype(U32, val)
+            or istype(U16, val)
+            or istype(U8, val)
     end
     return false
 end
 
-local function is_float_type(val)
-    for _, typ in ipairs(float_types) do
-        if istype(typ, val) then return true end
+local function is_float(kind, val)
+    if kind == "number" then
+        return val % 1 ~= 0
+    elseif kind == "cdata" then
+        return istype(F64, val)
+            or istype(F32, val)
     end
     return false
 end
@@ -188,6 +197,17 @@ local Nibs = {}
 
 function Nibs.new()
 
+    local refToId = {}
+    local idToRef = {}
+
+    --- Register a reference
+    ---@param id integer
+    ---@param ref any
+    local function registerRef(id, ref)
+        refToId[ref] = id
+        idToRef[id] = ref
+    end
+
     local NibsTuple = {}
     local NibsMap = {}
 
@@ -200,6 +220,8 @@ function Nibs.new()
             return decode_float(big), offset
         elseif little == SIMPLE then
             return decode_simple(big), offset
+        elseif little == REF then
+            return idToRef[big]
         elseif little == BYTE then
             local slice = Slice(big)
             copy(slice, ptr + offset, big)
@@ -321,26 +343,20 @@ function Nibs.new()
 
     ---@param val any
     function encode_any(val)
-        local kind = type(val)
-        if is_int_type(val) then
-            return encode_pair(INT, encode_zigzag(val))
+        local refId = refToId[val]
+        if refId then
+            return encode_pair(REF, refId)
         end
-        if kind == 'number' then
-            if val % 1 == 0 then
-                return encode_pair(INT, encode_zigzag(val))
-            else
-                return encode_pair(FLOAT, encode_float(val)) -- Floating Point
-            end
+        local kind = type(val)
+        if is_integer(kind, val) then
+            return encode_pair(INT, encode_zigzag(val))
+        elseif is_float(kind, val) then
+            return encode_pair(FLOAT, encode_float(val))
         elseif kind == 'boolean' then
-            return encode_pair(SIMPLE, val and TRUE or FALSE) -- Simple true/false
+            return encode_pair(SIMPLE, val and TRUE or FALSE)
         elseif kind == 'nil' then
-            return encode_pair(SIMPLE, NULL) -- Simple nil
+            return encode_pair(SIMPLE, NULL)
         elseif kind == 'cdata' then
-            if is_int_type(val) then
-                return encode_pair(INT, encode_zigzag(val)) -- Integer
-            elseif is_float_type(val) then
-                return encode_pair(FLOAT, encode_float(val)) -- Floating Point
-            end
             local len = sizeof(val)
             local size, head = encode_pair(BYTE, len)
             return size + len, { head, val }
@@ -395,6 +411,7 @@ function Nibs.new()
         encode = encode,
         decode = decode,
         is = is,
+        registerRef = registerRef,
     }
 
 end
