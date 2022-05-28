@@ -216,10 +216,26 @@ function Nibs.new()
         idToRef[id] = ref
     end
 
+    local tagEncoders = {}
+    local tagDecoders = {}
+
+    local function registerTag(id, encode, decode)
+        tagEncoders[id] = encode
+        tagDecoders[id] = decode
+    end
+
     local NibsTuple = {}
     local NibsMap = {}
 
-    local function decode(ptr)
+    local decode
+
+    local function decode_tag(ptr, id)
+        local decoder = assert(tagDecoders[id], "missing decoder")
+        local val, offset = decode(ptr)
+        return decoder(val), offset
+    end
+
+    function decode(ptr)
         ptr = cast(U8Ptr, ptr)
         local offset, little, big = decode_pair(ptr)
         if little == INT then
@@ -230,6 +246,8 @@ function Nibs.new()
             return decode_simple(big), offset
         elseif little == REF then
             return idToRef[big]
+        elseif little == TAG then
+            return decode_tag(ptr + offset, big)
         elseif little == BYTE then
             local slice = Slice(big)
             copy(slice, ptr + offset, big)
@@ -349,12 +367,26 @@ function Nibs.new()
         return size + total, { head, body }
     end
 
+    local encode_base
+
     ---@param val any
     function encode_any(val)
         local refId = refToId[val]
         if refId then
             return encode_pair(REF, refId)
         end
+        for i, encode in pairs(tagEncoders) do
+            local encoded = encode(val)
+            if encoded then
+                local size1, head = encode_pair(TAG, i)
+                local size2, data = encode_base(encoded)
+                return size1 + size2, { head, data }
+            end
+        end
+        return encode_base(val)
+    end
+
+    function encode_base(val)
         local kind = type(val)
         if is_integer(kind, val) then
             return encode_pair(INT, encode_zigzag(val))
@@ -420,6 +452,7 @@ function Nibs.new()
         decode = decode,
         is = is,
         registerRef = registerRef,
+        registerTag = registerTag,
     }
 
 end
