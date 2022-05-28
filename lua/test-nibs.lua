@@ -1,7 +1,11 @@
+local p = require('pretty-print').prettyPrint
 local bit = require 'bit'
+local rshift = bit.rshift
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 local tohex = bit.tohex
+local istype = ffi.istype
+local copy = ffi.copy
 
 local byte = string.byte
 local concat = table.concat
@@ -20,6 +24,20 @@ nibs.registerRef(0, Zero)
 nibs.registerRef(1, One)
 nibs.registerRef(2, Two)
 nibs.registerRef(3, Three)
+
+local F32Array = ffi.typeof "float[?]"
+
+nibs.registerTag(0,
+    function (val)
+        return istype(F32Array, val) and val or nil
+    end,
+    function (val)
+        local len = sizeof(val)
+        local arr = F32Array(rshift(len,2))
+        copy(arr, val, len)
+        return arr
+    end
+)
 
 local tests = {
     -- ZigZag Integer
@@ -118,6 +136,12 @@ local tests = {
     Two, "\x32",
     Three, "\x33",
 
+    -- Tag
+    F32Array(4, {math.pi*.5,math.pi,math.pi*1.5,math.pi*2}),
+      "\x70" .. -- Tag(0)
+        "\x8c\x10".. -- Bytes(16)
+          "\xdb\x0f\xc9\x3f\xdb\x0f\x49\x40\xe4\xcb\x96\x40\xdb\x0f\xc9\x40",
+
     -- Binary
     -- null terminated C string
     ffi.new("const char*", "Binary!"), "\x88Binary!\0",
@@ -168,6 +192,7 @@ local function equal(a,b)
     end
     if kind ~= kindb then return false end
     if kind == "cdata" then
+        p(sizeof(a),sizeof(b))
         local len = sizeof(a)
         if len ~= sizeof(b) then return false end
         local abin = ffi.cast("const uint8_t*", a)
