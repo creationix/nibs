@@ -14,7 +14,8 @@ local Nibs = require './nibs.lua'
 local nibs = Nibs.new()
 local Ordered = require './ordered.lua'
 local OrderedMap = Ordered.OrderedMap
-local OrderedList = Ordered.OrderedList
+local OrderedArray = Ordered.OrderedArray
+local OrderedTuple = Ordered.OrderedTuple
 
 local Zero = {id=0,name="Zero"}
 local One = {id=1,name="One"}
@@ -152,11 +153,15 @@ local tests = {
     -- String
     "Hello", "\x95Hello",
     -- Tuple
-    {1,2,3}, "\xa3\x02\x04\x06",
-    OrderedList.new(), "\xa0",
+    OrderedTuple.new(), "\xa0",
     -- Map
     {name="Tim"}, "\xb9\x94name\x93Tim",
     OrderedMap.new(), "\xb0",
+
+    -- Array
+    {1,2,3}, "\xc3\x13\x00\x01\x02\x02\x04\x06",
+    OrderedArray.new(), "\xc1\x00",
+
     -- Complex (uses OrderedMap to preserve map order and nil value)
     { OrderedMap.new(10,100,20,50,true,false), OrderedMap.new("foo",nil) },
         "\xac\x11" .. -- Tuple(17)
@@ -192,7 +197,6 @@ local function equal(a,b)
     end
     if kind ~= kindb then return false end
     if kind == "cdata" then
-        p(sizeof(a),sizeof(b))
         local len = sizeof(a)
         if len ~= sizeof(b) then return false end
         local abin = ffi.cast("const uint8_t*", a)
