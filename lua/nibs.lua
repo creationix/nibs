@@ -10,7 +10,8 @@
 
 local Ordered = require './ordered.lua'
 local OrderedMap = Ordered.OrderedMap
-local OrderedList = Ordered.OrderedList
+local OrderedTuple = Ordered.OrderedTuple
+local OrderedArray = Ordered.OrderedArray
 
 local bit = require 'bit'
 local rshift = bit.rshift
@@ -176,7 +177,7 @@ end
 ---@return boolean
 local function is_array_like(val)
     local meta = getmetatable(val)
-    if meta == OrderedList then return true end
+    if meta == OrderedArray or meta == OrderedTuple then return true end
     if meta == OrderedMap then return false end
     local i = 1
     for key in pairs(val) do
