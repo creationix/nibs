@@ -6,7 +6,7 @@ do
     -- Weak keys for storing object order out of table
     local orders = setmetatable({}, { __mode = "k" })
 
-    OrderedMap.__name = "OrderedMap"
+    OrderedMap.__name = "Map"
 
     function OrderedMap:__pairs()
         local order = orders[self]
@@ -75,7 +75,7 @@ do
     -- Weak keys for storing array length out of table
     local lengths = setmetatable({}, { __mode = "k" })
 
-    OrderedList.__name = "OrderedList"
+    OrderedList.__name = "List"
 
     function OrderedList.new(...)
         local self = setmetatable({}, OrderedList)

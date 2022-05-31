@@ -18,6 +18,7 @@ local band = bit.band
 local lshift = bit.lshift
 local bor = bit.bor
 local bxor = bit.bxor
+local tohex = bit.tohex
 
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
@@ -43,9 +44,11 @@ local F64 = ffi.typeof 'double'
 ffi.cdef [[struct NibsTuple { const uint8_t* first; const uint8_t* last; }]]
 ffi.cdef [[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
 ffi.cdef [[struct NibsArray { const uint8_t* first; const uint8_t* last; }]]
+ffi.cdef [[struct NibsBinary { const uint8_t* first; const uint8_t* last; }]]
 local StructNibsTuple = ffi.typeof 'struct NibsTuple'
 local StructNibsMap = ffi.typeof 'struct NibsMap'
 local StructNibsArray = ffi.typeof 'struct NibsArray'
+local StructNibsBinary = ffi.typeof 'struct NibsBinary'
 
 local Slice8 = ffi.typeof 'uint8_t[?]'
 local Slice16 = ffi.typeof 'uint16_t[?]'
@@ -230,6 +233,7 @@ function Nibs.new()
     local NibsTuple = {}
     local NibsMap = {}
     local NibsArray = {}
+    local NibsBinary = {}
 
     local decode
 
@@ -253,9 +257,7 @@ function Nibs.new()
         elseif little == TAG then
             return decode_tag(ptr + offset, big)
         elseif little == BYTE then
-            local slice = Slice8(big)
-            copy(slice, ptr + offset, big)
-            return slice, offset + big
+            return NibsBinary.new(ptr + offset, big), offset + big
         elseif little == STRING then
             return ffi_string(ptr + offset, big), offset + big
         elseif little == TUPLE then
@@ -291,21 +293,19 @@ function Nibs.new()
     end
 
     function NibsTuple:__ipairs()
-        local current = self.first
-        local i = 0
-        return function()
-            if current < self.last then
+        return coroutine.wrap(function()
+            local current = self.first
+            local i = 1
+            while current < self.last do
                 local val, size = decode(current)
                 current = current + size
+                coroutine.yield(i, val)
                 i = i + 1
-                return i, val
             end
-        end
+        end)
     end
 
     NibsTuple.__pairs = NibsTuple.__ipairs
-
-    NibsTuple.__name = "NibsTuple"
 
     function NibsTuple:__tostring()
         local parts = {}
@@ -324,21 +324,20 @@ function Nibs.new()
     function NibsMap.__ipairs() return function() end end
 
     function NibsMap:__pairs()
-        local current = self.first
-        local last = self.last
-        return function()
-            if current >= last then return end
-            local key, value, size
-            key, size = decode(current)
-            current = current + size
-            if current >= last then return end
-            value, size = decode(current)
-            current = current + size
-            return key, value
-        end
+        return coroutine.wrap(function()
+            local current = self.first
+            local last = self.last
+            while current < last do
+                local key, value, size
+                key, size = decode(current)
+                current = current + size
+                if current >= last then break end
+                value, size = decode(current)
+                current = current + size
+                coroutine.yield(key, value)
+            end
+        end)
     end
-
-    NibsMap.__name = "NibsMap"
 
     function NibsMap:__index(index)
         local current = self.first
@@ -396,17 +395,14 @@ function Nibs.new()
     end
 
     function NibsArray:__ipairs()
-        if self.first == self.last then return function() end end
-        local i = 0
-        return function()
-            if i < #self then
-                i = i + 1
-                return i, self[i]
+        return coroutine.wrap(function()
+            for i = 1, #self do
+                coroutine.yield(i, self[i])
             end
-        end
+        end)
     end
 
-    NibsArray.__name = "NibsArray"
+    NibsArray.__pairs = NibsArray.__ipairs
 
     function NibsArray:__tostring()
         local parts = {}
@@ -416,7 +412,38 @@ function Nibs.new()
         return "[" .. table.concat(parts, ",") .. "]"
     end
 
-    NibsArray.__pairs = NibsArray.__ipairs
+    function NibsBinary.new(ptr, len) return StructNibsBinary { ptr, ptr + len } end
+
+    function NibsBinary:__len()
+        return self.last - self.first
+    end
+
+    function NibsBinary:__index(index)
+        local count = self.last - self.first
+        if index % 1 == 0 and index >= 1 and index <= count then
+            return cast(U8Ptr, self.first)[index + 1]
+        end
+    end
+
+    function NibsBinary:__ipairs()
+        return coroutine.wrap(function()
+            local bytes = cast(U8Ptr, self.first)
+            for i = 0, self.last - self.first - 1 do
+                coroutine.yield(i + 1, bytes[i])
+            end
+        end)
+    end
+
+    NibsBinary.__pairs = NibsBinary.__ipairs
+
+    function NibsBinary:__tostring()
+        local parts = {}
+        local bytes = cast(U8Ptr, self.first)
+        for i = 0, self.last - self.first - 1 do
+            parts[i] = tohex(bytes[i], 2)
+        end
+        return "<" .. table.concat(parts) .. ">"
+    end
 
     local encode_any
 
@@ -568,6 +595,7 @@ function Nibs.new()
     metatype(StructNibsTuple, NibsTuple)
     metatype(StructNibsMap, NibsMap)
     metatype(StructNibsArray, NibsArray)
+    metatype(StructNibsBinary, NibsBinary)
 
     --- Returns true if a value is a virtual nibs container.
     local function is(val)
