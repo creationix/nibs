@@ -8,10 +8,9 @@
     author = { name = "Tim Caswell" }
 ]]
 
-local Ordered = require './ordered.lua'
+local Ordered = require 'ordered'
 local OrderedMap = Ordered.OrderedMap
-local OrderedTuple = Ordered.OrderedTuple
-local OrderedArray = Ordered.OrderedArray
+local OrderedList = Ordered.OrderedList
 
 local bit = require 'bit'
 local rshift = bit.rshift
@@ -43,9 +42,15 @@ local F64 = ffi.typeof 'double'
 
 ffi.cdef [[struct NibsTuple { const uint8_t* first; const uint8_t* last; }]]
 ffi.cdef [[struct NibsMap { const uint8_t* first; const uint8_t* last; }]]
+ffi.cdef [[struct NibsArray { const uint8_t* first; const uint8_t* last; }]]
 local StructNibsTuple = ffi.typeof 'struct NibsTuple'
 local StructNibsMap = ffi.typeof 'struct NibsMap'
-local Slice = ffi.typeof 'uint8_t[?]'
+local StructNibsArray = ffi.typeof 'struct NibsArray'
+
+local Slice8 = ffi.typeof 'uint8_t[?]'
+local Slice16 = ffi.typeof 'uint16_t[?]'
+local Slice32 = ffi.typeof 'uint32_t[?]'
+local Slice64 = ffi.typeof 'uint64_t[?]'
 
 local U8Ptr = ffi.typeof 'uint8_t*'
 local U16Ptr = ffi.typeof 'uint16_t*'
@@ -176,9 +181,6 @@ end
 ---@type table
 ---@return boolean
 local function is_array_like(val)
-    local meta = getmetatable(val)
-    if meta == OrderedArray or meta == OrderedTuple then return true end
-    if meta == OrderedMap then return false end
     local i = 1
     for key in pairs(val) do
         if key ~= i then return false end
@@ -227,6 +229,7 @@ function Nibs.new()
 
     local NibsTuple = {}
     local NibsMap = {}
+    local NibsArray = {}
 
     local decode
 
@@ -250,7 +253,7 @@ function Nibs.new()
         elseif little == TAG then
             return decode_tag(ptr + offset, big)
         elseif little == BYTE then
-            local slice = Slice(big)
+            local slice = Slice8(big)
             copy(slice, ptr + offset, big)
             return slice, offset + big
         elseif little == STRING then
@@ -259,6 +262,8 @@ function Nibs.new()
             return NibsTuple.new(ptr + offset, big), offset + big
         elseif little == MAP then
             return NibsMap.new(ptr + offset, big), offset + big
+        elseif little == ARRAY then
+            return NibsArray.new(ptr + offset, big), offset + big
         else
             error('Unexpected nibs type: ' .. little)
         end
@@ -280,7 +285,7 @@ function Nibs.new()
         local current = self.first
         while current < self.last do
             index = index - 1
-            if index == 0 then return decode(current) end
+            if index == 0 then return (decode(current)) end
             current = skip(current)
         end
     end
@@ -300,11 +305,18 @@ function Nibs.new()
 
     NibsTuple.__pairs = NibsTuple.__ipairs
 
+    NibsTuple.__name = "NibsTuple"
+
+    function NibsTuple:__tostring()
+        local parts = {}
+        for i, v in ipairs(self) do
+            parts[i] = tostring(v)
+        end
+        return "(" .. table.concat(parts, ",") .. ")"
+    end
+
     function NibsMap.new(ptr, len)
-        return setmetatable({
-            __nibs_ptr = ptr,
-            __nibs_len = len,
-        }, NibsMap)
+        return StructNibsMap { ptr, ptr + len }
     end
 
     function NibsMap.__len() return 0 end
@@ -312,8 +324,8 @@ function Nibs.new()
     function NibsMap.__ipairs() return function() end end
 
     function NibsMap:__pairs()
-        local current = self.__nibs_ptr
-        local last = current + self.__nibs_len
+        local current = self.first
+        local last = self.last
         return function()
             if current >= last then return end
             local key, value, size
@@ -326,9 +338,11 @@ function Nibs.new()
         end
     end
 
+    NibsMap.__name = "NibsMap"
+
     function NibsMap:__index(index)
-        local current = self.__nibs_ptr
-        local last = current + self.__nibs_len
+        local current = self.first
+        local last = self.last
         while current < last do
             local key, size = decode(current)
             current = current + size
@@ -339,18 +353,117 @@ function Nibs.new()
         end
     end
 
+    function NibsMap:__tostring()
+        local parts = {}
+        local i = 1
+        for k, v in pairs(self) do
+            parts[i] = tostring(k) .. ':' .. tostring(v)
+            i = i + 1
+        end
+        return "{" .. table.concat(parts, ",") .. "}"
+    end
+
+    function NibsArray.new(ptr, len) return StructNibsArray { ptr, ptr + len } end
+
+    function NibsArray:__len()
+        if self.first == self.last then return 0 end
+        local _, _, count = decode_pair(self.first)
+        return count
+    end
+
+    function NibsArray:__index(index)
+        if self.first == self.last then return end
+        local size, width, count = decode_pair(self.first)
+        if index % 1 ~= 0 or index < 1 or index > count then return end
+        local idx_first = self.first + size
+        local idx_last = idx_first + width * count
+        local ptr
+        if size == 1 then
+            ptr = cast(U8Ptr, idx_first + (index - 1) * width)
+            if ptr + 1 > idx_last then return end
+        elseif size == 2 then
+            ptr = cast(U16Ptr, idx_first + (index - 1) * width)
+            if ptr + 2 > idx_last then return end
+        elseif size == 4 then
+            ptr = cast(U32Ptr, idx_first + (index - 1) * width)
+            if ptr + 2 > idx_last then return end
+        elseif size == 8 then
+            ptr = cast(U64Ptr, idx_first + (index - 1) * width)
+            if ptr + 4 > idx_last then return end
+        end
+        local offset = ptr[0]
+        return (decode(idx_last + offset))
+    end
+
+    function NibsArray:__ipairs()
+        if self.first == self.last then return function() end end
+        local i = 0
+        return function()
+            if i < #self then
+                i = i + 1
+                return i, self[i]
+            end
+        end
+    end
+
+    NibsArray.__name = "NibsArray"
+
+    function NibsArray:__tostring()
+        local parts = {}
+        for i, v in ipairs(self) do
+            parts[i] = tostring(v)
+        end
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+
+    NibsArray.__pairs = NibsArray.__ipairs
+
     local encode_any
 
     local function encode_tuple(tuple)
         local total = 0
         local body = {}
-        for i = 1, #tuple do
-            local size, entry = encode_any(tuple[i])
-            insert(body, entry)
+        for i, v in ipairs(tuple) do
+            local size, entry = encode_any(v)
+            body[i] = entry
             total = total + size
         end
         local size, head = encode_pair(TUPLE, total)
         return size + total, { head, body }
+    end
+
+    local function encode_array(array)
+        local total = 0
+        local body = {}
+        local offsets = {}
+        for i, v in ipairs(array) do
+            local size, entry = encode_any(v)
+            body[i] = entry
+            offsets[i] = total
+            total = total + size
+        end
+        local count = #offsets
+        local index, width
+        if count == 0 then
+            return encode_pair(ARRAY, 0)
+        end
+        if total < 0x100 then
+            width = 1
+            index = Slice8(count, offsets)
+        elseif total < 0x10000 then
+            width = 2
+            index = Slice16(count, offsets)
+        elseif total < 0x100000000 then
+            width = 4
+            index = Slice32(count, offsets)
+        else
+            width = 8
+            index = Slice64(count, offsets)
+        end
+        local more, head = encode_pair(width, count)
+        total = more + sizeof(index) + total
+        local size, prefix = encode_pair(ARRAY, total)
+        return size + total, { prefix, head, index, body }
     end
 
     local function encode_map(map)
@@ -398,6 +511,11 @@ function Nibs.new()
         elseif kind == 'nil' then
             return encode_pair(SIMPLE, NULL)
         elseif kind == 'cdata' then
+            if istype(StructNibsMap, val) then
+                return encode_map(val)
+            elseif istype(StructNibsTuple, val) then
+                return encode_tuple(val)
+            end
             local len = sizeof(val)
             local size, head = encode_pair(BYTE, len)
             return size + len, { head, val }
@@ -406,7 +524,12 @@ function Nibs.new()
             local size, head = encode_pair(STRING, len)
             return size + len, { head, val }
         elseif kind == 'table' then
-            if is_array_like(val) then
+            local meta = getmetatable(val)
+            if meta == OrderedList then
+                return encode_array(val)
+            elseif meta == OrderedMap then
+                return encode_map(val)
+            elseif is_array_like(val) then
                 return encode_tuple(val)
             else
                 return encode_map(val)
@@ -419,7 +542,7 @@ function Nibs.new()
     local function encode(val)
         local i = 0
         local size, data = encode_any(val)
-        local buf = Slice(size)
+        local buf = Slice8(size)
         local function write(d)
             local kind = type(d)
             if kind == 'number' then
@@ -444,14 +567,30 @@ function Nibs.new()
 
     metatype(StructNibsTuple, NibsTuple)
     metatype(StructNibsMap, NibsMap)
+    metatype(StructNibsArray, NibsArray)
 
     --- Returns true if a value is a virtual nibs container.
-    local function is(val) return istype(StructNibsTuple, val) or istype(StructNibsMap, val) end
+    local function is(val)
+        return istype(StructNibsTuple, val)
+            or istype(StructNibsMap, val)
+            or istype(StructNibsArray, val)
+    end
+
+    local function isMap(val)
+        return istype(StructNibsMap, val)
+    end
+
+    local function isList(val)
+        return istype(StructNibsTuple, val)
+            or istype(StructNibsArray, val)
+    end
 
     return {
         encode = encode,
         decode = decode,
         is = is,
+        isMap = isMap,
+        isList = isList,
         registerRef = registerRef,
         registerTag = registerTag,
     }
