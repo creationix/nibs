@@ -10,12 +10,11 @@ local copy = ffi.copy
 local byte = string.byte
 local concat = table.concat
 
-local Nibs = require './nibs.lua'
+local Nibs = require 'nibs'
 local nibs = Nibs.new()
-local Ordered = require './ordered.lua'
+local Ordered = require 'ordered'
 local OrderedMap = Ordered.OrderedMap
-local OrderedArray = Ordered.OrderedArray
-local OrderedTuple = Ordered.OrderedTuple
+local OrderedList = Ordered.OrderedList
 
 local Zero = {id=0,name="Zero"}
 local One = {id=1,name="One"}
@@ -150,17 +149,22 @@ local tests = {
     ffi.new("uint8_t[3]", {1,2,3}), "\x83\x01\x02\x03",
     -- C double array
     ffi.new("double[1]", {math.pi}), "\x88\x18\x2d\x44\x54\xfb\x21\x09\x40",
+
     -- String
     "Hello", "\x95Hello",
+
     -- Tuple
-    OrderedTuple.new(), "\xa0",
+    {}, "\xa0",
+    {1,2,3}, "\xa3\x02\x04\x06",
+
     -- Map
     {name="Tim"}, "\xb9\x94name\x93Tim",
     OrderedMap.new(), "\xb0",
+    OrderedMap.new(true,false,1,nil), "\xb4\x21\x20\x02\x22",
 
     -- Array
-    {1,2,3}, "\xc3\x13\x00\x01\x02\x02\x04\x06",
-    OrderedArray.new(), "\xc1\x00",
+    OrderedList.new(1,2,3), "\xc7\x13\x00\x01\x02\x02\x04\x06",
+    OrderedList.new(), "\xc0",
 
     -- Complex (uses OrderedMap to preserve map order and nil value)
     { OrderedMap.new(10,100,20,50,true,false), OrderedMap.new("foo",nil) },
@@ -222,6 +226,26 @@ local function equal(a,b)
     error("Unknown Type: " .. kind)
 end
 
+local function tonormal(val)
+    local ok, res = pcall(function ()
+        local n
+        if nibs.isMap(val) then
+            n = OrderedMap.new()
+        elseif nibs.isList(val) then
+            n = OrderedList.new()
+        else
+            n = {}
+        end
+        for k, v in pairs(val) do
+            n[k]= tonormal(v)
+        end
+        return n
+    end)
+    if ok then return res end
+    -- print(res)
+    return val
+end
+
 for i = 1, #tests, 2 do
     print()
     local input = tests[i]
@@ -234,5 +258,6 @@ for i = 1, #tests, 2 do
     assert(ffi.string(buf, sizeof(buf)) == expected)
     local decoded = nibs.decode(buf)
     p("decoded", decoded)
+    p("decoded[normal]", tonormal(decoded))
     assert(equal(decoded, input), "decode failed")
 end

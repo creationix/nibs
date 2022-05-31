@@ -6,6 +6,8 @@ do
     -- Weak keys for storing object order out of table
     local orders = setmetatable({}, { __mode = "k" })
 
+    OrderedMap.__name = "OrderedMap"
+
     function OrderedMap:__pairs()
         local order = orders[self]
         return coroutine.wrap(function()
@@ -68,13 +70,15 @@ do
 end
 
 --- JavaScript/JSON Array semantics for Lua tables
-local OrderedArray = {}
+local OrderedList = {}
 do
     -- Weak keys for storing array length out of table
     local lengths = setmetatable({}, { __mode = "k" })
 
-    function OrderedArray.new(...)
-        local self = setmetatable({}, OrderedArray)
+    OrderedList.__name = "OrderedList"
+
+    function OrderedList.new(...)
+        local self = setmetatable({}, OrderedList)
         lengths[self] = 0
         local count = select("#", ...)
         if count > 0 then
@@ -86,7 +90,7 @@ do
         return self
     end
 
-    function OrderedArray:__newindex(key, value)
+    function OrderedList:__newindex(key, value)
         local length = lengths[self]
         if type(key) == "number" and floor(key) == key then
             if key > length then
@@ -96,11 +100,11 @@ do
         rawset(self, key, value)
     end
 
-    function OrderedArray:__len()
+    function OrderedList:__len()
         return lengths[self]
     end
 
-    function OrderedArray:__ipairs()
+    function OrderedList:__ipairs()
         local length = lengths[self]
         return coroutine.wrap(function()
             for i = 1, length do
@@ -109,7 +113,7 @@ do
         end)
     end
 
-    function OrderedArray.setLength(self, length)
+    function OrderedList.setLength(self, length)
         local oldLength = lengths[self]
         -- Trim away lua values that are now outside the array range
         if length < oldLength then
@@ -122,15 +126,7 @@ do
     end
 end
 
-local OrderedTuple = {}
-local k = next(OrderedArray)
-while k do
-    rawset(OrderedTuple, k, rawget(OrderedArray, k))
-    k = next(OrderedArray, k)
-end
-
 return {
     OrderedMap = OrderedMap,
-    OrderedArray = OrderedArray,
-    OrderedTuple = OrderedTuple,
+    OrderedList = OrderedList,
 }
