@@ -1,6 +1,6 @@
 local p = require('pretty-print').prettyPrint
 
-local xxh32 = require 'xxhash32'
+local xxh64 = require 'xxhash64'
 
 -- Main types
 local INT = 0
@@ -169,7 +169,7 @@ end
 Nibs.trie_seed = 0
 
 ---Override this in the instance for custom behavior.
-Nibs.hash64 = xxh32
+Nibs.hash64 = xxh64
 
 ---Default index limit that uses indexes when there are more than 10 items.
 ---Override this in the instance for custom behavior.
@@ -386,7 +386,7 @@ function Nibs.generate_trie_index(offsets, seed)
                 -- And try again
             else
                 local segment = tonumber(band(rshift(h64, o), mask))
-                if not next(node) then
+                if node ~= trie and not next(node) then
                     -- Otherwise, check if node is empty
                     -- and claim it
                     node.data = { h64, offset }
@@ -409,48 +409,47 @@ function Nibs.generate_trie_index(offsets, seed)
     local height = 0
     local parts = {}
     local function write_node(node)
-        if node.data then
-            p(height, node.data)
-            table.insert(parts, Slice(1, node.data[2]))
-            height = height + width
-        else
-            -- Sort highest first since we're writing backwards
-            local segments = {}
-            for k in pairs(node) do
-                table.insert(segments, k)
-            end
-            table.sort(segments, function(a, b) return a > b end)
-            p(segments)
+        -- Sort highest first since we're writing backwards
+        local segments = {}
+        for k in pairs(node) do table.insert(segments, k) end
+        table.sort(segments, function(a, b) return a > b end)
+        p { segments = segments }
 
-            -- Calculate the target addresses
-            local targets = {}
-            for i, k in ipairs(segments) do
-                local v = node[k]
+        -- Calculate the target addresses
+        local targets = {}
+        for i, k in ipairs(segments) do
+            local v = node[k]
+            if v.data then
+                targets[i] = -1 - v.data[2]
+            else
                 targets[i] = height
                 write_node(v)
             end
-            p(targets)
-
-            -- Generate the pointers
-            local bitfield = 0
-            for i, k in ipairs(segments) do
-                bitfield = bor(bitfield, lshift(1, k))
-                local delta = height - targets[i] - width
-                p(height, { key = k, delta = delta })
-                table.insert(parts, Slice(1, delta))
-                height = height + width
-            end
-
-            p(height, { bitfield = bitfield })
-            table.insert(parts, Slice(1, bitfield))
-            height = height + width
-
         end
+        p { targets = targets }
+
+        -- Generate the pointers
+        local bitfield = 0
+        for i, k in ipairs(segments) do
+            bitfield = bor(bitfield, lshift(1, k))
+            local delta = height - targets[i] - width
+            p(height, { key = k, delta = delta })
+            table.insert(parts, delta)
+            height = height + width
+        end
+
+        p(height, { bitfield = bitfield })
+        table.insert(parts, bitfield)
+        height = height + width
+
+
     end
 
-    p(trie)
+    p { trie = trie }
+
     write_node(trie)
 
+    p { parts = parts }
     local count = #parts
     local reversed = parts
     parts = {}
