@@ -53,14 +53,65 @@ Floats
   3.1415926535897930 | 1f182d4454fb210940
   4.7123889803846900 | 1fd221337f7cd91240
   6.2831853071795860 | 1f182d4454fb211940
-
-Strings
-
-             "Hello" | 9548656c6c6f
-             "World" | 95576f726c64
+              1.01e1 | 1f3333333333332440
+              1.01E1 | 1f3333333333332440
+            0.101e+1 | 1f295c8fc2f528f03f
+            0.101E+1 | 1f295c8fc2f528f03f
+              1.1e-1 | 1f295c8fc2f528bc3f
+              1.1E-1 | 1f295c8fc2f528bc3f
+                 inf | 1f000000000000f07f
+                -inf | 1f000000000000f0ff
+                 nan | 1f000000000000f8ff
 
 Simple
 
                false | 20
                 true | 21
                 null | 22
+
+Refs
+
+self.to_ref=function(val) if val == 42 then return 0 end end
+                  42 | 30
+self.to_ref=function(val) if val == "content-type" then return 10 end end
+      "content-type" | 3a
+self.to_ref=function(val) if val == 2718281828459045 then return 100 end end
+    2718281828459045 | 3c64
+
+Strings
+
+             "Hello" | 9548656c6c6f
+             "World" | 95576f726c64
+
+Bytes
+
+Tuples
+
+self.index_limit=function() return false end
+
+                  [] | a0
+             [1,2,3] | a3020406
+       [[1],[2],[3]] | a6a102a104a106
+
+Maps
+
+                  {} | b0
+  {"name":"Tim",1:2} | bb946e616d659354696d0204
+
+self.index_limit=function() return true end
+
+Arrays
+
+                  [] | c110
+             [1,2,3] | c713000102020406
+ [[[1]],[[2]],[[3]]] | cc191300070ec61100c3110002c61100c3110004c61100c3110006
+
+Tries
+
+                  {} | d21000
+               {1:1} | da10a00101000202020404
+           {1:1,2:2} | d9100101000202020404
+       {1:1,2:2,3:3} | dc0d10020202040002020204040606
+   {1:1,2:2,3:3,4:4} | dc111003030303060400020202040406060808
+  {"name":"Tim",1:2} | dc101001010009946e616d659354696d0204
+

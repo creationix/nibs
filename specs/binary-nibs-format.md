@@ -49,11 +49,12 @@ enum Type {
     // Prefixed length types.
     Bytes         = 8,  // big = len
     String        = 9,  // big = len
-    Tuple         = 10, // big = len
+    List          = 10, // big = len
     Map           = 11, // big = len
     Array         = 12, // big = len
+    Trie          = 13, // big = len
 
-    // slots 13-15 reserved for future prefixed length native types
+    // slots 14-15 reserved for future prefixed length native types
     // decoders can assume they will always have big = len
 };
 ```
@@ -170,14 +171,14 @@ Decoders are free to interpret bad encodings as makes sense for their applicatio
 
 The `byte` type is a byte array for storing bulk binary octets.
 
-### Tuple
+### List
 
-The `tuple` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
+The `list` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
 
 For example `(1,2,3)` would be encoded as follows:
 
 ```c
-1010 0111 // Tuple(3)
+1010 0111 // List(3)
 0000 0010 // Integer(1)
 0000 0100 // Integer(2)
 0000 0110 // Integer(3)
@@ -185,7 +186,7 @@ For example `(1,2,3)` would be encoded as follows:
 
 ### Array
 
-The `array` type is like tuple, except it includes an array of pointers before the payload to enable O(1) lookups.
+The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
 
 This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the end of the index (the start of the list of values).
 
@@ -224,3 +225,18 @@ For example, `{"name":"Nibs",true:false}` would be encoded as:
 0010 0001 // Simple(1)
 0010 0000 // Simple(0)
 ```
+
+### Trie
+
+A trie is an indexed map, this is done by creating a HAMT prefix trie from the nibs binary encoded map key hashed.
+
+Each level of the trie consumes 4 bits of the key.  Each node is compressed using a 16-bit wide bitfield
+
+The secondary pair is just like array index where it stores pointer width, but the big number is the hash salt to help prevent hash collision attacks.
+
+The bitfield for compressed pointer arrays is the same width as the pointers, this means that depending on the width, different
+
+bbbbbbbb 3 bits at a time
+bbbbbbbbbbbbbbbb 4 bits at a time
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 5 bits at a time
+bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 6 bits at a time
