@@ -1,6 +1,6 @@
 local p = require('pretty-print').prettyPrint
 
-local xxhash = require 'xxhash'
+local xxh32 = require 'xxhash32'
 
 -- Main types
 local INT = 0
@@ -169,7 +169,7 @@ end
 Nibs.trie_seed = 0
 
 ---Override this in the instance for custom behavior.
-Nibs.hash64 = xxhash.xxh64
+Nibs.hash64 = xxh32
 
 ---Default index limit that uses indexes when there are more than 10 items.
 ---Override this in the instance for custom behavior.
