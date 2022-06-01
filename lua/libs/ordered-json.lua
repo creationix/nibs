@@ -355,7 +355,7 @@ do
 
             -- Parse a single string as key
             local key
-            key, index = parseString(json, index)
+            key, index = parseAny(json, index)
             if key == Fail then
                 return Fail, index
             end

@@ -31,10 +31,10 @@ nibs.registerTag(0,
     function (val) -- encode from F32Array to nibs binary
         return istype(F32Array, val) and val or nil
     end,
-    function (val) -- decode from nibs binary slice to F32Array
-        local len = val.last-val.first
+    function (val) -- decode from nibs binary to F32Array
+        local len = sizeof(val)
         local arr = F32Array(rshift(len,2))
-        copy(arr, val.first, len)
+        copy(arr, val, len)
         return arr
     end
 )
@@ -255,38 +255,29 @@ local function equal(a,b)
     error("Unknown Type: " .. kind)
 end
 
-local function tonormal(val)
-    local ok, res = pcall(function ()
-        local n
-        if nibs.isMap(val) then
-            n = OrderedMap.new()
-        elseif nibs.isList(val) then
-            n = OrderedList.new()
-        else
-            n = {}
-        end
-        for k, v in pairs(val) do
-            n[k]= tonormal(v)
-        end
-        return n
-    end)
-    if ok then return res end
-    -- print(res)
-    return val
-end
-
 for i = 1, #tests, 3 do
     print()
     local input = tests[i]
     p("input", input)
     local expected = tests[i+1]
     local expected_output = tests[i+2]
-    local buf = nibs.encode(input)
+    collectgarbage("collect")
+    local buf = nibs:encode(input)
+    input = nil
+    collectgarbage("collect")
     local str = ffi.string(buf, sizeof(buf))
+    collectgarbage("collect")
     print("'expected'\t" .. dump_string(expected))
+    collectgarbage("collect")
     print("'actual'\t" .. dump_string(str))
+    collectgarbage("collect")
     assert(ffi.string(buf, sizeof(buf)) == expected)
-    local decoded = nibs.decode(buf)
+    collectgarbage("collect")
+    local decoded = nibs:decode(buf)
+    buf = nil
+    collectgarbage("collect")
     p("decoded", decoded, "expected", expected_output)
+    collectgarbage("collect")
     assert(equal(decoded, expected_output), "decode failed")
+    collectgarbage("collect")
 end
