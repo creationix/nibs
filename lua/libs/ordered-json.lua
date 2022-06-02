@@ -1,4 +1,5 @@
 local bit = require 'bit'
+local ffi = require 'ffi'
 local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
@@ -287,6 +288,38 @@ do
 
     local parseString = Json.parseString
 
+    function Json.parseBytes(json, index)
+        local b, start = nextToken(json, index)
+        index = start
+        if b ~= 60 then -- `<`
+            return Fail, index
+        end
+        index = index + 1
+        b = byte(json, index, index)
+
+        while b ~= 62 do -- `>`
+            if not b
+                or (b < 48 or b > 57) -- `0`-`9`
+                and (b < 65 or b > 70) -- `A`-`F`
+                and (b < 97 or b > 102) -- `a`-`f`
+            then
+                return Fail, index
+            end
+            index = index + 1
+            b = byte(json, index, index)
+        end
+        collectgarbage("collect")
+        local hex = sub(json, start + 1, index - 1)
+        collectgarbage("collect")
+        hex = hex:gsub('..', function(h) return string.char(tonumber(h, 16)) end)
+        collectgarbage("collect")
+        local bytes = ffi.new("uint8_t[?]", #hex, hex)
+        collectgarbage("collect")
+        return bytes, index + 1
+    end
+
+    local parseBytes = Json.parseBytes
+
     function Json.parseArray(json, index)
         local b
         -- Consume opening square bracket
@@ -394,6 +427,8 @@ do
             return parseArray(json, index)
         elseif b == 34 then -- `"`
             return parseString(json, index)
+        elseif b == 60 then -- `<`
+            return parseBytes(json, index)
         elseif b == 45 or (b >= 48 and b <= 57) then -- `-` or `0-9`
             return parseNumber(json, index)
         elseif b == 102 and sub(json, index, index + 4) == "false" then
