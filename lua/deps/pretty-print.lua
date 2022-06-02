@@ -263,11 +263,20 @@ function dump(value, recurse, nocolor)
         write(colorize('sep', m.__name))
       end
 
+      local arr = true
+      for i, k in ipairs(keys) do
+        if type(k) == "number" and k ~= i then
+          arr = false
+          break
+        end
+      end
+
       write(obrace)
+
       for i, k in ipairs(keys) do
         indent()
         local v = rawget(localValue, k)
-        if k == i then
+        if arr and k == i then
           -- if the key matches the numerical index, print without key
           process(v)
         else
