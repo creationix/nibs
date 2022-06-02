@@ -17,4 +17,6 @@ jobs:
       - name: Run tests
         run: |
           ./luvit lua/test-nibs.lua
+          ./luvit lua/test-nibs2.lua
+          ./luvit lua/test-xxhash.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."
