@@ -313,7 +313,8 @@ do
         collectgarbage("collect")
         hex = hex:gsub('..', function(h) return string.char(tonumber(h, 16)) end)
         collectgarbage("collect")
-        local bytes = ffi.new("uint8_t[?]", #hex, hex)
+        local bytes = ffi.new("uint8_t[?]", #hex)
+        ffi.copy(bytes, hex, #hex)
         collectgarbage("collect")
         return bytes, index + 1
     end
