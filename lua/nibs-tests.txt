@@ -105,7 +105,7 @@ Strings
              "World" | 95576f726c64
 
 self.index_limit = 100
-å
+
 Tuples
 
                   [] | a0
@@ -147,3 +147,4 @@ self.trie_seed = 1
 {1:1,2:2,3:3,4:4,5:5} | dc121706e5fff9fbfdf702020404060608080a0a
    {"name":"Tim",1:2} | dc10140224f6ff946e616d659354696d0204
 
+Large Tests

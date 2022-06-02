@@ -5,6 +5,18 @@ local Nibs = require "nibs2"
 local tests = require('fs').readFileSync(module.dir .. "/nibs-tests.txt")
 local Json = require 'ordered-json'
 
+local tohex = bit.tohex
+local byte = string.byte
+local concat = table.concat
+
+local function dump_string(str)
+    local parts = {}
+    for i = 1, #str do
+        parts[i] = tohex(byte(str, i), 2)
+    end
+    return concat(parts)
+end
+
 local nibs = Nibs.new()
 
 p(Nibs)
@@ -35,6 +47,8 @@ for line in string.gmatch(tests, "[^\n]+") do
             local expected = loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"')()
             collectgarbage("collect")
             local actual = nibs:encode(value)
+            p(value, dump_string(actual))
+
             collectgarbage("collect")
             if expected ~= actual then
                 collectgarbage("collect")
@@ -50,37 +64,28 @@ for line in string.gmatch(tests, "[^\n]+") do
 end
 collectgarbage("collect")
 
--- local found = Nibs.find(function(val)
---     local t = type(val)
---     return t == "function"
---         or t == "cdata"
---         or (t == "string" and #val > 3)
---         or (t == "number" and (val % 1 ~= 0 or val >= 32768 or val < -32768))
--- end, 1, _G)
--- local toRefs = {}
--- local refs = {}
--- local i = 0
--- for k, v in pairs(found) do
---     p(v, k)
---     toRefs[k] = i
---     i = i + 1
---     refs[i] = k
--- end
+local found, refs = Nibs.find(function(val)
+    local t = type(val)
+    return t == "function"
+        or t == "cdata"
+        or (t == "string" and #val > 3)
+        or (t == "number" and (val % 1 ~= 0 or val >= 32768 or val < -32768))
+end, 1, _G)
+
+nibs.index_limit = 0
+local refs_encoded = nibs:encode(refs)
+
+nibs.index_limit = 10
+local encoded1 = nibs:encode(_G)
+
+nibs.refs = refs
+local encoded2 = refs_encoded .. nibs:encode(_G)
+
+nibs.index_limit = 3200
+local encoded3 = refs_encoded .. nibs:encode(_G)
 
 -- nibs.index_limit = 0
--- local refs_encoded = nibs:encode(refs)
+-- local encoded3 = nibs:encode(_G)
 
--- nibs.index_limit = 10
-
--- local encoded1 = nibs:encode(_G)
-
--- function nibs.to_ref(val) return toRefs[val] end
-
--- local encoded2 = refs_encoded .. nibs:encode(_G)
-
--- nibs.index_limit = 3200
-
--- local encoded3 = refs_encoded .. nibs:encode(_G)
--- -- nibs.index_limit = 0
--- -- local encoded3 = nibs:encode(_G)
--- print(#encoded1, #encoded2, #encoded3)
+print(#encoded1, #encoded2, #encoded3)
+print(#refs_encoded)

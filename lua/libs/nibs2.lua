@@ -1,5 +1,3 @@
--- local p = require('pretty-print').prettyPrint
-
 local xxh64 = require 'xxhash64'
 
 -- Main types
@@ -59,14 +57,6 @@ local Slice64 = ffi.typeof 'uint64_t[?]'
 local tohex = bit.tohex
 local byte = string.byte
 local concat = table.concat
-
-local function dump_string(str)
-    local parts = {}
-    for i = 1, #str do
-        parts[i] = tohex(byte(str, i), 2)
-    end
-    return concat(parts)
-end
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
@@ -191,7 +181,6 @@ function Nibs:encode(val)
     self.seen = {}
     local size, encoded = combine(self:encode_any(val))
     encoded = ffi_string(encoded, size)
-    p(val, dump_string(encoded))
     return encoded
 end
 
