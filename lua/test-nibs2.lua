@@ -2,8 +2,7 @@ local p = require('pretty-print').prettyPrint
 local colorize = require('pretty-print').colorize
 local Nibs = require "nibs2"
 
-local tests = require('fs').readFileSync "nibs-tests.txt"
-
+local tests = require('fs').readFileSync(module.dir .. "/nibs-tests.txt")
 local Json = require 'ordered-json'
 
 local nibs = Nibs.new()
