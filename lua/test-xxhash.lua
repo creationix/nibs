@@ -45,6 +45,10 @@ local tests = {
     { hex "1f000000000000f07f", 0, 0x64f4be21, 0x04e80133d19091d6ULL },
     { hex "1f000000000000f0ff", 0, 0x06e6a447, 0xf6b64012a65883f6ULL },
     { hex "1f000000000000f8ff", 0, 0xf755ac37, 0x7406dc284ae4491cULL },
+    -- "name"/"Nibs"
+    { hex "946e616d65", 0, 0xdce801fa, 0xff0dd0ea8d956135ULL },
+    { hex "944e696273", 0, 0x5c2d9a82, 0x9d97f2fd3ab72beaULL },
+
 }
 local good = color "success"
 local bad = color "failure"
@@ -55,7 +59,7 @@ for _, t in ipairs(tests) do
     local len = #input
     local h32 = xxh32(ptr, len, seed)
     local h64 = xxh64(ptr, len, seed)
-    print(string.format("%q, %d, %s%sx%s, %s%s%s",
+    print(string.format("%q, %d, %s%s%s, %s%s%s",
         input, seed,
         h32 == expected_h32 and good or bad, bit.tohex(h32), reset,
         h64 == expected_h64 and good or bad, bit.tohex(h64), reset

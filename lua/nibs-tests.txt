@@ -137,6 +137,7 @@ self.trie_optimize = 10
     {1:1,2:2,3:3,4:4} | dc0f160665fff9fbfd0202040406060808
 {1:1,2:2,3:3,4:4,5:5} | dc121706e5fff9fbfdf702020404060608080a0a
    {"name":"Tim",1:2} | dc101400a0fff6946e616d659354696d0204
+{"name":"Nibs",true:false} | dc11140021f5ff946e616d65944e6962732120
 
 self.trie_seed = 1
 
