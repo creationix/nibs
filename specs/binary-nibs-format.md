@@ -177,27 +177,8 @@ The `list` type is a ordered list of values.  It's encoded as zero or more nibs 
 
 For example `(1,2,3)` would be encoded as follows:
 
-```c
+```c++
 1010 0111 // List(3)
-0000 0010 // Integer(1)
-0000 0100 // Integer(2)
-0000 0110 // Integer(3)
-```
-
-### Array
-
-The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
-
-This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the end of the index (the start of the list of values).
-
-For example, the array `[1,2,3]` can be encoded as the following:
-
-```c
-1100 0111 // Array(len=7)
-0001 0011 // IndexHeader(width=1,count=3)
- 00000000 // Offset(0)
- 00000001 // Offset(1)
- 00000010 // Offset(2)
 0000 0010 // Integer(1)
 0000 0100 // Integer(2)
 0000 0110 // Integer(3)
@@ -209,9 +190,9 @@ Map payloads are encoded as zero or more nibs encoded key and value pairs concat
 
 For example, `{"name":"Nibs",true:false}` would be encoded as:
 
-```c
-1011 1100 // Map
- 00001100 // (len=12)
+```c++
+1011 1100 // Map-8bit
+     0x0c // (len=12)
 1001 0100 // String(len=4)
      0x6e // 'n'
      0x61 // 'a'
@@ -226,17 +207,97 @@ For example, `{"name":"Nibs",true:false}` would be encoded as:
 0010 0000 // Simple(0)
 ```
 
+### Array
+
+The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
+
+This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the end of the index (the start of the list of values).
+
+For example, the array `[1,2,3]` can be encoded as the following:
+
+```c++
+1100 0111 // Array(len=7)
+0001 0011 // IndexHeader(width=1,count=3)
+     0x00 // Offset(0)
+     0x01 // Offset(1)
+     0x02 // Offset(2)
+0000 0010 // Integer(1)
+0000 0100 // Integer(2)
+0000 0110 // Integer(3)
+```
+
 ### Trie
 
 A trie is an indexed map, this is done by creating a HAMT prefix trie from the nibs binary encoded map key hashed.
 
-Each level of the trie consumes 4 bits of the key.  Each node is compressed using a 16-bit wide bitfield
+The normal map encoding is at the end of the value just like with list/array.
 
-The secondary pair is just like array index where it stores pointer width, but the big number is the hash salt to help prevent hash collision attacks.
+For example, `{"name":"Nibs",true:false}` can be encoded as:
 
-The bitfield for compressed pointer arrays is the same width as the pointers, this means that depending on the width, different
+```c++
+1101 1100 // Trie-8bit
+     0x11 // (len=17)
+0001 0100 // IndexHeader(width=1,count=4)
+     0x00 // HashSeed(0)
+ 00100001 // Bitmask(00100001)
+1 0000101 // Pointer(133) -> Leaf(5)
+1 0000000 // Pointer(128) -> Leaf(0)
+1001 0100 // String(len=4)
+     0x6e // 'n'
+     0x61 // 'a'
+     0x6d // 'm'
+     0x65 // 'e'
+1001 0100 // String(len=4)
+     0x4e // 'N'
+     0x69 // 'i'
+     0x62 // 'b'
+     0x73 // 's'
+0010 0001 // Simple(1)
+0010 0000 // Simple(0)
+```
 
-bbbbbbbb 3 bits at a time
-bbbbbbbbbbbbbbbb 4 bits at a time
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 5 bits at a time
-bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb 6 bits at a time
+This index is a HAMT ([Hash Array Mapped Trie](https://en.wikipedia.org/wiki/Hash_array_mapped_trie)). The keys need to be mapped to uniformly distributed hashes.  By default nibs uses the [xxhash64](https://github.com/Cyan4973/xxHash) algorithm.
+
+The secondary nibs pair is pointer width and size of trie in entries.
+
+Example key hashing.  
+
+```c++
+key = "name"                   // "name"
+encoded = nibs.encode(key)     // <946e616d65>
+seed = 0                       // 0
+hash = xxhash64(encoded, seed) // 0xff0dd0ea8d956135ULL
+```
+
+### HAMT Encoding
+
+Each node in the tree has a bitfield so that only non-pointers need to be stored.
+
+For example, consider a simplified 4-bit wide trie node with 4 keys point to values at offsets 0,1,2,3:
+
+- `0101` -> 0
+- `0011` -> 1
+- `1010` -> 2
+- `1011` -> 3
+
+Since the width is 4 bits, we can only consume the hash 2 bits at a time (starting with least-significant).
+
+This means the root node has 3 entries for `01`, `10`, and `11`.  Since two keys share the `11` prefix a second node is needed.
+
+```c++
+// Hash config
+ 0000 // (seed 0)
+// Root Node (xxxx)
+ 1110 // Bitfield [1,2,3]
+1 000 // xx01 -> leaf 0
+1 010 // xx10 -> leaf 2
+0 000 // xx11 -> node 0
+// Second Node (xx11)
+ 0101 // Bitfield [0,2]
+1 001 // 0011 -> leaf 1
+1 000 // 1011 -> leaf 3
+```
+
+For each 1 in the bitfield, a pointer follows in the node.  The least significant bit is 0, most significant is 3.
+
+The pointers have a 1 prefix in the most significant position when pointing to a leaf node.  The value is offset from the start of the map (after the index).  Internal pointers start with a 0 in the most significant position followed by an offset from the end of the pointer.
