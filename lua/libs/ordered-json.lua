@@ -39,6 +39,7 @@ do
     ---@return boolean|string|number|table|nil parsed value
     ---@return string error
     function Json.decode(json)
+        assert(type(json) == "string", "JSON string expected")
         local value, index = parseAny(json, 1)
         local b
 

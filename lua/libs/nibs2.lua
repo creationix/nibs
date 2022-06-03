@@ -54,10 +54,6 @@ local Slice16 = ffi.typeof 'uint16_t[?]'
 local Slice32 = ffi.typeof 'uint32_t[?]'
 local Slice64 = ffi.typeof 'uint64_t[?]'
 
-local tohex = bit.tohex
-local byte = string.byte
-local concat = table.concat
-
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
 ---@param big integer and 64-bit unsigned integer
@@ -71,7 +67,7 @@ local function encode_pair(small, big)
         return 2, Slice8(2, { bor(pair, 12), big })
     elseif big < 0x10000 then
         return 3, { bor(pair, 13), Slice16(1, { big }) }
-    elseif big < 0x100000000ULL then
+    elseif big < 0x100000000 then
         return 5, { bor(pair, 14), Slice32(1, { big }) }
     else
         return 9, { bor(pair, 15), Slice64(1, { big }) }

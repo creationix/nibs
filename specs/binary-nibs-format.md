@@ -239,9 +239,35 @@ For example, `{"name":"Nibs",true:false}` can be encoded as:
      0x11 // (len=17)
 0001 0100 // IndexHeader(width=1,count=4)
      0x00 // HashSeed(0)
- 00100001 // Bitmask(00100001)
-1 0000101 // Pointer(133) -> Leaf(5)
-1 0000000 // Pointer(128) -> Leaf(0)
+ 00100001 // Bitmask([0,5])
+1 0001001 // 0 -> Leaf(10)
+1 0000000 // 5 -> Leaf(0)
+1001 0100 // String(len=4)
+     0x6e // 'n'
+     0x61 // 'a'
+     0x6d // 'm'
+     0x65 // 'e'
+1001 0100 // String(len=4)
+     0x4e // 'N'
+     0x69 // 'i'
+     0x62 // 'b'
+     0x73 // 's'
+0010 0001 // Simple(1)
+0010 0000 // Simple(0)
+```
+
+The same value with a worse seed chosen can show an internal node:
+
+```c++
+1101 1100 // Trie=8bit
+     0x13 // (len=19)
+0001 0110 // IndexHeader(width=1,count=6)
+     0x03 // HashSeed(3)
+ 00000100 // Bitmask([2])
+0 0000000 // 2 -> Pointer(0)
+ 00100010 // Bitmask([1,5])
+1 0000000 // 1 -> Leaf(0)
+1 0001001 // 5 -> Leaf(10)
 1001 0100 // String(len=4)
      0x6e // 'n'
      0x61 // 'a'
