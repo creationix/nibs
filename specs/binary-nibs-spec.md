@@ -39,23 +39,24 @@ enum Type {
     // slots 4-5 reserved for future inline types.
     // decoders can assume the nibs pair is all that needs skipping
 
-    // slot 6 reserved for arbitrary future use
+    // slots 6 and 7 reserved for arbitrary future use
     // decoders can't assume behavior of these.
-
-    // Tag Type - This is always followed by another nibs value
-    // decoders must read the next value recursively when skipping
-    Tag           = 7,  // big = index into runtime custom types table
 
     // Prefixed length types.
     Bytes         = 8,  // big = len
     String        = 9,  // big = len
     List          = 10, // big = len
     Map           = 11, // big = len
-    Array         = 12, // big = len
-    Trie          = 13, // big = len
+    Array         = 12, // big = len, small2 = width, big2 = count
+    Trie          = 13, // big = len, small2 = width, big2 = count
+    // slots 14 reserved for future prefixed length native types
+    // decoders can assume it will always have big = len
 
-    // slots 14-15 reserved for future prefixed length native types
-    // decoders can assume they will always have big = len
+    // This is encoded like array, except it's semantic meaning is special.
+    // The first value is some container that has refs inside it
+    // the rest of the values are the refs themselves offset by 1
+    // So Ref(0) inside the value is item(1) in this indexed array.
+    RefScope      = 15, // big = len, small2 = width, big2 = count
 };
 ```
 
