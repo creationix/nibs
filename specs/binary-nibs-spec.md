@@ -49,13 +49,8 @@ enum Type {
     Map           = 11, // big = len
     Array         = 12, // big = len, small2 = width, big2 = count
     Trie          = 13, // big = len, small2 = width, big2 = count
-    // slots 14 reserved for future prefixed length native types
+    // slots 1 reserved for future prefixed length native types
     // decoders can assume it will always have big = len
-
-    // This is encoded like array, except it's semantic meaning is special.
-    // The first value is some container that has refs inside it
-    // the rest of the values are the refs themselves offset by 1
-    // So Ref(0) inside the value is item(1) in this indexed array.
     RefScope      = 15, // big = len, small2 = width, big2 = count
 };
 ```
@@ -119,45 +114,37 @@ Currently only `true`, `false`, and `null` are specified and the rest of the ran
 
 ### Reference
 
-The `ref` type is used to reference into a userspace table of values.  This is commonly used as a means of compression to reduce the weight of repeated values commonly found in JSON workloads.  A suggested pattern is to include the refs as an `array` somewhere in the document so that the decoder knows where to find them.
+The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest RefScope wrapping the current value.
 
-```js
-{ refs: [....],
-  data: ... }
-```
+Future versions are considering allowing nested scopes that inherit from eachother, but it might not be worth the complexity.
 
-Note that it is up to the application and library exactly how the refs are found.  They don't have to be in the document at all and can reference a static dictionary or be provided via some side-channel at runtime.
+Typically this is the outermost value in a nibs document so that all data can reuse the same refs dictionary.
 
-It is recommended that APIs provide hooks for registering tags:
+### RefScope
 
-```typescript
-declare class Nibs {
-    // Register the refs one at a time
-    registerReference(index: number, value: any);
-    // Register the refs in bulk
-    registerReferences(value: any[]);
-}
-```
+This is encoded like array, except it's semantic meaning is special.
+The first value is some container that has refs inside it
+the rest of the values are the refs themselves offset by 1
 
-### Custom Type Tag
+For example, consider this list encoding of `[4,2,3,1]` using a refs table of `[1,2,3,4]`:
 
-The `tag` type is used for userspace custom data types.  It can attack a numerical type tag to any nibs value (even another tag if dfesired).  How this is interpreted is entirely up to the client library.  A suggested API may look like this:
-
-```typescript
-interface CustomType {
-    name?: string // Used for enhanced text format to show names instead of integers.
-    // Wrap the nibs encoded state and return the custom user type
-    encode(nibs: any): T
-    // Unwrap the custom user type and return a nibs serializable value
-    decode(val: T): any
-}
-
-declare class Nibs {
-    // Register one type at a time
-    registerType(index: number, handler: CustomType)
-    // Register all types in bulk
-    registerTypes(handlers: CustomType[])
-}
+```c++
+0xfa // RefScope-8
+  0x0e // (len=14)  this can be skipped like any other length prefix type.
+  0x14 // RefIndex(width=1, count=4)  <- Index Header
+    0x05 // Pointer(5)
+    0x06 // Pointer(6)
+    0x07 // Pointer(7)
+    0x08 // Pointer(8)
+  0xa3 // List(len=4)                 <- VALUE
+    0x33 // Ref(3) -> deref -> Int(4)
+    0x30 // Ref(1) -> deref -> Int(2)
+    0x30 // Ref(2) -> deref -> Int(3)
+    0x30 // Ref(0) -> deref -> Int(1)
+  0x02 // ZigZag(2) -> Int(1)         <- Ref(0)
+  0x04 // ZigZag(4) -> Int(2)         <- Ref(1)
+  0x06 // ZigZag(8) -> Int(3)         <- Ref(2)
+  0x08 // ZigZag(8) -> Int(4)         <- Ref(3)
 ```
 
 ### String
@@ -287,7 +274,7 @@ This index is a HAMT ([Hash Array Mapped Trie](https://en.wikipedia.org/wiki/Has
 
 The secondary nibs pair is pointer width and size of trie in entries.
 
-Example key hashing.  
+Example key hashing.
 
 ```c++
 key = "name"                   // "name"
