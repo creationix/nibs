@@ -112,7 +112,7 @@ double decodeDouble(uint64_t i) {
 
 Currently only `true`, `false`, and `null` are specified and the rest of the range is reserved.
 
-### Reference
+### Reference and RefScope
 
 The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest RefScope wrapping the current value.
 
@@ -120,32 +120,84 @@ Future versions are considering allowing nested scopes that inherit from eachoth
 
 Typically this is the outermost value in a nibs document so that all data can reuse the same refs dictionary.
 
-### RefScope
-
 This is encoded like array, except it's semantic meaning is special.
 The first value is some container that has refs inside it
 the rest of the values are the refs themselves offset by 1
 
-For example, consider this list encoding of `[4,2,3,1]` using a refs table of `[1,2,3,4]`:
+For example, consider the following value:
+
+```js
+// Original Value
+[ { color: "red", fruits: ["apple", "strawberry"] },
+  { color: "green", fruits: ["apple"] },
+  { color: "yellow", fruits: ["apple", "banana"] } ]
+```
+
+A good refs table for this would pull our the repeated strings:
+
+```js
+// Refs Table
+[ "color", "fruits", "apple" ]
+```
+
+Then the encoded value would look more like this with the refs applied.
+
+```js
+// encoding with refs and refsscope
+RefScope(
+  [ { @0: "red", @1: [@2, "strawberry"] },
+    { @0: "green", @1: [@2] },
+    { @0: "yellow", @1: [@2, "banana"] } ],
+  "color", "fruits", "apple"
+)
+```
+
+In this example, the refs table overhead is:
+
+```
++2 <- RefScope-8
++1 <- IndexHeader
++3 <- 3 pointers 1 byte each
+-5 <- "color" to Ref(0)
+-6 <- "fruits" to Ref(1)
+-5 <- "apple" to Ref(2)
+-5 <- "color" to Ref(0)
+-6 <- "fruits" to Ref(1)
+-5 <- "color" to Ref(0)
+-5 <- "apple" to Ref(2)
+-6 <- "fruits" to Ref(1)
+-5 <- "apple" to Ref(2)
++6 <- "color"
++7 <- "fruits"
++6 <- "apple"
+------------------------
+23 saved bytes overall
+```
+
+Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
+
+It then becomes `[ @3, @1, @2, @0 ]` which when encoded as a normal `list` wrapped in a `refscope` is `<fa0e1405060708a33331323002040608>`
 
 ```c++
 0xfa // RefScope-8
   0x0e // (len=14)  this can be skipped like any other length prefix type.
   0x14 // RefIndex(width=1, count=4)  <- Index Header
-    0x05 // Pointer(5)
-    0x06 // Pointer(6)
-    0x07 // Pointer(7)
-    0x08 // Pointer(8)
+    0x05 // 0: Pointer(5)
+    0x06 // 1: Pointer(6)
+    0x07 // 2: Pointer(7)
+    0x08 // 3: Pointer(8)
   0xa3 // List(len=4)                 <- VALUE
     0x33 // Ref(3) -> deref -> Int(4)
-    0x30 // Ref(1) -> deref -> Int(2)
-    0x30 // Ref(2) -> deref -> Int(3)
+    0x31 // Ref(1) -> deref -> Int(2)
+    0x32 // Ref(2) -> deref -> Int(3)
     0x30 // Ref(0) -> deref -> Int(1)
   0x02 // ZigZag(2) -> Int(1)         <- Ref(0)
   0x04 // ZigZag(4) -> Int(2)         <- Ref(1)
   0x06 // ZigZag(8) -> Int(3)         <- Ref(2)
   0x08 // ZigZag(8) -> Int(4)         <- Ref(3)
 ```
+
+Note that refs are always zero indexed even if your language normally starts indices at 1.  So this structure
 
 ### String
 
