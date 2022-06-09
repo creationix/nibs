@@ -31,29 +31,33 @@ For each encoded integer pair, the first small number is the type and the big nu
 enum Type {
 
     // Inline types.
-    Integer       = 0,  // big = zigzag encoded i64
-    FloatingPoint = 1,  // big = binary encoding of float
-    Simple        = 2,  // big = subtype
-    Ref           = 3,  // big = index into runtime references table
+    Integer       = 0, // big = zigzag encoded i64
+    FloatingPoint = 1, // big = binary encoding of float
+    Simple        = 2, // big = subtype (false, true, null)
+    Ref           = 3, // big = offset into nearest parent RefScope array
+    Hash          = 4, // big = u64 hash (values are assumed to have even distribution)
 
-    // slots 4-5 reserved for future inline types.
+    // slots 5 reserved for future inline types.
     // decoders can assume the nibs pair is all that needs skipping
 
     // slots 6 and 7 reserved for arbitrary future use
     // decoders can't assume behavior of these.
 
     // Prefixed length types.
-    Bytes         = 8,  // big = len
-    String        = 9,  // big = len
-    List          = 10, // big = len
-    Map           = 11, // big = len
-    Array         = 12, // big = len, small2 = width, big2 = count
-    Trie          = 13, // big = len, small2 = width, big2 = count
-    // slots 1 reserved for future prefixed length native types
-    // decoders can assume it will always have big = len
-    RefScope      = 15, // big = len, small2 = width, big2 = count
+    Bytes         = 6, // big = len
+    String        = 7, // big = len (utf-8 encoded unicode string)
+    HexString     = 8, // big = len (lowercase hex string stored as binary)
+    StringChain   = 9, // big = len
+    List          = a, // big = len
+    Map           = b, // big = len
+    Array         = c, // big = len, small2 = width, big2 = count
+    SparseArray   = d, // big = len, small2 = width, big2 = count
+    Trie          = e, // big = len, small2 = width, big2 = count
+    RefScope      = f, // big = len, small2 = width, big2 = count
 };
 ```
+
+1 11 53
 
 The simple type has it's own subtype enum:
 
@@ -112,9 +116,9 @@ double decodeDouble(uint64_t i) {
 
 Currently only `true`, `false`, and `null` are specified and the rest of the range is reserved.
 
-### Reference and RefScope
+### Reference and Scope
 
-The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest RefScope wrapping the current value.
+The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest `scope` wrapping the current value.
 
 Future versions are considering allowing nested scopes that inherit from eachother, but it might not be worth the complexity.
 
@@ -133,7 +137,7 @@ For example, consider the following value:
   { color: "yellow", fruits: ["apple", "banana"] } ]
 ```
 
-A good refs table for this would pull our the repeated strings:
+A good refs table for this would be to pull out the repeated strings since their refs overhead is smaller then their encoding costs:
 
 ```js
 // Refs Table
@@ -176,10 +180,10 @@ In this example, the refs table overhead is:
 
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
-It then becomes `[ @3, @1, @2, @0 ]` which when encoded as a normal `list` wrapped in a `refscope` is `<fa0e1405060708a33331323002040608>`
+It then becomes `[ @3, @1, @2, @0 ]` which when encoded as a normal `list` wrapped in a `refscope` is `<ea0e1405060708a33331323002040608>`
 
 ```c++
-0xfa // RefScope-8
+0xea // RefScope-8
   0x0e // (len=14)  this can be skipped like any other length prefix type.
   0x14 // RefIndex(width=1, count=4)  <- Index Header
     0x05 // 0: Pointer(5)

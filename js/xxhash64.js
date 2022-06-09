@@ -53,7 +53,6 @@ export function xxh64(data, seed) {
 
     h64 = h64 + BigInt(len)
 
-    console.log("Before extra", ptr, h64)
     // For the remaining words not covered above, either 0, 1, 2 or 3
     for (let i = ptr >> 3, l = len - 8; ptr <= l; ptr += 8) {
         h64 = (rotl64(h64 ^ round64(0n, u64[i++]), 27n) * PRIME64_1 + PRIME64_4) & MASK
