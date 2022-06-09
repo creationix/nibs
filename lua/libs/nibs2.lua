@@ -54,12 +54,20 @@ local Slice16 = ffi.typeof 'uint16_t[?]'
 local Slice32 = ffi.typeof 'uint32_t[?]'
 local Slice64 = ffi.typeof 'uint64_t[?]'
 
+local buckets = {}
+
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
 ---@param big integer and 64-bit unsigned integer
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
 local function encode_pair(small, big)
+    local b = math.ceil(math.log(big + 1, 2))
+    if buckets[b] then
+        buckets[b] = buckets[b] + 1
+    else
+        buckets[b] = 1
+    end
     local pair = lshift(small, 4)
     if big < 0xc then
         return 1, tonumber(bor(pair, big))
@@ -143,6 +151,7 @@ end
 
 ---@class Nibs : NibsOptions
 local Nibs = {}
+Nibs.buckets = buckets
 
 local NibsMeta = { __index = Nibs, __name = Nibs }
 

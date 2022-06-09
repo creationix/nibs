@@ -5,11 +5,26 @@ local OrderedMap = {}
 do
     -- Weak keys for storing object order out of table
     local orders = setmetatable({}, { __mode = "k" })
+    local function getOrder(self)
+        local order = orders[self]
+        if not order then
+            order = {}
+            local k
+            repeat
+                k = next(self, k)
+                if k then
+                    table.insert(order, k)
+                end
+            until not k
+            orders[self] = order
+        end
+        return order
+    end
 
     OrderedMap.__name = "Map"
 
     function OrderedMap:__pairs()
-        local order = orders[self]
+        local order = getOrder(self)
         return coroutine.wrap(function()
             for i = 1, #order do
                 local k = order[i]
@@ -21,7 +36,7 @@ do
     function OrderedMap.__len() return 0 end
 
     function OrderedMap:__newindex(key, value)
-        local order = orders[self]
+        local order = getOrder(self)
         local found = false
         for i = 1, #order do
             if order[i] == key then
@@ -41,7 +56,6 @@ do
     ---@return table
     function OrderedMap.new(...)
         local self = setmetatable({}, OrderedMap)
-        orders[self] = {}
         local count = select("#", ...)
         if count > 0 then
             local input = { ... }
@@ -55,7 +69,7 @@ do
     --- Since we have JavaScript style semantics, setting to nil doesn't delete
     --- This function actually deletes a value.
     function OrderedMap.delete(self, key)
-        local order = orders[self]
+        local order = getOrder(self)
         local skip = false
         for i = 1, #order + 1 do
             if skip then
@@ -74,12 +88,23 @@ local OrderedList = {}
 do
     -- Weak keys for storing array length out of table
     local lengths = setmetatable({}, { __mode = "k" })
+    local function getLength(self)
+        local length = lengths[self]
+        if not length then
+            local l = 0
+            repeat
+                l = l + 1
+            until rawget(self, l) == nil
+            length = l - 1
+            lengths[self] = length
+        end
+        return length
+    end
 
     OrderedList.__name = "List"
 
     function OrderedList.new(...)
         local self = setmetatable({}, OrderedList)
-        lengths[self] = 0
         local count = select("#", ...)
         if count > 0 then
             local input = { ... }
@@ -91,7 +116,8 @@ do
     end
 
     function OrderedList:__newindex(key, value)
-        local length = lengths[self]
+        local length = getLength(self)
+
         if type(key) == "number" and floor(key) == key then
             if key > length then
                 lengths[self] = key
@@ -101,11 +127,11 @@ do
     end
 
     function OrderedList:__len()
-        return lengths[self]
+        return getLength(self)
     end
 
     function OrderedList:__ipairs()
-        local length = lengths[self]
+        local length = getLength(self)
         return coroutine.wrap(function()
             for i = 1, length do
                 coroutine.yield(i, rawget(self, i))
@@ -114,7 +140,7 @@ do
     end
 
     function OrderedList.setLength(self, length)
-        local oldLength = lengths[self]
+        local oldLength = getLength(self)
         -- Trim away lua values that are now outside the array range
         if length < oldLength then
             for i = oldLength, length + 1, -1 do
