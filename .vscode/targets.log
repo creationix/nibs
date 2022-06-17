@@ -7,18 +7,14 @@ make all --print-data-base --no-builtin-variables --no-builtin-rules --question
 
 # This program built for i386-apple-darwin11.3.0
 
-# Make data base, printed on Fri May 27 11:29:29 2022
+# Make data base, printed on Thu Jun 16 22:15:56 2022
 
 # Variables
 
-# environment
-VSCODE_GIT_ASKPASS_MAIN = /Applications/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass-main.js
 # automatic
 <D = $(patsubst %/,%,$(dir $<))
 # automatic
 ?F = $(notdir $?)
-# environment
-ELECTRON_NO_ATTACH_CONSOLE = 1
 # environment
 VSCODE_LOG_NATIVE = false
 # automatic
@@ -36,19 +32,19 @@ VSCODE_NLS_CONFIG = {"locale":"en-us","availableLanguages":{},"_languagePackSupp
 # environment
 _ = /usr/bin/make
 # environment
-STARSHIP_SESSION_KEY = 1356215427268723
+STARSHIP_SESSION_KEY = 1062012402926832
 # environment
 VSCODE_VERBOSE_LOGGING = true
 # environment
 __CFBundleIdentifier = com.microsoft.VSCode
 # environment
-INFOPATH = /opt/homebrew/share/info:/opt/homebrew/share/info:
+INFOPATH = /opt/homebrew/share/info:
 # environment
-VSCODE_IPC_HOOK_EXTHOST = /var/folders/fg/p76_htfd0gx8ch2mnncv52nr0000gn/T/vscode-ipc-fefd75e4-78a0-47c6-ae05-c1747629e38c.sock
+VSCODE_IPC_HOOK_EXTHOST = /var/folders/fg/p76_htfd0gx8ch2mnncv52nr0000gn/T/vscode-ipc-4a9d3d7d-b9b9-470b-839f-71fe5bd39a0e.sock
 # environment
-VSCODE_CWD = /Users/tim/Code/proxy
+VSCODE_CWD = /
 # environment
-PATH = /usr/local/bin:/opt/homebrew/opt/openssl@3/bin:/Users/tim/bin:/Users/tim/.luarocks/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin:/Applications/Wireshark.app/Contents/MacOS:/opt/homebrew/opt/openssl@3/bin:/Users/tim/bin:/Users/tim/.luarocks/bin:/opt/homebrew/bin:/opt/homebrew/sbin:platform-tools:/Users/tim/google-cloud-sdk/bin:platform-tools:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin:/Applications/Wireshark.app/Contents/MacOS:/opt/homebrew/opt/openssl@3/bin:/Users/tim/bin:/Users/tim/.luarocks/bin:/opt/homebrew/bin:/opt/homebrew/sbin:platform-tools:/Users/tim/google-cloud-sdk/bin:/Users/tim/google-cloud-sdk/bin
+PATH = /usr/local/bin:/opt/homebrew/opt/openssl@3/bin:/Users/tim/bin:/Users/tim/.luarocks/bin:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin:/Applications/Wireshark.app/Contents/MacOS:platform-tools:/opt/homebrew/bin:/opt/homebrew/sbin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/go/bin:/Applications/Wireshark.app/Contents/MacOS:/Users/tim/google-cloud-sdk/bin
 # makefile
 MAKEFILE_LIST := 
 # environment
@@ -58,7 +54,7 @@ ELECTRON_RUN_AS_NODE = 1
 # default
 .FEATURES := target-specific order-only second-expansion else-if archives jobserver check-symlink
 # environment
-SSH_AUTH_SOCK = /private/tmp/com.apple.launchd.dvEoCVci5w/Listeners
+SSH_AUTH_SOCK = /private/tmp/com.apple.launchd.eTyk9AyMxF/Listeners
 # automatic
 %F = $(notdir $%)
 # environment
@@ -70,7 +66,7 @@ HOMEBREW_CELLAR = /opt/homebrew/Cellar
 # environment
 ORIGINAL_XDG_CURRENT_DESKTOP = undefined
 # environment
-MANPATH = /opt/homebrew/share/man:/usr/share/man:/usr/local/share/man:/Applications/Wireshark.app/Contents/Resources/share/man:/opt/homebrew/share/man:
+MANPATH = /opt/homebrew/share/man::
 # environment
 VSCODE_AMD_ENTRYPOINT = vs/workbench/api/node/extensionHostProcess
 # environment
@@ -78,29 +74,23 @@ HOME = /Users/tim
 # default
 MAKEFILEPATH = $(shell /usr/bin/xcode-select -print-path 2>/dev/null || echo /Developer)/Makefiles
 # environment
-VSCODE_CLI = 1
-# environment
-VSCODE_CODE_CACHE_PATH = /Users/tim/Library/Application Support/Code/CachedData/c3511e6c69bb39013c4a4b7b9566ec1ca73fc4d5
+VSCODE_CODE_CACHE_PATH = /Users/tim/Library/Application Support/Code/CachedData/30d9c6cd9483b2cc586687151bcbcd635f373630
 # environment
 LOGNAME = tim
 # environment
-APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = 1
+APPLICATION_INSIGHTS_NO_DIAGNOSTIC_CHANNEL = true
 # environment
 VSCODE_HANDLES_UNCAUGHT_ERRORS = true
 # automatic
 ^D = $(patsubst %/,%,$(dir $^))
 # environment
-MAKELEVEL := 0
-# environment
 XPC_FLAGS = 0x0
-# environment
-COLORTERM = truecolor
 # default
 MAKE = $(MAKE_COMMAND)
 # default
 MAKECMDGOALS := all
 # environment
-SHLVL = 3
+SHLVL = 1
 # default
 MAKE_VERSION := 3.81
 # environment
@@ -113,10 +103,6 @@ CR_PAT = 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
 %D = $(patsubst %/,%,$(dir $%))
 # default
 MAKE_COMMAND := /Library/Developer/CommandLineTools/usr/bin/make
-# environment
-VSCODE_GIT_ASKPASS_EXTRA_ARGS = --ms-enable-electron-run-as-node
-# environment
-TERM_PROGRAM = vscode
 # default
 .VARIABLES := 
 # environment
@@ -124,9 +110,7 @@ TMPDIR = /var/folders/fg/p76_htfd0gx8ch2mnncv52nr0000gn/T/
 # automatic
 *F = $(notdir $*)
 # environment
-VSCODE_IPC_HOOK = /Users/tim/Library/Application Support/Code/1.67.2-main.sock
-# environment
-VSCODE_GIT_ASKPASS_NODE = /Applications/Visual Studio Code.app/Contents/MacOS/Electron
+VSCODE_IPC_HOOK = /Users/tim/Library/Application Support/Code/1.68.1-main.sock
 # makefile
 MAKEFLAGS = Rrqp
 # environment
@@ -134,9 +118,7 @@ MFLAGS = -Rrqp
 # automatic
 *D = $(patsubst %/,%,$(dir $*))
 # environment
-TERM_PROGRAM_VERSION = 1.67.2
-# environment
-XPC_SERVICE_NAME = application.com.microsoft.VSCode.6298308.6298314.723CA2C6-9E4A-4FE1-B111-E7897726C7BE
+XPC_SERVICE_NAME = application.com.microsoft.VSCode.8047198.8047204
 # environment
 HOMEBREW_PREFIX = /opt/homebrew
 # automatic
@@ -149,8 +131,6 @@ HOMEBREW_REPOSITORY = /opt/homebrew
 __CF_USER_TEXT_ENCODING = 0x1F5:0x0:0x0
 # environment
 COMMAND_MODE = unix2003
-# environment
-GIT_ASKPASS = /Applications/Visual Studio Code.app/Contents/Resources/app/extensions/git/dist/askpass.sh
 # default
 MAKEFILES := 
 # automatic
@@ -164,19 +144,20 @@ SUFFIXES :=
 # default
 .INCLUDE_DIRS = /usr/local/include
 # environment
-VSCODE_GIT_IPC_HANDLE = /var/folders/fg/p76_htfd0gx8ch2mnncv52nr0000gn/T/vscode-git-0d87991dff.sock
+MAKELEVEL := 0
 # environment
 LANG = C
 # environment
-TERM = xterm-256color
-# environment
-VSCODE_PID = 3678
+VSCODE_PID = 4936
 # environment
 NPM_TOKEN = c7e499a5-6a23-4fc4-abd0-9969b107a7bb
 # environment
 STARSHIP_SHELL = zsh
 # variable set hash-table stats:
-# Load=82/1024=8%, Rehash=0, Collisions=4/103=4%
+ 
+make: *** No rule to make target `all'.  Stop.
+
+# Load=71/1024=7%, Rehash=0, Collisions=2/92=2%
 
 # Pattern-specific Variable Values
 
@@ -184,9 +165,9 @@ STARSHIP_SHELL = zsh
 
 # Directories
 
-# . (device 16777234, inode 2048004): 14 files, no impossibilities.
+# . (device 16777234, inode 2048004): 17 files, no impossibilities.
 
-# 14 files, no impossibilities in 1 directories.
+# 17 files, no impossibilities in 1 directories.
 
 # Implicit Rules
 
@@ -258,8 +239,6 @@ GNUmakefile:
 # strcache size: total = 0 / max = 0 / min = 4096 / avg = 0
 # strcache free: total = 0 / max = 0 / min = 4096 / avg = 0
 
-# Finished Make data base on Fri May 27 11:29:29 2022
+# Finished Make data base on Thu Jun 16 22:15:56 2022
 
  
-make: *** No rule to make target `all'.  Stop.
-
