@@ -15,6 +15,7 @@ end
 ---@param str string
 ---@return (string)[]
 local function split_path(str)
+    if true then return { str } end
     local i = 1
     local l = #str
     local t = {}

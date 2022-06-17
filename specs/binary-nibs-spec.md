@@ -171,16 +171,16 @@ Most strings are stored as utf-8 encoded unicode wrapped in a unicode type in ni
 --> "🏵ROSETTE"
 
 9b 18 --> Unicode-8(24)
-  F0 9F 9F A5 --> `🟥`
-  F0 9F 9F A7 --> `🟧`
-  F0 9F 9F A8 --> `🟨`
-  F0 9F 9F A9 --> `🟩`
-  F0 9F 9F A6 --> `🟦`
-  F0 9F 9F AA --> `🟪`
+  f0 9f 9f a5 --> `🟥`
+  f0 9f 9f a7 --> `🟧`
+  f0 9f 9f a8 --> `🟨`
+  f0 9f 9f a9 --> `🟩`
+  f0 9f 9f a6 --> `🟦`
+  f0 9f 9f aa --> `🟪`
 --> "🟥🟧🟨🟩🟦🟪"
 
 95 --> Unicode(4)
-  F0 9F 91 B6 --> `👶`
+  f0 9f 91 b6 --> `👶`
   3f --> `?`
 --> "👶?"
 ```
