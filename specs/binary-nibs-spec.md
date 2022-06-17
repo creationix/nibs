@@ -181,7 +181,7 @@ Most strings are stored as utf-8 encoded unicode wrapped in a unicode type in ni
 
 95 --> Unicode(4)
   F0 9F 91 B6 --> `👶`
-  3f -> `?`
+  3f --> `?`
 --> "👶?"
 ```
 
@@ -515,33 +515,3 @@ This means the root node has 3 entries for `01`, `10`, and `11`.  Since two keys
 For each 1 in the bitfield, a pointer follows in the node.  The least significant bit is 0, most significant is 3.
 
 The pointers have a 1 prefix in the most significant position when pointing to a leaf node.  The value is offset from the start of the map (after the index).  Internal pointers start with a 0 in the most significant position followed by an offset from the end of the pointer.
-
-```js
-{
-  method: string
-  path: string
-  headers: map
-}
-body*: bytes
-{
-     trailers: map
-}?
-EOS
-```
-
-stream id    u16
-frame length u16
-.....
-
-frame length = 0 when EOS
-
-stream id    i16 (sign means direction)
-frame length u16
-
-[1, "tty_resize", 80, 24]
-[-1]
-
-- finish nibs
-- finish multiplex
-- spec http over nibs as multiple nibs docs
-- spec rpc over nibs as multiple nibs docs
