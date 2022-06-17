@@ -23,43 +23,152 @@ Encoders *should* only use the smallest possible encoding for a given value.
 
 Decoders *must* accept all.
 
-## Nibs Value Types
+## Types and SubTypes
 
 For each encoded integer pair, the first small number is the type and the big number is it's parameter:
+
+0.1
+base = 1
+sign = +- (2)
+exponent = 1
+
+mmxxxxxx
+00xxxxxx
+01xxxxxx mmxxxxxx
+10xxxxxx mmxxxxxx xxxxxxxx
+11xxxxxx mmxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
+1xxxxxxx 1xxxxxxx 1xxxxxxx 1xxxxxxx 0xxxxxxx
+
+00xx
+01xx mmxxxxxx
+10xx mmxxxxxx xxxxxxxx
+11xx mmxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx
+
+xxxxxxxx (123)
+11111100 xxxxxxxx (255)
+11111101 xxxxxxxx xxxxxxxx (64Ki)
+11111110 xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx (4Gi)
+11111111 xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx xxxxxxxx (16Ei)
 
 ```c++
 enum Type {
 
     // Inline types.
-    ZigZag    = 0, // big = zigzag encoded i64
-    Float     = 1, // big = binary encoding of float
-    Simple    = 2, // big = subtype (false, true, null)
-    Ref       = 3, // big = reference offset into nearest parent RefScope array
+    Integer       = 0, // big = zigzag encoded i64
+    Decimal       = 1, // big = zigzag exponent, , small2 = signs, big2 = exponent
+    FloatingPoint = 1, // big = binary encoding of float
+    Simple        = 2, // big = subtype (false, true, null)
+    Ref           = 3, // big = offset into nearest parent RefScope array
+    Hash          = 4, // big = u64 hash (values are assumed to have even distribution)
 
-    // slots 4-7 reserved
+    // slots 5 reserved for future inline types.
+    // decoders can assume the nibs pair is all that needs skipping
+
+    // slots 6 and 7 reserved for arbitrary future use
+    // decoders can't assume behavior of these.
 
     // Prefixed length types.
-    Bytes     = 8, // big = len (raw octets)
-    Unicode   = 9, // big = len (utf-8 encoded unicode string)
-    HexString = a, // big = len (lowercase hex string stored as binary)
-    List      = b, // big = len (list of nibs values)
-    Map       = c, // big = len (list of alternating nibs keys and values)
-    Array     = d, // big = len (array index then list)
-                   // small2 = width, big2 = count 
-    Trie      = e, // big = len (trie index then list)
-                   // small2 = width, big2 = count
-    Scope     = f, // big = len (wrapped value, then array of refs)
-                   // small2 = width, big2 = count
+    Bytes         = 6, // big = len
+    String        = 7, // big = len (utf-8 encoded unicode string)
+    HexString     = 8, // big = len (lowercase hex string stored as binary)
+    StringChain   = 9, // big = len
+    List          = a, // big = len
+    Map           = b, // big = len
+    Array         = c, // big = len, small2 = width, big2 = count
+    SparseArray   = d, // big = len, small2 = width, big2 = count
+    Trie          = e, // big = len, small2 = width, big2 = count
+    RefScope      = f, // big = len, small2 = width, big2 = count
 };
 ```
 
-### ZigZag Integers
+                           eemmmmmm m=-32 to 31 e=-2 to 1
+
+                  emmmmmmm eemmmmmm m=-4096 to 4097 e=-4 to 3
+
+eeemmmmm mmmmmmmm emmmmmmm eemmmmmm m=-33554432 to 33554431 e=-32 to 31
+
+eeeemmmm mmmmmmmm mmmmmmmm mmmmmmmm m=-9007199254740992 to 9007199254740991
+eeemmmmm mmmmmmmm emmmmmmm eemmmmmm e=-512 to 511
+
+```
+
+```c
+double decode(num: u64) {
+     e = (((num >> 60) & 0b1111) << 6)
+       | (((num >> 29) & 0b111) << 3)
+       | (((num >> 15) & 0b1) << 2)
+       | (((num >> 6) & 0b11) << 0)
+     m = (((num >> 32) & 0xfffffff) << 26)
+       | (((num >> 16) & 0x1ffff) << 13)
+       | (((num >> 8) & 0x7f) << 2)
+       | (((num >> 0) & 0x3f) << 0)
+     e = dezigzag(e)
+     m = dezigzag(m)
+     return m * 10 ** e
+}
+```
+
+```
+                           eemmmmmm m=-32 to 31 
+                                    e=-2 to 1
+
+                  mmmmmmme eemmmmmm m=-4096 to 4097 
+                                    e=-4 to 3
+
+eeemmmmm mmmmmmmm mmmmmmme eemmmmmm m=-33554432 to 33554431 
+                                    e=-32 to 31
+
+mmmmmmmm mmmmmmmm mmmmmmmm mmmmeeee m=-9007199254740992 to 9007199254740991
+eeemmmmm mmmmmmmm mmmmmmme eemmmmmm e=-512 to 511
+
+```
+
+```c
+double decode(uint64_t num) {
+     uint64_t e = (((num >> 29) & 0x7f) << 3)
+       | (((num >> 6) & 0x7) << 0);
+     uint64_t m = (((num >> 36) & 0xfffffff) << 30)
+       | (((num >> 9) & 0xfffff) << 6)
+       | (((num >> 0) & 0x3f) << 0);
+     int64_t e1 = dezigzag(e);
+     int64_t e2 = dezigzag(m);
+     return (double)m * pow(10, (double)e);
+}
+
+uint64_t encode(double num) {
+
+
+}
+```
+
+The simple type has it's own subtype enum:
+
+```c++
+enum SubType {
+    False     = 0,
+    True      = 1,
+    Null      = 2,
+};
+```
+
+Some examples of encoding into nibs:
+
+- `0` -> `Integer(0)` -> `0:0` -> `0000 0000`
+- `-2` -> `Integer(3)` -> `0:3` -> `0000 0011`
+- `42` -> `Integer(84)` -> `0:84` -> `0000 1100 01010100`
+- `true` -> `Simple(1)` -> `2:1` -> `0010 0001`
+- `&4` -> `Ref(4)` -> `3:4` -> `0011 0100`
+- `2|false` -> `Tag(2) Simple(0)` -> `7:2 2:0` -> `0111 0010 0010 0000`
+
+Note that it is possible to skip over any value by only reading the initial nibs pair (except for `tag` which needs to recursively skip the next value).
+
+### ZigZag Integer
 
 The `integer` type has `i64` range, but is encoded with zigzag encoding to take advantage of the smaller nibs representations for common values.
 
 This maps negative values to positive values while going back and forth:
 
-`(0 = 0, -1 = 1, 1 = 2, -2 = 3, 2 = 4, -3 = 5, 3 = 6 ...)`
+(0 = 0, -1 = 1, 1 = 2, -2 = 3, 2 = 4, -3 = 5, 3 = 6 ...)
 
 ```c
 // Convert between signed value and `u64` bitfield representations.
@@ -71,31 +180,9 @@ int64_t decodeZigZag(uint64_t i) {
 }
 ```
 
-The best way to show this is with some examples going from encoded bytes to dissambly to final semantic meaning.
+### Floating Point Number
 
-```lua
-00 --> ZigZag(0)
---> 0
-
-03 --> ZigZag(3)
---> -2
-
-0c 54 --> ZigZag-8(84) 
---> 42
-
-0d d0 07 --> ZigZag-16(2000)
---> 1000
-
-0e 40 0d 03 00 --> ZigZag-32(200000)
---> 100000
-
-0f 00 c8 17 a8 04 00 00 00 --> ZigZag-64(20000000000)
---> 10000000000
-```
-
-### Floating Point Numbers
-
-The `float` type is stored as binary-64 (aka `double`) bitcast to u64.
+The `float` type is stored as 64 bit IEEE floats bitcast to u64.
 
 ```c
 // Convert between `f64` (double precision floating point) and `u64` bitfield representations.
@@ -107,105 +194,15 @@ double decodeDouble(uint64_t i) {
 }
 ```
 
-This means that in practice it will nearly always use the largest representation since `double` almost always uses the high bits.
+### Simple SubType
 
-```lua
-1f 18 2d 44 54 fb 21 09 40 --> Float-64(0x400921fb54442d18)
---> 3.1415926535897930
+Currently only `true`, `false`, and `null` are specified and the rest of the range is reserved.
 
-1f 00 00 00 00 00 00 f0 7f --> Float-64(0x7ff0000000000000)
---> inf
-
-1f 00 00 00 00 00 00 f0 ff --> Float-64(0xfff0000000000000)
---> -inf
-
-1f 00 00 00 00 00 00 f8 ff --> Float-64(0xfff8000000000000)
---> nan
-```
-
-### Simple SubTypes
-
-The simple type has it's own subtype enum for booleans and null.
-
-```c++
-enum SubType {
-    False     = 0,
-    True      = 1,
-    Null      = 2,
-
-    // slots 3-7 reserved
-};
-```
-
-These are simple indeed to encode.
-
-```lua
-20 --> Simple(1)
---> false
-
-21 --> Simple(1)
---> true
-
-22 --> Simple(2)
---> null
-```
-
-### Bytes
-
-Bytes are a container for raw octets.
-
-```lua
-84 --> Bytes(4)
-  de ad be ef --> 0xde 0xad 0xbe 0xef
---> <deadbeef>
-```
-
-### Unicode Strings
-
-Most strings are stored as utf-8 encoded unicode wrapped in a unicode type in nibs.  Codepoints higher than 16-bits are allowed, but also are surrogate pairs.  It is recommended to not encode as surrogate pairs and use the smaller native encoding utf-8 allows.
-
-```lua
-9a --> Unicode(11)
-  f0 9f 8f b5 --> `🏵`
-  52 4f 53 45 54 54 45 --> `R` `O` `S` `E` `T` `T` `E`
---> "🏵ROSETTE"
-
-9b 18 --> Unicode-8(24)
-  F0 9F 9F A5 --> `🟥`
-  F0 9F 9F A7 --> `🟧`
-  F0 9F 9F A8 --> `🟨`
-  F0 9F 9F A9 --> `🟩`
-  F0 9F 9F A6 --> `🟦`
-  F0 9F 9F AA --> `🟪`
---> "🟥🟧🟨🟩🟦🟪"
-
-95 --> Unicode(4)
-  F0 9F 91 B6 --> `👶`
-  3f -> `?`
---> "👶?"
-```
-
-### Hex Strings
-
-Hex Strings are an optimization for common string values that are an even number of lowercase hexadecimal characters.  They are stored in half the space by storing the pairs as bytes, but are strings externally.
-
-```lua
-a4 --> HexString(4)
-  de ad be ef --> 0xde 0xad 0xbe 0xef
---> "deadbeef"
-```
-
-### List
-
-### Map
-
-### Array
-
-### Trie
-
-### References
+### Reference and Scope
 
 The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest `scope` wrapping the current value.
+
+Future versions are considering allowing nested scopes that inherit from eachother, but it might not be worth the complexity.
 
 Typically this is the outermost value in a nibs document so that all data can reuse the same refs dictionary.
 
@@ -234,16 +231,16 @@ Then the encoded value would look more like this with the refs applied.
 ```js
 // encoding with refs and refsscope
 RefScope(
-  [ { &0: "red", &1: [&2, "strawberry"] },
-    { &0: "green", &1: [&2] },
-    { &0: "yellow", &1: [&2, "banana"] } ],
+  [ { @0: "red", @1: [@2, "strawberry"] },
+    { @0: "green", @1: [@2] },
+    { @0: "yellow", @1: [@2, "banana"] } ],
   "color", "fruits", "apple"
 )
 ```
 
 In this example, the refs table overhead is:
 
-```txt
+```
 +2 <- RefScope-8
 +1 <- IndexHeader
 +3 <- 3 pointers 1 byte each
@@ -265,81 +262,28 @@ In this example, the refs table overhead is:
 
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
-```lua
-ea 0e --> Ref-8(14)
-  14 --> ArrayIndex(width=1,count=4)
-    05 --> Pointer(5)
-    06 --> Pointer(6)
-    07 --> Pointer(7)
-    08 --> Pointer(8)
-  a3 --> List(3)
-    33 --> Ref(3)
-    31 --> Ref(1)
-    32 --> Ref(2)
-    30 --> Ref(0)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
-  08 --> ZigZag(8)
---> Scope([&3,&1,&2,&0],1,2,3,4)
+It then becomes `[ @3, @1, @2, @0 ]` which when encoded as a normal `list` wrapped in a `refscope` is `<ea0e1405060708a33331323002040608>`
+
+```c++
+0xea // RefScope-8
+  0x0e // (len=14)  this can be skipped like any other length prefix type.
+  0x14 // RefIndex(width=1, count=4)  <- Index Header
+    0x05 // 0: Pointer(5)
+    0x06 // 1: Pointer(6)
+    0x07 // 2: Pointer(7)
+    0x08 // 3: Pointer(8)
+  0xa3 // List(len=4)                 <- VALUE
+    0x33 // Ref(3) -> deref -> Int(4)
+    0x31 // Ref(1) -> deref -> Int(2)
+    0x32 // Ref(2) -> deref -> Int(3)
+    0x30 // Ref(0) -> deref -> Int(1)
+  0x02 // ZigZag(2) -> Int(1)         <- Ref(0)
+  0x04 // ZigZag(4) -> Int(2)         <- Ref(1)
+  0x06 // ZigZag(8) -> Int(3)         <- Ref(2)
+  0x08 // ZigZag(8) -> Int(4)         <- Ref(3)
 ```
 
-Note that refs are always zero indexed even if your language normally starts indices at 1.  
-
-###
-
-Some more examples will explain this.
-
-```lua
-95 --> String(5)
-  48 65 6c 6c 6f --> `H` `e` `l` `l` `o`
---> "Hello"
-
-a4 --> HexString(4)
-  de ad be ef --> 0xde 0xad 0xbe 0xef
---> "deadbeef"
-
-a0 --> List(0)
---> []
-
-a6 --> List(6)
-  a1 --> List(1)
-    02 --> ZigZag(2)
-  a1 --> List(1)
-    04 --> ZigZag(4)
-  a1 --> List(1)
-    06 --> ZigZag(6)
---> [[1],[2],[3]]
-
-bb --> Map(11)
-  94 --> String(4)
-    6e 61 6d 65 --> `n` `a` `m` `e`
-  93 --> String(3)
-    54 69 6d --> `T` `i` `m`
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
---> {"name":"Tim",1:2}
-```
-
-The last 3 types are a bit more complex.  They are just like `List` and `Map` except they have an index before the list of values.
-
-```lua
-c7 --> Array(7) 
-  13 --> ArrayIndex(width=1,count=3)
-    00 --> Pointer(0)
-    01 --> Pointer(1)
-    02 --> Pointer(2)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
---> [1,2,3]
-```
-
-### Floating Point Number
-
-### Simple SubType
-
-Currently only `true`, `false`, and `null` are specified and the rest of the range is reserved.
+Note that refs are always zero indexed even if your language normally starts indices at 1.  So this structure
 
 ### String
 
@@ -357,7 +301,7 @@ The `byte` type is a byte array for storing bulk binary octets.
 
 The `list` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
 
-For example `[1,2,3]` would be encoded as follows:
+For example `(1,2,3)` would be encoded as follows:
 
 ```c++
 1010 0111 // List(3)
@@ -415,12 +359,6 @@ A trie is an indexed map, this is done by creating a HAMT prefix trie from the n
 The normal map encoding is at the end of the value just like with list/array.
 
 For example, `{"name":"Nibs",true:false}` can be encoded as:
-
-```js
-{
-     <5d765efe5d>: {...},
-}
-```
 
 ```c++
 1101 1100 // Trie-8bit
@@ -515,33 +453,3 @@ This means the root node has 3 entries for `01`, `10`, and `11`.  Since two keys
 For each 1 in the bitfield, a pointer follows in the node.  The least significant bit is 0, most significant is 3.
 
 The pointers have a 1 prefix in the most significant position when pointing to a leaf node.  The value is offset from the start of the map (after the index).  Internal pointers start with a 0 in the most significant position followed by an offset from the end of the pointer.
-
-```js
-{
-  method: string
-  path: string
-  headers: map
-}
-body*: bytes
-{
-     trailers: map
-}?
-EOS
-```
-
-stream id    u16
-frame length u16
-.....
-
-frame length = 0 when EOS
-
-stream id    i16 (sign means direction)
-frame length u16
-
-[1, "tty_resize", 80, 24]
-[-1]
-
-- finish nibs
-- finish multiplex
-- spec http over nibs as multiple nibs docs
-- spec rpc over nibs as multiple nibs docs
