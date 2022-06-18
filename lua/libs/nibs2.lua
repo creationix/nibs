@@ -1,16 +1,19 @@
 local xxh64 = require 'xxhash64'
 
 -- Main types
-local INT = 0
+local ZIGZAG = 0
 local FLOAT = 1
 local SIMPLE = 2
 local REF = 3
 local BYTE = 8
-local STRING = 9
-local LIST = 10
-local MAP = 11
-local ARRAY = 12
-local TRIE = 13
+local UTF8 = 9
+local HEX = 10
+local LIST = 11
+local MAP = 12
+local ARRAY = 13
+local TRIE = 14
+local SCOPE = 15
+
 -- Simple subtypes
 local FALSE = 0
 local TRUE = 1
@@ -54,20 +57,12 @@ local Slice16 = ffi.typeof 'uint16_t[?]'
 local Slice32 = ffi.typeof 'uint32_t[?]'
 local Slice64 = ffi.typeof 'uint64_t[?]'
 
-local buckets = {}
-
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
 ---@param big integer and 64-bit unsigned integer
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
 local function encode_pair(small, big)
-    local b = math.ceil(math.log(big + 1, 2))
-    if buckets[b] then
-        buckets[b] = buckets[b] + 1
-    else
-        buckets[b] = 1
-    end
     local pair = lshift(small, 4)
     if big < 0xc then
         return 1, tonumber(bor(pair, big))
@@ -204,19 +199,19 @@ function Nibs:encode_any(val)
     local t = type(val)
     if t == "number" then
         if val % 1 == 0 then
-            return encode_pair(INT, encode_zigzag(val))
+            return encode_pair(ZIGZAG, encode_zigzag(val))
         else
             return encode_pair(FLOAT, encode_float(val))
         end
     elseif t == "string" then
         local len = #val
-        local size, head = encode_pair(STRING, len)
+        local size, head = encode_pair(UTF8, len)
         return size + len, { head, val }
     elseif t == "cdata" then
         if istype(I64, val) or istype(I32, val) or istype(I16, val) or istype(I8, val) or
             istype(U64, val) or istype(U32, val) or istype(U16, val) or istype(U8, val) then
             -- Treat cdata integers as integers
-            return encode_pair(INT, encode_zigzag(val))
+            return encode_pair(ZIGZAG, encode_zigzag(val))
         elseif istype(F64, val) or istype(F32, val) then
             -- Treat cdata floats as floats
             return encode_pair(FLOAT, encode_float(val))
