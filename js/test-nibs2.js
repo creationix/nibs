@@ -1,4 +1,5 @@
-import { fstat, readFileSync } from "node:fs"
+import { readFileSync } from "node:fs"
+import { decodeText } from "./nibs-text.js"
 
 const colors = {
     property: "38;5;253",
@@ -39,9 +40,10 @@ function colorize(colorName, string, resetName) {
 const tests = readFileSync("../nibs-tests.txt", "utf8")
 
 const section = /^([^=|]+)$/
-const config = /([^=]+)=([^=]+)/
+const setup = /([^=]+)=([^=]+)/
 const test = /([^|]+)\|([^|]+)/
 
+const config = {}
 for (const line of tests.split("\n")) {
     let m = line.match(section)
     if (m) {
@@ -49,16 +51,16 @@ for (const line of tests.split("\n")) {
         console.log("\n" + colorize("highlight", line) + "\n")
         continue
     }
-    m = line.match(config)
+    m = line.match(setup)
     if (m) {
         const name = m[1].trim()
         const val = parseInt(m[2].trim(), 10)
-        console.log("config", { name, val })
+        config[name] = val
         continue
     }
     m = line.match(test)
     if (m) {
-        const text = m[1].trim()
+        const text = decodeText(m[1].trim())
         const hex = m[2].trim()
         console.log("test", { text, hex })
         continue
