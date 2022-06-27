@@ -82,6 +82,10 @@ Utf8
              "Hello" | 9548656c6c6f
              "World" | 95576f726c64
 
+HexString
+
+          "deadbeef" | a4deadbeef
+
 index_limit = 100
 
 List

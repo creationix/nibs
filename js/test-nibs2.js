@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { decodeText } from "./nibs-text.js"
+import { parse as parseText } from "./text-parser.js"
 
 const colors = {
     property: "38;5;253",
@@ -60,9 +60,9 @@ for (const line of tests.split("\n")) {
     }
     m = line.match(test)
     if (m) {
-        const text = decodeText(m[1].trim())
+        const input = parseText(m[1])
         const hex = m[2].trim()
-        console.log("test", { text, hex })
+        console.log("test", { input, hex })
         continue
     }
 }
