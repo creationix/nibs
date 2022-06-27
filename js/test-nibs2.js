@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import { parse as parseText } from "./text-parser.js"
+import { encode as encodeNibs } from "./nibs2.js"
 
 const colors = {
     property: "38;5;253",
@@ -61,8 +62,10 @@ for (const line of tests.split("\n")) {
     m = line.match(test)
     if (m) {
         const input = parseText(m[1])
-        const hex = m[2].trim()
-        console.log("test", { input, hex })
+        const expected = m[2].trim()
+        const actual = Buffer.from(encodeNibs(input)).toString("hex")
+        console.log("test", { input, expected, actual })
+        if (expected !== actual) throw new Error("Failed test")
         continue
     }
 }
