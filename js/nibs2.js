@@ -46,20 +46,12 @@ function encodePair(small, big) {
             big >>> 24,
         ]
     }
-    if (big < 0x20000000000000) {
-        return [
-            high | 0xf,
-            big & 0xff,
-            (big >>> 8) & 0xff,
-            (big >>> 16) & 0xff,
-            (big >>> 24) & 0xff,
-            (big >>> 32) & 0xff,
-            (big >>> 40) & 0xff,
-            (big >>> 48) & 0xff,
-            big >>> 56,
-        ]
-    }
-    throw new Error("TODO: big numbers")
+    const view = new DataView(new ArrayBuffer(8))
+    view.setBigUint64(0, BigInt(big), true)
+    return [
+        high | 0xf,
+        view.buffer,
+    ]
 }
 
 /**
@@ -68,7 +60,7 @@ function encodePair(small, big) {
  */
 export function encode(val) {
     const parts = encodeAny(val)
-    console.log({ parts })
+    // console.log({ parts })
     const size = count(parts)
     const out = new Uint8Array(size)
     let i = 0
@@ -85,7 +77,11 @@ export function encode(val) {
             }
             return sum
         }
-        throw "TODO count more types"
+        if (v instanceof ArrayBuffer) {
+            return v.byteLength
+        }
+        console.log({ v })
+        throw "Unable to count type"
     }
 
     function flatten(v) {
@@ -95,15 +91,16 @@ export function encode(val) {
             for (const s of v) {
                 flatten(s)
             }
-        } else {
-            throw "TODO flatten more types"
+        } else if (v instanceof ArrayBuffer) {
+            out.set(new Uint8Array(v), i)
+            i += v.byteLength
         }
     }
 }
 
 export function encodeAny(val) {
-    if (typeof (val) === "number") {
+    if (typeof (val) === "number" && Math.floor(val) === val) {
         return encodePair(ZIGZAG, zigzagEncode(val))
     }
-    throw "TODO"
+    throw "TODO, encode more types"
 }

@@ -64,7 +64,8 @@ for (const line of tests.split("\n")) {
         const input = parseText(m[1])
         const expected = m[2].trim()
         const actual = Buffer.from(encodeNibs(input)).toString("hex")
-        console.log("test", { input, expected, actual })
+        const color = expected == actual ? "success" : "failure"
+        console.log(`${m[1]} | ${colorize(color, actual)}`)
         if (expected !== actual) throw new Error("Failed test")
         continue
     }
