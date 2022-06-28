@@ -61,7 +61,7 @@ Floats
               1.1E-1 | 1f295c8fc2f528bc3f
                  inf | 1f000000000000f07f
                 -inf | 1f000000000000f0ff
-                 nan | 1f000000000000f8ff
+                 nan | 1f000000000000f87f
 
 Simple
 
