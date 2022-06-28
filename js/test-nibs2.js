@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { parse as parseText } from "./text-parser.js"
-import { encode as encodeNibs } from "./nibs2.js"
+import { encode as encodeNibs, DEFAULTS as defaultConfig } from "./nibs2.js"
 
 const colors = {
     property: "38;5;253",
@@ -27,7 +27,7 @@ const colors = {
 }
 
 /**
- * @param {string} colorName 
+ * @param {string} colorName
  * @returns string
  */
 function color(colorName) {
@@ -44,7 +44,7 @@ const section = /^([^=|]+)$/
 const setup = /([^=]+)=([^=]+)/
 const test = /([^|]+)\|([^|]+)/
 
-const config = {}
+const config = { ...defaultConfig }
 for (const line of tests.split("\n")) {
     let m = line.match(section)
     if (m) {
@@ -63,7 +63,7 @@ for (const line of tests.split("\n")) {
     if (m) {
         const input = parseText(m[1])
         const expected = m[2].trim()
-        const actual = Buffer.from(encodeNibs(input)).toString("hex")
+        const actual = Buffer.from(encodeNibs(input, config)).toString("hex")
         const color = expected == actual ? "success" : "failure"
         console.log(`${m[1]} | ${colorize(color, actual)}`)
         if (expected !== actual) throw new Error("Failed test")

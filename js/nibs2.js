@@ -14,14 +14,24 @@ const FALSE = 0
 const TRUE = 1
 const NULL = 2
 
+/**
+ * @typedef {{index_limit:number}} NibsEncodeConfig
+ */
+
+/** @type {NibsEncodeConfig} */
+export const DEFAULTS = {
+    index_limit: 32,
+}
+
+
 function zigzagEncode(num) {
     return Math.abs(num * 2) - (num < 0 ? 1 : 0)
 }
 
 /**
- * 
- * @param {number} small 
- * @param {number|bigint} big 
+ *
+ * @param {number} small
+ * @param {number|bigint} big
  * @returns {[number,...any]}
  */
 function encodePair(small, big) {
@@ -51,7 +61,7 @@ function encodePair(small, big) {
 }
 
 /**
- * @param {number} num 
+ * @param {number} num
  * @returns {[number,...any]}
  */
 function encodeFloat(num) {
@@ -61,15 +71,19 @@ function encodeFloat(num) {
 }
 
 /**
- * @param {any} val 
+ * @param {any} val
+ * @param {NibsEncodeConfig} config?
  * @returns {Uint8Array}
  */
-export function encode(val) {
-    /**@type {[number,...any]} */
-    const [size, ...parts] = encodeAny(val)
+export function encode(val, config = DEFAULTS) {
+    if (config !== DEFAULTS) {
+        config = { ...DEFAULTS, ...config }
+    }
+    const [size, ...parts] = encodeAny(val, config)
     // console.log({ size, parts })
     const out = new Uint8Array(size)
     let i = 0
+    console.log({ size, parts })
     flatten(parts)
     if (i !== size) {
         console.log({ i, size, parts })
@@ -109,7 +123,7 @@ function hexDecode(val) {
 }
 
 /**
- * @param {ArrayBufferView|ArrayBuffer} val 
+ * @param {ArrayBufferView|ArrayBuffer} val
  * @param {number} type
  * @returns {[number,...any]}
  */
@@ -119,40 +133,63 @@ function encodeBinary(val, type = BYTES) {
 }
 
 /**
- * @param {any[]} val 
+ * @param {any[]} val
+ * @param {NibsEncodeConfig} config
  * @returns {[number,...any]}
  */
-function encodeArray(val) {
+function encodeArray(val, config) {
     let totalLen = 0
     const parts = []
+    const offsets = []
+    let last = 0
     for (const part of val) {
-        const [subLen, ...subparts] = encodeAny(part)
+        const [subLen, ...subparts] = encodeAny(part, config)
+        offsets.push(totalLen)
+        last = totalLen
         totalLen += subLen
         parts.push(...subparts)
     }
-    const [len, ...pair] = encodePair(LIST, totalLen)
-    return [len + totalLen, ...pair, ...parts]
+
+    if (offsets.length < config.index_limit) {
+        const [len, ...pair] = encodePair(LIST, totalLen)
+        return [len + totalLen, ...pair, ...parts]
+    }
+
+    // Generate index for ARRAY
+    let width, index
+    if (last < 0x100) {
+        width = 1
+        index = new Uint8Array(offsets)
+    } else if (last < 0x10000) {
+        width = 2
+        index = new Uint16Array(offsets)
+    } else if (last < 0x100000000) {
+        width = 4
+        index = new Uint32Array(offsets)
+    } else {
+        throw new Error("Array too big")
+    }
+
+    const [indexLen, ...indexPair] = encodePair(width, index.byteLength)
+    totalLen += indexLen + index.byteLength
+
+    const [len, ...pair] = encodePair(ARRAY, totalLen)
+    return [len + totalLen, ...pair, ...indexPair, index, ...parts]
 }
 
 /**
- * @param {Record<string,any} val 
+ * @param {Map<any,any>} val
+ * @param {NibsEncodeConfig} config
  * @returns {[number,...any]}
  */
-function encodeObject(val) {
-    console.log({ val })
-    throw "TODO encode object"
-
-}
-
-function encodeMap(val) {
-    console.log({ val })
+function encodeMap(val, config) {
     let totalLen = 0
     const parts = []
     for (const [key, value] of val) {
-        const [keyLen, ...keyparts] = encodeAny(key)
+        const [keyLen, ...keyparts] = encodeAny(key, config)
         totalLen += keyLen
         parts.push(...keyparts)
-        const [valueLen, ...valueparts] = encodeAny(value)
+        const [valueLen, ...valueparts] = encodeAny(value, config)
         totalLen += valueLen
         parts.push(...valueparts)
     }
@@ -161,10 +198,11 @@ function encodeMap(val) {
 }
 
 /**
- * @param {any} val 
+ * @param {any} val
+ * @param {NibsEncodeConfig} config
  * @returns {[number,...any]}
  */
-export function encodeAny(val) {
+export function encodeAny(val, config) {
     const type = typeof (val)
     if (type === "number") {
         if (val !== val || val === Infinity || val === -Infinity || Math.floor(val) !== val) {
@@ -189,12 +227,12 @@ export function encodeAny(val) {
             return encodeBinary(val)
         }
         if (Array.isArray(val)) {
-            return encodeArray(val)
+            return encodeArray(val, config)
         }
         if (val instanceof Map) {
-            return encodeMap(val)
+            return encodeMap(val, config)
         }
-        return encodeObject(val)
+        return encodeMap(new Map(Object.entries(val)), config)
     }
     throw "TODO, encode more types"
 }
