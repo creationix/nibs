@@ -166,12 +166,12 @@ Bytes are a container for raw octets.
 Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints higher than 16-bits are allowed, but also are surrogate pairs.  It is recommended to not encode as surrogate pairs and use the smaller native encoding utf-8 allows.
 
 ```lua
-9a --> Utf8(11)
+9b --> Utf8(11)
   f0 9f 8f b5 --> `🏵`
   52 4f 53 45 54 54 45 --> `R` `O` `S` `E` `T` `T` `E`
 --> "🏵ROSETTE"
 
-9b 18 --> Unicode-8(24)
+9c 18 --> Unicode-8(24)
   f0 9f 9f a5 --> `🟥`
   f0 9f 9f a7 --> `🟧`
   f0 9f 9f a8 --> `🟨`

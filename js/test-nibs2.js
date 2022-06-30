@@ -65,7 +65,7 @@ for (const line of tests.split("\n")) {
         const expected = m[2].trim()
         const actual = Buffer.from(encodeNibs(input, config)).toString("hex")
         const color = expected == actual ? "success" : "failure"
-        console.log(`${m[1]} | ${colorize(color, actual)}`)
+        console.log(`${m[1].trim().padStart(20, " ")} | ${colorize(color, actual)}`)
         if (expected !== actual) throw new Error("Failed test")
         continue
     }
