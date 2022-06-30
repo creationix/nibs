@@ -1,6 +1,6 @@
 import { xxh64 } from "./xxhash64.js"
 
-/** @type {[Buffer,number,number,bigint][]} */
+/** @type {[Uint8Array,number,number,bigint][]} */
 const tests = [
     [utf8``, 0, 0x02cc5d05, 0xef46db3751d8e999n],
     [utf8``, 1, 0x0b2cb792, 0xd5afba1336a3be4bn],
@@ -64,8 +64,8 @@ function hex(arr) {
 
 /**
  * @param {TemplateStringsArray} arr 
- * @returns Buffer
+ * @returns Uint8Array
  */
 function utf8(arr) {
-    return Buffer.from(arr[0], "utf8")
+    return new TextEncoder().encode(arr[0])
 }
