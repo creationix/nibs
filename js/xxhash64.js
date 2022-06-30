@@ -17,9 +17,9 @@ const MASK = 0xffffffffffffffffn
 export function xxh64(data, seed) {
     let ptr = 0
     const len = data.byteLength
-    const u64 = new BigUint64Array(data.buffer, data.byteOffset, data.byteLength)
-    const u32 = new Uint32Array(data.buffer, data.byteOffset, data.byteLength)
-    const u8 = new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+    const u64 = new BigUint64Array(data.buffer, data.byteOffset, (data.byteLength >> 3) << 3)
+    const u32 = new Uint32Array(data.buffer, data.byteOffset, (data.byteLength >> 2) << 2)
+    const u8 = new Uint8Array(data.buffer, data.byteOffset, (data.byteLength >> 0) << 0)
 
     let h64 = 0n
     if (len >= 32) {

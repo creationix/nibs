@@ -1,3 +1,5 @@
+import { xxh64 } from "./xxhash64.js"
+
 const ZIGZAG = 0
 const FLOAT = 1
 const SIMPLE = 2
@@ -15,12 +17,14 @@ const TRUE = 1
 const NULL = 2
 
 /**
- * @typedef {{index_limit:number}} NibsEncodeConfig
+ * @typedef {{index_limit:number,trie_seed:number,trie_optimize:number}} NibsEncodeConfig
  */
 
 /** @type {NibsEncodeConfig} */
 export const DEFAULTS = {
     index_limit: 32,
+    trie_seed: 0,
+    trie_optimize: 10,
 }
 
 
@@ -80,18 +84,25 @@ export function encode(val, config = DEFAULTS) {
         config = { ...DEFAULTS, ...config }
     }
     const [size, ...parts] = encodeAny(val, config)
-    // console.log({ size, parts })
+    return flatten(size, parts)
+}
+
+/**
+ * @param {number} size 
+ * @param {any} parts 
+ * @returns {Uint8Array}
+ */
+function flatten(size, parts) {
     const out = new Uint8Array(size)
     let i = 0
-    console.log({ size, parts })
-    flatten(parts)
+    process(parts)
     if (i !== size) {
         console.log({ i, size, parts })
         throw new Error("Encoding error")
     }
     return out
 
-    function flatten(v) {
+    function process(v) {
         if (typeof (v) === "number") {
             out[i++] = v
         } else if (ArrayBuffer.isView(v)) {
@@ -99,7 +110,7 @@ export function encode(val, config = DEFAULTS) {
             i += v.byteLength
         } else if (Array.isArray(v)) {
             for (const s of v) {
-                flatten(s)
+                process(s)
             }
         } else if (v instanceof ArrayBuffer) {
             out.set(new Uint8Array(v), i)
@@ -184,17 +195,191 @@ function encodeArray(val, config) {
  */
 function encodeMap(val, config) {
     let totalLen = 0
+    const offsets = new Map()
     const parts = []
+    let last = 0
     for (const [key, value] of val) {
+        last = totalLen
         const [keyLen, ...keyparts] = encodeAny(key, config)
+        const encodedKey = flatten(keyLen, keyparts)
+        parts.push(encodedKey)
+        offsets.set(encodedKey, totalLen)
         totalLen += keyLen
-        parts.push(...keyparts)
         const [valueLen, ...valueparts] = encodeAny(value, config)
         totalLen += valueLen
         parts.push(...valueparts)
     }
-    const [len, ...pair] = encodePair(MAP, totalLen)
-    return [len + totalLen, ...pair, ...parts]
+    if (offsets.size < config.index_limit) {
+        const [len, ...pair] = encodePair(MAP, totalLen)
+        return [len + totalLen, ...pair, ...parts]
+    }
+
+    let seed = config.trie_seed
+    const optimize = config.trie_optimize
+
+    console.log({ offsets, seed, optimize })
+
+    /** @type {Uint8ArrayConstructor|Uint16ArrayConstructor|Uint32ArrayConstructor} ArrayBufferView constructor */
+    let IntArray
+    /** @type {number} */
+    let bits
+    if (last < 0x80) {
+        IntArray = Uint8Array
+        bits = 3
+    } else if (last < 0x8000) {
+        IntArray = Uint16Array
+        bits = 4
+    } else if (last < 0x80000000) {
+        IntArray = Uint32Array
+        bits = 5
+    } else {
+        throw new Error("Trie too big")
+    }
+
+    const width = 1 << (bits - 3)
+    const mod = 1 << (width * 8)
+
+    let win, min = 0, ss = seed
+    for (let i = 0; i <= optimize; i++) {
+        const s = (seed + i) % mod
+        const [potentialTrie, count] = build_trie(offsets, bits, BigInt(s))
+        if (!win || count < min) {
+            win = potentialTrie
+            min = count
+            ss = s
+        }
+    }
+    const trie = win
+    seed = ss
+
+
+    let height = 0
+    const trieParts = []
+
+    console.log({ trie, seed })
+    write_node(trie)
+
+    function write_node(node) {
+        // Sort highest first since we're writing backwards
+        const segments = Object.keys(node).sort((a, b) => a < b ? 1 : a > b ? -1 : 0)
+        console.log({ segments })
+
+        // Calculate the target addresses
+        const targets = {}
+        for (const k of segments) {
+            const v = node[k]
+            console.log({ v })
+        }
+        // for i, k in ipairs(segments) do
+        //     local v = node[k]
+        //     if type(v[2]) == "number" then
+        // targets[i] = -1 - v[2]
+        //     else
+        // targets[i] = height
+        // write_node(v)
+        // end
+        // end
+
+        // Generate the pointers
+        let bitfield = 0
+        // for i, k in ipairs(segments) do
+        //     bitfield = bor(bitfield, lshift(1, k))
+        //     local target = targets[i]
+        //     if target >= 0 then
+        //         target = height - target - width
+        //     end
+        //     -- p(height, { segment = k, pointer = target })
+        //     table.insert(parts, target)
+        //     height = height + width
+        // end
+
+        trieParts.push(bitfield)
+        height += width
+
+    }
+
+    console.log({ trieParts })
+    trieParts.push(seed)
+    const count = trieParts.length
+    const trieIndex = new IntArray(trieParts.reverse())
+
+    console.log({ trieIndex })
+
+    const [indexLen, ...indexPair] = encodePair(width, trieIndex.byteLength)
+    totalLen += indexLen + trieIndex.byteLength
+
+    const [len, ...pair] = encodePair(TRIE, totalLen)
+    return [len + totalLen, ...pair, ...indexPair, trieIndex, ...parts]
+
+}
+
+// -- p { parts = parts }
+// table.insert(parts, seed)
+// local count = #parts
+// local slice = Slice(count)
+// for i, part in ipairs(parts) do
+//     slice[count - i] = part
+// end
+
+// local index_width = count * width
+// assert(sizeof(slice) == index_width)
+
+// local more, head = encode_pair(width, index_width)
+// return more + index_width, { head, slice }
+
+
+
+/**
+ * @param {Map<Uint8Array,number>} offsets 
+ * @param {number} bits 
+ * @param {bigint} seed 
+ * @returns {[any,number]}
+ */
+function build_trie(offsets, bits, seed) {
+    const mask = (1 << bits) - 1
+    /** @type {{hash?:bigint,offset?:number}}} */
+    const trie = {}
+    let count = 0
+
+    // Insert the offsets into the trie
+    for (const [key, offset] of offsets.entries()) {
+        const hash = xxh64(key, seed)
+        let o = 0
+        let node = trie
+        while (o < 64) {
+            if (node.hash) {
+                // If the node already has data, move it down one
+                const hash = node.hash
+                const offset = node.offset
+                delete node.hash
+                delete node.offset
+                node[Number(hash / BigInt(1 << o)) & mask] = { hash, offset }
+                count++
+                // And try again
+            } else {
+                if (node !== trie && Object.keys(node).length === 0) {
+                    // Otherwise, check if node is empty
+                    // and claim it
+                    node.hash = hash
+                    node.offset = offset
+                    break
+                }
+                // Or follow/create the next in the path
+                const segment = Number(hash / BigInt(1 << o)) & mask
+                let next = node[segment]
+                if (next) {
+                    node = next
+                } else {
+                    next = {}
+                    count++
+                    node[segment] = next
+                    node = next
+                }
+                o += bits
+            }
+        }
+    }
+    return [trie, count]
 }
 
 /**

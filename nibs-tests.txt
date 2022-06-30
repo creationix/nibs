@@ -75,16 +75,21 @@ Bytes
                 <00> | 8100
           <deadbeef> | 84deadbeef
 <74656e742d74797065> | 8974656e742d74797065
+<74  6e  2d  79  65> | 85746e2d7965
 
 Utf8
 
                   "" | 90
              "Hello" | 9548656c6c6f
              "World" | 95576f726c64
+          "🏵ROSETTE" | 9bf09f8fb5524f5345545445
+        "🟥🟧🟨🟩🟦🟪" | 9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa
+              "👶?" | 95f09f91b63f
 
 HexString
 
-          "deadbeef" | a4deadbeef
+                                "deadbeef" | a4deadbeef
+"59d27967b4d859491ed95d8a7eceeaf8d4644ce4" | ac1459d27967b4d859491ed95d8a7eceeaf8d4644ce4
 
 index_limit = 100
 

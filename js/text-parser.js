@@ -99,7 +99,6 @@ function parseObject(str) {
 
 function parseBytes(str) {
     const bytes = []
-    console.log({ str })
     let m
     const re = /[0-9a-f][0-9a-f]/ig
     while (m = re.exec(str)) {
