@@ -28,8 +28,20 @@ export const DEFAULTS = {
 }
 
 
+/**
+ * @param {number} num
+ * @returns {number}
+ */
 function zigzagEncode(num) {
     return Math.abs(num * 2) - (num < 0 ? 1 : 0)
+}
+
+/**
+ * @param {bigint} num
+ * @returns {bigint}
+ */
+function bigzigzagEncode(num) {
+    return num < 0 ? num * -2n - 1n : num * 2n
 }
 
 /**
@@ -88,8 +100,8 @@ export function encode(val, config = DEFAULTS) {
 }
 
 /**
- * @param {number} size 
- * @param {any} parts 
+ * @param {number} size
+ * @param {any} parts
  * @returns {Uint8Array}
  */
 function flatten(size, parts) {
@@ -330,9 +342,9 @@ function encodeMap(val, config) {
 
 
 /**
- * @param {Map<Uint8Array,number>} offsets 
- * @param {number} bits 
- * @param {bigint} seed 
+ * @param {Map<Uint8Array,number>} offsets
+ * @param {number} bits
+ * @param {bigint} seed
  * @returns {[any,number]}
  */
 function build_trie(offsets, bits, seed) {
@@ -394,6 +406,9 @@ export function encodeAny(val, config) {
             return encodeFloat(val)
         }
         return encodePair(ZIGZAG, zigzagEncode(val))
+    }
+    if (type === "bigint") {
+        return encodePair(ZIGZAG, bigzigzagEncode(val))
     }
     if (type == "string") {
         if (/^(?:[0-9a-f][0-9a-f])+$/.test(val)) {
