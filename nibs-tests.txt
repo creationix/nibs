@@ -84,7 +84,7 @@ Utf8
              "World" | 95576f726c64
           "🏵ROSETTE" | 9bf09f8fb5524f5345545445
         "🟥🟧🟨🟩🟦🟪" | 9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa
-              "👶?" | 95f09f91b63f
+              "👶WH" | 96f09f91b65748
 
 HexString
 
