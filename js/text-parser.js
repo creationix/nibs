@@ -1,4 +1,5 @@
 const NUMBER = /^[-+]?(?:0|[1-9][0-9]*)(?:\.[0-9]+(?:[eE][-+]?[0-9]+)?)?/
+const INTEGER = /^[-+]?[0-9]+$/
 const STRING = /^"(?:[^"\r\n\\]|\\.)*"/
 const BYTES = /^\<(?:[0-9a-f][0-9a-f]|[ \t\r\n]+|\/\/[^\r\n]*[\r\n]*)*\>/
 const KEYWORD = /^(?:null|true|false|inf|-inf|nan)(?![a-z])/
@@ -108,7 +109,7 @@ function parseBytes(str) {
 }
 
 /**
- * @param {string} str 
+ * @param {string} str
  * @returns {[any,string]}
  */
 function parseValue(str) {
@@ -121,6 +122,11 @@ function parseValue(str) {
     }
     let m = NUMBER.exec(str)
     if (m) {
+        if (INTEGER.test(m[0])) {
+            let n = BigInt(m[0])
+            if (n < 1000000000000 && n >= -1000000000000) n = Number(n)
+            return [n, skipWhitespace(str.substring(m[0].length))]
+        }
         return [parseFloat(m[0]), skipWhitespace(str.substring(m[0].length))]
     }
     m = STRING.exec(str)
