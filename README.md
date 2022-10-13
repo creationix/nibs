@@ -215,7 +215,7 @@ Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints hi
   52 4f 53 45 54 54 45 --> `R` `O` `S` `E` `T` `T` `E`
 --> "🏵ROSETTE"
 
-9c 18 --> Unicode-8(24)
+9c 18 --> Utf8-8(24)
   f0 9f 9f a5 --> `🟥`
   f0 9f 9f a7 --> `🟧`
   f0 9f 9f a8 --> `🟨`
@@ -226,8 +226,8 @@ Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints hi
 
 95 --> Utf8(5)
   f0 9f 91 b6 --> `👶`
-  3f --> `?`
---> "👶?"
+  21 --> `!`
+--> "👶!"
 ```
 
 ### Hex Strings
@@ -473,7 +473,7 @@ ea 0e --> Ref-8(14)
   04 --> ZigZag(4)
   06 --> ZigZag(6)
   08 --> ZigZag(8)
---> Scope([&3,&1,&2,&0],1,2,3,4)
+--> RefScope([&3,&1,&2,&0],1,2,3,4)
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
