@@ -1,3 +1,7 @@
+local Hamt = require 'hamt'
+local Nibs = require "nibs2"
+local xxh64 = require 'xxhash64'
+local nibs = Nibs:new()
 local ordered = require 'ordered'
 local Object = ordered.OrderedMap
 local Array = ordered.OrderedList
@@ -11,6 +15,7 @@ local copy = ffi.copy
 
 local bit = require 'bit'
 local rshift = bit.rshift
+local lshift = bit.lshift
 local band = bit.band
 local bxor = bit.bxor
 
@@ -29,6 +34,10 @@ local U8Ptr = ffi.typeof 'uint8_t*'
 local U16Ptr = ffi.typeof 'uint16_t*'
 local U32Ptr = ffi.typeof 'uint32_t*'
 local U64Ptr = ffi.typeof 'uint64_t*'
+local I8Ptr = ffi.typeof 'int8_t*'
+local I16Ptr = ffi.typeof 'int16_t*'
+local I32Ptr = ffi.typeof 'int32_t*'
+local I64Ptr = ffi.typeof 'int64_t*'
 
 local Slice8 = ffi.typeof 'uint8_t[?]'
 local Slice16 = ffi.typeof 'uint16_t[?]'
@@ -162,6 +171,15 @@ local function decode_pointer(read, offset, width)
     error("Illegal pointer width " .. width)
 end
 
+local function decode_signed_pointer(read, offset, width)
+    local str = read(offset, width)
+    if width == 1 then return cast(I8Ptr, str)[0] end
+    if width == 2 then return cast(I16Ptr, str)[0] end
+    if width == 4 then return cast(I32Ptr, str)[0] end
+    if width == 8 then return cast(I64Ptr, str)[0] end
+    error("Illegal pointer width " .. width)
+end
+
 local function skip(read, offset)
     local little, big
     offset, little, big = decode_pair(read, offset)
@@ -181,6 +199,7 @@ local get
 ---@field omega number end of data as offset to after data
 ---@field width number? width of index entries
 ---@field count number? count of index entries
+---@field seed number? hash seed for trie hamt
 
 -- Weakmap for associating private metadata to tables.
 ---@type table<table,NibsMetaEntry>
@@ -417,12 +436,14 @@ NibsTrie.__name = "NibsTrie"
 function NibsTrie.new(read, offset, length, scope)
     local self = setmetatable({}, NibsTrie)
     local alpha, width, count = decode_pair(read, offset)
+    local seed = decode_pointer(read, alpha, width)
     local omega = offset + length
     NibsMeta[self] = {
         read = read,
         scope = scope,
         alpha = alpha, -- Start of trie index
         omega = omega, -- End of trie values
+        seed = seed, -- Seed for HAMT
         width = width, -- Width of index entries
         count = count, -- Count of index entries
     }
@@ -430,8 +451,33 @@ function NibsTrie.new(read, offset, length, scope)
 end
 
 function NibsTrie:__index(idx)
+    local meta = NibsMeta[self]
+    -- p { "NibsTrie:__index", meta.read(0, 100), idx = idx, meta = meta, self = self }
+    local read = meta.read
+    local offset = meta.alpha + meta.width
+    local encoded = nibs:encode(idx)
+    -- p { encoded = encoded }
+    local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
+    -- p { hash = hash }
 
-    error "TODO: NibsTrie:__index"
+    local bits = assert(meta.width == 1 and 3
+        or meta.width == 2 and 4
+        or meta.width == 4 and 5
+        or meta.width == 8 and 6
+        or nil, "Invalid byte width")
+
+    local target = Hamt.find(bits)(read, offset, hash)
+    if not target then return end
+
+    target = tonumber(target)
+
+    offset = meta.alpha + meta.width * meta.count + target
+    local key, value
+    key, offset = get(read, offset, meta.scope)
+    if key ~= idx then return end
+
+    value = get(read, offset, meta.scope)
+    return value
 end
 
 function NibsTrie:__len()

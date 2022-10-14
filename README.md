@@ -364,7 +364,7 @@ ec 13 --> Trie-8(19)
 
 ### HAMT Encoding
 
-Each node in the trie index has a bitfield so that only non-pointers need to be stored.
+Each node in the trie index has a bitfield so that only used pointers need to be stored.
 
 For example, consider a simplified 4-bit wide trie node with 4 hashes pointing to values at offsets 0,1,2,3:
 
@@ -451,8 +451,9 @@ In this example, the refs table overhead is:
 +6 <- "color"
 +7 <- "fruits"
 +6 <- "apple"
+-2 <- some nibs pairs jump to inline instead of 8 bit length
 ------------------------
-23 saved bytes overall
+25 bytes saved!
 ```
 
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
