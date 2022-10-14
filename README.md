@@ -460,20 +460,67 @@ Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 ```lua
 fc 0e --> Ref-8(14)
   14 --> ArrayIndex(width=1,count=4)
-    05 --> Pointer(5)
-    06 --> Pointer(6)
-    07 --> Pointer(7)
-    08 --> Pointer(8)
+    05 --> Pointer(5) -> 1
+    06 --> Pointer(6) -> 2
+    07 --> Pointer(7) -> 3
+    08 --> Pointer(8) -> 4
   b4 --> List(4)
-    33 --> Ref(3) -> 4
-    31 --> Ref(1) -> 2
-    32 --> Ref(2) -> 3
-    30 --> Ref(0) -> 1
-  02 --> ZigZag(2) -> 1
-  04 --> ZigZag(4) -> 2
-  06 --> ZigZag(6) -> 3
-  08 --> ZigZag(8) -> 4
+    33 --> Ref(3) -> Pointer(8) -> 4
+    31 --> Ref(1) -> Pointer(6) -> 2
+    32 --> Ref(2) -> Pointer(7) -> 3
+    30 --> Ref(0) -> Pointer(5) -> 1
+  02 --> ZigZag(2) = 1
+  04 --> ZigZag(4) = 2
+  06 --> ZigZag(6) = 3
+  08 --> ZigZag(8) = 4
 --> RefScope([&3,&1,&2,&0],1,2,3,4)
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
+
+```lua
+fa --> Ref(10)
+  12 --> ArrayIndex(width=1,count=2)
+    01 --> Pointer(1) -> "dead"
+    04 --> Pointer(4) -> "beef"
+  31 --> Ref(1) -> "beef"
+  a2 --> HexString(2)
+    dead
+  a2 --> HexString(2)
+    beef
+--> RefScope(&1,"dead","beef")
+```
+
+The larger ref example from above would be encoded like this:
+
+```lua
+fc 4e --> Ref-8(78)
+  13 --> ArrayIndex(width=1,count=3)
+    37 --> Ptr(55)
+    3d --> Ptr(61)
+    44 --> Ptr(68)
+  bc 35 --> List-8(53)
+    cc 14 --> Map-8(20)
+      30 --> Ref(0)
+      93726564 --> "red"
+      31 --> Ref(1)
+      bc 0c --> List-8(12)
+        32 --> Ref(2)
+        9a73747261776265727279 --> "strawberry"
+    ca --> Map(10)
+      30 --> Ref(0)
+      95677265656e --> "green"
+      31 --> Ref(1)
+      b1 --> List(1)
+        32 --> Ref(2)
+    cc 12 --> Map-8(18)
+      30 --> Ref(0)
+      9679656c6c6f77 --> "yellow"
+      31 --> Ref(1)
+      b8 --> List(8)
+        32 --> Ref(2)
+        9662616e616e61 --> "banana"
+  95636f6c6f72 --> "color"
+  96667275697473 --> "fruits"
+  956170706c65 --> "apple"
+```
