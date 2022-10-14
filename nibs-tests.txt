@@ -117,6 +117,9 @@ Map
 Refs
 
            [4,2,3,1] | fc0e1405060708b43331323002040608
+              "beef" | fa12010431a2deada2beef
+              "dead" | fa12010430a2deada2beef
+ [{"color":"red","fruits":["apple","strawberry"]},{"color":"green","fruits":["apple"]},{"color":"yellow","fruits":["apple","banana"]}] | fc4e13373d44bc35cc14309372656431bc0c329a73747261776265727279ca3095677265656e31b132cc12309679656c6c6f7731b8329662616e616e6195636f6c6f7296667275697473956170706c65
 
 index_limit = 0
 
