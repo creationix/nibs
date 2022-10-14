@@ -1,3 +1,10 @@
+local ordered = require 'ordered'
+local Object = ordered.OrderedMap
+local Array = ordered.OrderedList
+
+local insert = table.insert
+local concat = table.concat
+
 local ffi = require 'ffi'
 local cast = ffi.cast
 local copy = ffi.copy
@@ -63,15 +70,15 @@ local function decode_pair(provider, offset)
     local little = rshift(head, 4)
     local big = band(head, 0xf)
     if big == 0xc then
-        return 2, little, ptr[1]
+        return offset + 2, little, ptr[1]
     elseif big == 0xd then
-        return 3, little, cast(U16Ptr, ptr + 1)[0]
+        return offset + 3, little, cast(U16Ptr, ptr + 1)[0]
     elseif big == 0xe then
-        return 5, little, cast(U32Ptr, ptr + 1)[0]
+        return offset + 5, little, cast(U32Ptr, ptr + 1)[0]
     elseif big == 0xf then
-        return 9, little, cast(U64Ptr, ptr + 1)[0]
+        return offset + 9, little, cast(U64Ptr, ptr + 1)[0]
     else
-        return 1, little, big
+        return offset + 1, little, big
     end
 end
 
@@ -108,24 +115,22 @@ end
 
 ---@param provider ByteProvider
 ---@param offset number
----@param len number
+---@param length number
 ---@return ffi.ctype*
----@return number
-local function decode_bytes(provider, offset, len)
-    local data = provider(offset, len)
+local function decode_bytes(provider, offset, length)
+    local data = provider(offset, length)
     local ptr = cast(U8Ptr, data)
-    local bytes = Slice8(len)
-    copy(bytes, ptr + offset, len)
-    return bytes, offset + len
+    local bytes = Slice8(length)
+    copy(bytes, ptr, length)
+    return bytes
 end
 
 ---@param provider ByteProvider
 ---@param offset number
----@param len number
+---@param length number
 ---@return string
----@return number
-local function decode_string(provider, offset, len)
-    return provider(offset, len), offset + len
+local function decode_string(provider, offset, length)
+    return provider(offset, length)
 end
 
 -- Convert integer to ascii code for hex digit
@@ -135,18 +140,160 @@ end
 
 ---@param provider ByteProvider
 ---@param offset number
----@param len number
+---@param length number
 ---@return string
----@return number
-local function decode_hexstring(provider, offset, len)
-    local bytes = provider(offset, len)
-    local chars = Slice8(len * 2)
-    for i = 1, len do
+local function decode_hexstring(provider, offset, length)
+    local bytes = provider(offset, length)
+    local chars = Slice8(length * 2)
+    for i = 1, length do
         local b = string.byte(bytes, i, i)
         chars[i * 2 - 2] = tohex(rshift(b, 4))
         chars[i * 2 - 1] = tohex(band(b, 15))
     end
-    return ffi.string(chars, len * 2), offset + len
+    return ffi.string(chars, length * 2)
+end
+
+local function skip(provider, offset)
+    local little, big
+    offset, little, big = decode_pair(provider, offset)
+    if little < 8 then
+        return offset
+    else
+        return offset + big
+    end
+end
+
+-- Weakmap for associating private metadata to tables.
+local NibsMeta = setmetatable({}, { __mode = "k" })
+
+---@class NibsList
+local NibsList = {}
+
+function NibsList.new(provider, offset, length)
+    local self = setmetatable({}, NibsList)
+    NibsMeta[self] = {
+        provider = provider,
+        offset = offset,
+        len = length,
+    }
+    return self
+end
+
+function NibsList:__len()
+    local meta = NibsMeta[self]
+    local offset = meta.offset
+    local last = offset + meta.len
+    local provider = meta.provider
+    local count = 0
+    while offset < last do
+        offset = skip(provider, offset)
+        count = count + 1
+    end
+    return count
+end
+
+function NibsList:__index(key)
+    local meta = NibsMeta[self]
+    local offset = meta.offset
+    local last = offset + meta.len
+    local provider = meta.provider
+    local count = 1
+    while offset < last and count < key do
+        offset = skip(provider, offset)
+        count = count + 1
+    end
+    if count == key then
+        local value = NibsReader.get(provider, offset)
+        return value
+    end
+end
+
+function NibsList:__ipairs()
+    local meta = NibsMeta[self]
+    local offset = meta.offset
+    local last = offset + meta.len
+    local provider = meta.provider
+    local count = 0
+    return coroutine.wrap(function()
+        while offset < last do
+            local value
+            value, offset = NibsReader.get(provider, offset)
+            count = count + 1
+            coroutine.yield(count, value)
+        end
+    end)
+end
+
+NibsList.__pairs = NibsList.__ipairs
+
+function NibsList:__tostring()
+    local parts = { "[" }
+    for i, v in ipairs(self) do
+        if i > 1 then
+            insert(parts, ",")
+        end
+        insert(parts, tostring(v))
+    end
+    insert(parts, "]")
+    return concat(parts)
+end
+
+---@class NibsMap
+local NibsMap = {}
+
+function NibsMap.new(provider, offset, length)
+    local self = setmetatable({}, NibsMap)
+    NibsMeta[self] = {
+        provider = provider,
+        offset = offset,
+        len = length,
+    }
+    return self
+end
+
+function NibsMap:__pairs()
+    local meta = NibsMeta[self]
+    local offset = meta.offset
+    local last = offset + meta.len
+    local provider = meta.provider
+    return coroutine.wrap(function()
+        while offset < last do
+            local key, value
+            key, offset = NibsReader.get(provider, offset)
+            value, offset = NibsReader.get(provider, offset)
+            coroutine.yield(key, value)
+        end
+    end)
+end
+
+function NibsMap:__index(idx)
+    local meta = NibsMeta[self]
+    local offset = meta.offset
+    local last = offset + meta.len
+    local provider = meta.provider
+    while offset < last do
+        local key
+        key, offset = NibsReader.get(provider, offset)
+        if key == idx then
+            return NibsReader.get(provider, offset)
+        else
+            offset = skip(provider, offset)
+        end
+    end
+end
+
+function NibsMap:__tostring()
+    local parts = { "{" }
+    local first = true
+    for k, v in pairs(self) do
+        if not first then
+            insert(parts, ",")
+        end
+        first = false
+        insert(parts, tostring(k) .. ":" .. tostring(v))
+    end
+    insert(parts, "}")
+    return concat(parts)
 end
 
 ---Read a nibs value at offset
@@ -165,15 +312,15 @@ local function get(provider, offset)
     elseif little == REF then
         error "TODO: decode ref"
     elseif little == BYTES then
-        return decode_bytes(provider, offset, big)
+        return decode_bytes(provider, offset, big), offset + big
     elseif little == UTF8 then
-        return decode_string(provider, offset, big)
+        return decode_string(provider, offset, big), offset + big
     elseif little == HEXSTRING then
-        return decode_hexstring(provider, offset, big)
+        return decode_hexstring(provider, offset, big), offset + big
     elseif little == LIST then
-        error "TODO: decode list"
+        return NibsList.new(provider, offset, big), offset + big
     elseif little == MAP then
-        error "TODO: decode map"
+        return NibsMap.new(provider, offset, big), offset + big
     elseif little == ARRAY then
         error "TODO: decode array"
     elseif little == TRIE then
