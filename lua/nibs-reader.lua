@@ -452,13 +452,10 @@ end
 
 function NibsTrie:__index(idx)
     local meta = NibsMeta[self]
-    -- p { "NibsTrie:__index", meta.read(0, 100), idx = idx, meta = meta, self = self }
     local read = meta.read
     local offset = meta.alpha + meta.width
     local encoded = nibs:encode(idx)
-    -- p { encoded = encoded }
     local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
-    -- p { hash = hash }
 
     local bits = assert(meta.width == 1 and 3
         or meta.width == 2 and 4

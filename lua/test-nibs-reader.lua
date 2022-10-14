@@ -61,9 +61,17 @@ local function equal(a, b)
         if #a ~= #b then return false end
         for k, v in pairs(a) do
             if not equal(v, b[k]) then return false end
+            if not equal(v, a[k]) then
+                p { "mismatch", k, v, a[k] }
+                -- error "mismatch"
+            end
         end
         for k, v in pairs(b) do
-            if not equal(v, b[k]) then return false end
+            if not equal(v, a[k]) then return false end
+            if not equal(v, b[k]) then
+                p { "mismatch", k, v, b[k] }
+                error "mismatch"
+            end
         end
         return true
     end
@@ -116,7 +124,7 @@ for line in string.gmatch(tests, "[^\n]+") do
                 collectgarbage("collect")
                 print(colorize("failure", string.format("% 26s | %s",
                     "Error, not as expected",
-                    colorize("success", dumper(expected)))))
+                    colorize("success", dump(expected)))))
                 return nil, "Encode Mismatch"
             end
         end
