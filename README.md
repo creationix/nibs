@@ -458,21 +458,21 @@ In this example, the refs table overhead is:
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
 ```lua
-ea 0e --> Ref-8(14)
+fc 0e --> Ref-8(14)
   14 --> ArrayIndex(width=1,count=4)
     05 --> Pointer(5)
     06 --> Pointer(6)
     07 --> Pointer(7)
     08 --> Pointer(8)
-  a3 --> List(3)
-    33 --> Ref(3)
-    31 --> Ref(1)
-    32 --> Ref(2)
-    30 --> Ref(0)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
-  08 --> ZigZag(8)
+  b4 --> List(4)
+    33 --> Ref(3) -> 4
+    31 --> Ref(1) -> 2
+    32 --> Ref(2) -> 3
+    30 --> Ref(0) -> 1
+  02 --> ZigZag(2) -> 1
+  04 --> ZigZag(4) -> 2
+  06 --> ZigZag(6) -> 3
+  08 --> ZigZag(8) -> 4
 --> RefScope([&3,&1,&2,&0],1,2,3,4)
 ```
 
