@@ -36,7 +36,6 @@ function Hamt.find(bits)
     local width = lshift(1, bits - 3)
     local segmentMask = lshift(1, bits) - 1
     local highBit = lshift(1ULL, segmentMask)
-    ---@param read ByteProvider
     ---@param offset number
     ---@param hash integer u64 hash of key
     ---@return integer? result usually an offset
@@ -61,14 +60,11 @@ function Hamt.find(bits)
             -- Jump to the pointer and read it
             offset = offset + skipCount * width
 
-            p { "find", read(0, 100), { offset = offset, skipCount = skipCount, width = width } }
-
             local ptr = cast(U8Ptr, read(offset, width))[0]
 
             if band(ptr, highBit) > 0 then
                 -- If there is a leading 1, it's a result pointer.
                 local result = band(ptr, highBit - 1)
-                p("Found potential match", { ptr = ptr, result = result })
                 return result
             end
 
