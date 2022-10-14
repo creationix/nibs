@@ -176,6 +176,7 @@ local get
 
 ---@class NibsMetaEntry
 ---@field read ByteProvider
+---@field scope Scope? optional ref scope chain
 ---@field alpha number start of data as offset
 ---@field omega number end of data as offset to after data
 ---@field width number? width of index entries
@@ -193,11 +194,13 @@ NibsList.__name = "NibsList"
 ---@param read ByteProvider
 ---@param offset number
 ---@param length number
+---@param scope Scope?
 ---@return NibsList
-function NibsList.new(read, offset, length)
+function NibsList.new(read, offset, length, scope)
     local self = setmetatable({}, NibsList)
     NibsMeta[self] = {
         read = read,
+        scope = scope,
         alpha = offset, -- Start of list values
         omega = offset + length, -- End of list values
     }
@@ -230,7 +233,7 @@ function NibsList:__index(idx)
         count = count + 1
     end
     if count == idx then
-        local value = get(read, offset)
+        local value = get(read, offset, meta.scope)
         rawset(self, idx, value)
         return value
     end
@@ -241,19 +244,19 @@ function NibsList:__ipairs()
     local offset = meta.alpha
     local read = meta.read
     local count = 0
-    return coroutine.wrap(function()
-        while offset < meta.omega do
+    return function()
+        if offset < meta.omega then
             count = count + 1
             local value = rawget(self, count)
             if value then
                 offset = skip(read, offset)
             else
-                value, offset = get(read, offset)
+                value, offset = get(read, offset, meta.scope)
                 rawset(self, count, value)
             end
-            coroutine.yield(count, value)
+            return count, value
         end
-    end)
+    end
 end
 
 NibsList.__pairs = NibsList.__ipairs
@@ -278,11 +281,13 @@ NibsMap.__name = "NibsMap"
 ---@param read ByteProvider
 ---@param offset number
 ---@param length number
+---@param scope Scope?
 ---@return NibsMap
-function NibsMap.new(read, offset, length)
+function NibsMap.new(read, offset, length, scope)
     local self = setmetatable({}, NibsMap)
     NibsMeta[self] = {
         read = read,
+        scope = scope,
         alpha = offset, -- Start of map values
         omega = offset + length, -- End of map values
     }
@@ -297,20 +302,20 @@ function NibsMap:__pairs()
     local meta = NibsMeta[self]
     local offset = meta.alpha
     local read = meta.read
-    return coroutine.wrap(function()
-        while offset < meta.omega do
+    return function()
+        if offset < meta.omega then
             local key, value
-            key, offset = get(read, offset)
+            key, offset = get(read, offset, meta.scope)
             value = rawget(self, key)
             if value then
                 offset = skip(read, offset)
             else
-                value, offset = get(read, offset)
+                value, offset = get(read, offset, meta.scope)
                 rawset(self, key, value)
             end
-            coroutine.yield(key, value)
+            return key, value
         end
-    end)
+    end
 end
 
 function NibsMap:__index(idx)
@@ -319,9 +324,9 @@ function NibsMap:__index(idx)
     local read = meta.read
     while offset < meta.omega do
         local key
-        key, offset = get(read, offset)
+        key, offset = get(read, offset, meta.scope)
         if key == idx then
-            local value = get(read, offset)
+            local value = get(read, offset, meta.scope)
             rawset(self, idx, value)
             return value
         else
@@ -352,13 +357,15 @@ NibsArray.__name = "NibsArray"
 ---@param read ByteProvider
 ---@param offset number
 ---@param length number
+---@param scope Scope?
 ---@return NibsArray
-function NibsArray.new(read, offset, length)
+function NibsArray.new(read, offset, length, scope)
     local self = setmetatable({}, NibsArray)
     local alpha, width, count = decode_pair(read, offset)
     local omega = offset + length
     NibsMeta[self] = {
         read = read,
+        scope = scope,
         alpha = alpha, -- Start of array index
         omega = omega, -- End of array values
         width = width, -- Width of index entries
@@ -373,7 +380,7 @@ function NibsArray:__index(idx)
     local offset = meta.alpha + (idx - 1) * meta.width
     local ptr = decode_pointer(meta.read, offset, meta.width)
     offset = meta.alpha + (meta.width * meta.count) + ptr
-    local value = get(meta.read, offset)
+    local value = get(meta.read, offset, meta.scope)
     return value
 end
 
@@ -383,11 +390,14 @@ function NibsArray:__len()
 end
 
 function NibsArray:__ipairs()
-    return coroutine.wrap(function()
-        for i = 1, #self do
-            coroutine.yield(i, self[i])
+    local i = 0
+    local count = #self
+    return function()
+        if i < count then
+            i = i + 1
+            return i, self[i]
         end
-    end)
+    end
 end
 
 NibsArray.__pairs = NibsArray.__ipairs
@@ -402,34 +412,78 @@ NibsTrie.__name = "NibsTrie"
 ---@param read ByteProvider
 ---@param offset number
 ---@param length number
+---@param scope Scope?
 ---@return NibsTrie
-function NibsTrie.new(read, offset, length)
+function NibsTrie.new(read, offset, length, scope)
     local self = setmetatable({}, NibsTrie)
+    local alpha, width, count = decode_pair(read, offset)
+    local omega = offset + length
     NibsMeta[self] = {
         read = read,
-        offset = offset,
-        len = length,
+        scope = scope,
+        alpha = alpha, -- Start of trie index
+        omega = omega, -- End of trie values
+        width = width, -- Width of index entries
+        count = count, -- Count of index entries
     }
     return self
 end
 
 function NibsTrie:__index(idx)
+
     error "TODO: NibsTrie:__index"
 end
 
 function NibsTrie:__len()
-    error "TODO: NibsTrie:__len"
+    return 0
 end
 
 function NibsTrie:__pairs()
-    error "TODO: NibsTrie:__pairs"
+    local meta = NibsMeta[self]
+    local offset = meta.alpha + meta.width * meta.count
+    return function()
+        if offset < meta.omega then
+            local key, value
+            key, offset = get(meta.read, offset, meta.scope)
+            value, offset = get(meta.read, offset, meta.scope)
+            return key, value
+        end
+    end
+end
+
+NibsTrie.__tostring = NibsMap.__tostring
+
+---@class Scope
+---@field parent Scope?
+---@field alpha number
+---@field omega number
+---@field width number
+---@field count number
+
+local function decode_scope(read, offset, big, scope)
+    local alpha, width, count = decode_pair(read, offset)
+    return get(read, alpha + width * count, {
+        parent = scope,
+        alpha = alpha,
+        omega = offset + big,
+        width = width,
+        count = count
+    })
+end
+
+local function decode_ref(read, scope, big)
+    assert(scope, "Ref found outside of scope")
+    local ptr = decode_pointer(read, scope.alpha + big * scope.width, scope.width)
+    local start = scope.alpha + scope.width * scope.count + ptr
+    return get(read, start)
 end
 
 ---Read a nibs value at offset
 ---@param read ByteProvider
 ---@param offset number
+---@param scope Scope?
 ---@return any, number
-function get(read, offset)
+function get(read, offset, scope)
     local little, big
     offset, little, big = decode_pair(read, offset)
     if little == ZIGZAG then
@@ -439,7 +493,7 @@ function get(read, offset)
     elseif little == SIMPLE then
         return decode_simple(big), offset
     elseif little == REF then
-        error "TODO: decode ref"
+        return decode_ref(read, scope, big), offset
     elseif little == BYTES then
         return decode_bytes(read, offset, big), offset + big
     elseif little == UTF8 then
@@ -447,15 +501,15 @@ function get(read, offset)
     elseif little == HEXSTRING then
         return decode_hexstring(read, offset, big), offset + big
     elseif little == LIST then
-        return NibsList.new(read, offset, big), offset + big
+        return NibsList.new(read, offset, big, scope), offset + big
     elseif little == MAP then
-        return NibsMap.new(read, offset, big), offset + big
+        return NibsMap.new(read, offset, big, scope), offset + big
     elseif little == ARRAY then
-        return NibsArray.new(read, offset, big), offset + big
+        return NibsArray.new(read, offset, big, scope), offset + big
     elseif little == TRIE then
-        return NibsTrie.new(read, offset, big), offset + big
+        return NibsTrie.new(read, offset, big, scope), offset + big
     elseif little == SCOPE then
-        error "TODO: decode scope"
+        return decode_scope(read, offset, big, scope), offset + big
     else
         error('Unexpected nibs type: ' .. little)
     end
