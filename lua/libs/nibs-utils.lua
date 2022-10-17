@@ -1,12 +1,47 @@
 local Nibs = require 'nibs2'
+local is_array_like = Nibs.is_array_like
 local RefScope = Nibs.RefScope
 local Reference = Nibs.Reference
+local Array = Nibs.Array
+local Trie = Nibs.Trie
 
 local Ordered = require 'ordered'
 local OrderedMap = Ordered.OrderedMap
 local OrderedList = Ordered.OrderedList
 
 local NibsUtils = {}
+
+---Turn lists and maps into arrays and tries if they are over some limit
+---@param value Value
+---@param index_limit number
+---@param seed number
+---@param optimize number
+function NibsUtils.enableIndices(value, index_limit, seed, optimize)
+    index_limit = index_limit or 10
+    seed = seed or 0
+    optimize = optimize or 10
+
+    ---@param o Value
+    local function walk(o)
+        if type(o) ~= "table" then return o end
+        if is_array_like(o) then
+            for i = 1, #o do
+                o[i] = walk(o[i])
+            end
+            if #o < index_limit then return o end
+            return Array.new(o)
+        end
+        local count = 0
+        for k, v in pairs(o) do
+            o[walk(k)] = walk(v)
+            count = count + 1
+        end
+        if count < index_limit then return o end
+        return Trie.new(o, seed, optimize)
+    end
+
+    return walk(value)
+end
 
 ---Walk through a value and replace values found in the reference table with refs.
 ---@param value Value
@@ -16,7 +51,7 @@ function NibsUtils.addRefs(value, refs)
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
-            if Nibs.is_array_like(o) then
+            if is_array_like(o) then
                 local a = OrderedList.new()
                 for i, v in ipairs(o) do
                     a[i] = walk(v)
@@ -74,46 +109,6 @@ function NibsUtils.findDuplicateStrings(value)
         return seen[a] > seen[b] or seen[a] == seen[b] and a < b
     end)
     return duplicates
-end
-
--- Find all repeated strings in a table recursively and sort by most frequent
-function NibsUtils.findStrings(fn, limit, ...)
-    local found = {}
-    local seen = {}
-    local function find(val)
-        if type(val) == "table" then
-            if seen[val] then return end
-            seen[val] = true
-            for k, v in pairs(val) do
-                find(k)
-                find(v)
-            end
-        elseif fn(val) then
-            found[val] = (found[val] or 0) + 1
-        end
-    end
-
-    local args = { ... }
-    for i = 1, select("#", ...) do
-        find(args[i])
-    end
-
-    local repeats = {}
-    local keys = {}
-    for k, v in pairs(found) do
-        if v > limit then
-            repeats[k] = v
-            table.insert(keys, k)
-        end
-    end
-    table.sort(keys, function(a, b)
-        return repeats[a] > repeats[b]
-    end)
-    local result = OrderedMap.new()
-    for _, k in ipairs(keys) do
-        result[k] = repeats[k]
-    end
-    return result, keys
 end
 
 return NibsUtils
