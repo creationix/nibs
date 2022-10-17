@@ -1,5 +1,5 @@
 local Bytes = require './bytes'
-local NibsReader = require './nibs-reader'
+local Nibs = require 'nibs2'
 local ffi = require 'ffi'
 local I64 = ffi.typeof 'int64_t'
 
@@ -28,17 +28,7 @@ local readFileSync = require('fs').readFileSync
 local tests = readFileSync(module.dir .. "/../nibs-tests.txt")
 local Json = require 'ordered-json'
 
-local tohex = bit.tohex
-local byte = string.byte
-local concat = table.concat
-
-local function dump_string(str)
-    local parts = {}
-    for i = 1, #str do
-        parts[i] = tohex(byte(str, i), 2)
-    end
-    return concat(parts)
-end
+local nibs = Nibs.new()
 
 local function equal(a, b)
     if a == b then return true end
@@ -81,7 +71,7 @@ end
 for line in string.gmatch(tests, "[^\n]+") do
     if line:match("^[a-z]") then
         local code = "return function(self) self." .. line .. " end"
-        loadstring(code)()(NibsReader)
+        loadstring(code)()(nibs)
     else
         local text, hex = line:match " *([^|]+) +%| +(..+)"
         if not text then
@@ -112,7 +102,7 @@ for line in string.gmatch(tests, "[^\n]+") do
             local encoded = loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"')()
 
             local provider = Bytes.fromMemory(encoded)
-            local actual, offset = NibsReader.get(provider, 0)
+            local actual, offset = Nibs.get(provider, 0)
 
             local same = equal(expected, actual)
             print(string.format("% 26s | %s, %s",
