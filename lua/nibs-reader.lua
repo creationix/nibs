@@ -1,10 +1,6 @@
-local Hamt = require 'hamt'
 local Nibs = require "nibs2"
 local xxh64 = require 'xxhash64'
 local nibs = Nibs:new()
-local ordered = require 'ordered'
-local Object = ordered.OrderedMap
-local Array = ordered.OrderedList
 
 local insert = table.insert
 local concat = table.concat
@@ -19,30 +15,14 @@ local lshift = bit.lshift
 local band = bit.band
 local bxor = bit.bxor
 
-local U8 = ffi.typeof 'uint8_t'
-local U16 = ffi.typeof 'uint16_t'
-local U32 = ffi.typeof 'uint32_t'
-local U64 = ffi.typeof 'uint64_t'
-local I8 = ffi.typeof 'int8_t'
-local I16 = ffi.typeof 'int16_t'
-local I32 = ffi.typeof 'int32_t'
 local I64 = ffi.typeof 'int64_t'
-local F32 = ffi.typeof 'float'
-local F64 = ffi.typeof 'double'
 
 local U8Ptr = ffi.typeof 'uint8_t*'
 local U16Ptr = ffi.typeof 'uint16_t*'
 local U32Ptr = ffi.typeof 'uint32_t*'
 local U64Ptr = ffi.typeof 'uint64_t*'
-local I8Ptr = ffi.typeof 'int8_t*'
-local I16Ptr = ffi.typeof 'int16_t*'
-local I32Ptr = ffi.typeof 'int32_t*'
-local I64Ptr = ffi.typeof 'int64_t*'
 
 local Slice8 = ffi.typeof 'uint8_t[?]'
-local Slice16 = ffi.typeof 'uint16_t[?]'
-local Slice32 = ffi.typeof 'uint32_t[?]'
-local Slice64 = ffi.typeof 'uint64_t[?]'
 
 -- Main types
 local ZIGZAG = 0
@@ -73,7 +53,7 @@ local NibsReader = {}
 ---@return number
 ---@return number
 local function decode_pair(read, offset)
-    local data = read(offset, 9)
+    local data = read(tonumber(offset), 9)
     local ptr = cast(U8Ptr, data)
     local head = ptr[0]
     local little = rshift(head, 4)
@@ -171,15 +151,6 @@ local function decode_pointer(read, offset, width)
     error("Illegal pointer width " .. width)
 end
 
-local function decode_signed_pointer(read, offset, width)
-    local str = read(offset, width)
-    if width == 1 then return cast(I8Ptr, str)[0] end
-    if width == 2 then return cast(I16Ptr, str)[0] end
-    if width == 4 then return cast(I32Ptr, str)[0] end
-    if width == 8 then return cast(I64Ptr, str)[0] end
-    error("Illegal pointer width " .. width)
-end
-
 local function skip(read, offset)
     local little, big
     offset, little, big = decode_pair(read, offset)
@@ -187,6 +158,65 @@ local function skip(read, offset)
         return offset
     else
         return offset + big
+    end
+end
+
+local UintPtrs = {
+    [3] = U8Ptr,
+    [4] = U16Ptr,
+    [5] = U32Ptr,
+    [6] = U64Ptr,
+}
+-- http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
+local function popcnt(v)
+    local c = 0
+    while v > 0 do
+        c = c + band(v, 1ULL)
+        v = rshift(v, 1ULL)
+    end
+    return c
+end
+
+--- Walk a HAMT index checking for matching offset output
+---@param read ByteProvider
+---@param offset number
+---@param hash integer u64 hash of key
+---@param bits number bits per path segment (3 for 8 bit, 4 for 16 bit, etc...)
+---@return integer? result usually an offset
+local function hamtWalk(read, offset, hash, bits)
+    local UintPtr = assert(UintPtrs[bits], "Invalid segment bit width")
+    local width = lshift(1, bits - 3)
+    local segmentMask = lshift(1, bits) - 1
+    local highBit = lshift(1ULL, segmentMask)
+
+    while true do
+
+        -- Consume the next path segment
+        local segment = band(hash, segmentMask)
+        hash = rshift(hash, bits)
+
+        -- Read the next bitfield
+        local bitfield = cast(UintPtr, read(offset, width))[0]
+        offset = offset + width
+
+        -- Check if segment is in bitfield
+        local match = lshift(1, segment)
+        if band(bitfield, match) == 0 then return end
+
+        -- If it is, calculate how many pointers to skip by counting 1s under it.
+        local skipCount = tonumber(popcnt(band(bitfield, match - 1)))
+
+        -- Jump to the pointer and read it
+        offset = offset + skipCount * width
+        local ptr = cast(U8Ptr, read(offset, width))[0]
+
+        -- If there is a leading 1, it's a result pointer.
+        if band(ptr, highBit) > 0 then
+            return band(ptr, highBit - 1)
+        end
+
+        -- Otherwise it's an internal pointer
+        offset = offset + 1 + ptr
     end
 end
 
@@ -463,7 +493,7 @@ function NibsTrie:__index(idx)
         or meta.width == 8 and 6
         or nil, "Invalid byte width")
 
-    local target = Hamt.find(bits)(read, offset, hash)
+    local target = hamtWalk(read, offset, hash, bits)
     if not target then return end
 
     target = tonumber(target)
@@ -496,8 +526,8 @@ end
 
 NibsTrie.__tostring = NibsMap.__tostring
 
----@class Scope
----@field parent Scope?
+---@class EncodeScope
+---@field parent EncodeScope?
 ---@field alpha number
 ---@field omega number
 ---@field width number
