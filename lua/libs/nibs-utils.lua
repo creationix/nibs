@@ -24,6 +24,11 @@ function NibsUtils.enableIndices(value, index_limit, seed, optimize)
     ---@param o Value
     local function walk(o)
         if type(o) ~= "table" then return o end
+        local mt = getmetatable(o)
+        if mt == RefScope then
+            o.value = walk(o.value)
+            return o
+        end
         if is_array_like(o) then
             for i = 1, #o do
                 o[i] = walk(o[i])
@@ -47,10 +52,12 @@ end
 ---@param value Value
 ---@param refs RefScope
 function NibsUtils.addRefs(value, refs)
+    if #refs == 0 then return value end
     ---@param o Value
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
+            if getmetatable(o) == Nibs.RefScope then return o end
             if is_array_like(o) then
                 local a = OrderedList.new()
                 for i, v in ipairs(o) do
@@ -75,21 +82,33 @@ function NibsUtils.addRefs(value, refs)
     return RefScope.new(walk(value), refs)
 end
 
+local function potentiallyBig(val)
+    local t = type(val)
+    if t == "string" then
+        return #t > 5
+    elseif t == "number" then
+        return math.floor(val) ~= val or val <= -0x8000 or val > 0x8000
+    end
+    return false
+end
+
 ---Walk through a value and find duplicate values (sorted by frequency)
 ---@param value Value
 ---@retun Value[]
-function NibsUtils.findDuplicateStrings(value)
+function NibsUtils.findDuplicates(value)
     local seen = {}
     local duplicates = {}
     ---@param o Value
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
+            if getmetatable(o) == RefScope then return o end
+
             for k, v in pairs(o) do
                 walk(k)
                 walk(v)
             end
-        elseif type(o) == "string" then
+        elseif potentiallyBig(o) then
             local old = seen[o]
             if not old then
                 seen[o] = 1
@@ -106,7 +125,7 @@ function NibsUtils.findDuplicateStrings(value)
     walk(value)
     -- Sort by frequency
     table.sort(duplicates, function(a, b)
-        return seen[a] > seen[b] or seen[a] == seen[b] and a < b
+        return seen[a] > seen[b]
     end)
     return duplicates
 end

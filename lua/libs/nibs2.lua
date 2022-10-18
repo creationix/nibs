@@ -197,6 +197,25 @@ RefScope = {}
 Nibs.RefScope = RefScope
 RefScope.__index = RefScope
 RefScope.__name = "RefScope"
+function RefScope:__index(k)
+    return self.value[k]
+end
+
+function RefScope:__newindex(k, v)
+    self.value[k] = v
+end
+
+function RefScope:__len()
+    return #self.value
+end
+
+function RefScope:__pairs()
+    return pairs(self.value)
+end
+
+function RefScope:__ipairs()
+    return ipairs(self.value)
+end
 
 ---Construct a nibs ref scope from a list of values to be referenced and a child value
 ---@param value Value Child value that may use refs from this scope
@@ -241,6 +260,17 @@ function Nibs.encode(val)
     return ffi_string(encoded, size)
 end
 
+-- Needs to be only done once
+local hex_to_char = {}
+for idx = 0, 255 do
+    hex_to_char[("%02X"):format(idx)] = string.char(idx)
+    hex_to_char[("%02x"):format(idx)] = string.char(idx)
+end
+
+local function hex_decode(val)
+    return (val:gsub("(..)", hex_to_char))
+end
+
 ---@param val any
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
@@ -255,6 +285,11 @@ function encode_any(val)
         end
     elseif t == "string" then
         local len = #val
+        if len % 2 == 0 and string.match(val, "^[0-9a-f]+$") then
+            len = len / 2
+            local size, head = encode_pair(HEXSTRING, len)
+            return size + len, { head, hex_decode(val) }
+        end
         local size, head = encode_pair(UTF8, len)
         return size + len, { head, val }
     elseif t == "cdata" then
