@@ -1,5 +1,3 @@
-local xxh64 = require 'xxhash64'
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -33,16 +31,21 @@ local copy = ffi.copy
 local ffi_string = ffi.string
 local cast = ffi.cast
 local istype = ffi.istype
-local metatype = ffi.metatype
 
 local insert = table.insert
 local concat = table.concat
+local sort = table.sort
+local unpack = table.unpack
 
 local ordered = require 'ordered'
-local OrderedMap = ordered.OrderedMap
-local OrderedList = ordered.OrderedList
+local OrderedMap = ordered.Map
+local OrderedArray = ordered.Array
+local OrderedTrie = ordered.Trie
+local is_array_like = ordered.__is_array_like
 
-local Reference, RefScope, Array, Trie
+local xxh64 = require 'xxhash64'
+
+local Ref, RefScope
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
@@ -101,23 +104,6 @@ local function encode_float(val)
     return converter.i
 end
 
----@type table
----@return boolean
-local function is_array_like(val)
-    local mt = getmetatable(val)
-    if mt == OrderedList or mt == NibsList or mt == NibsArray or mt == Array then
-        return true
-    elseif mt == OrderedMap or mt == NibsMap or mt == NibsTrie or mt == Trie then
-        return false
-    end
-    local i = 1
-    for key in pairs(val) do
-        if key ~= i then return false end
-        i = i + 1
-    end
-    return true
-end
-
 ---Combine binary parts into a single binary string
 ---@param size integer total number of expected bytes
 ---@param parts any parts to combine
@@ -166,90 +152,44 @@ local encode_scope
 ---@class Nibs
 local Nibs = {}
 
-Nibs.is_array_like = is_array_like
-
 --- A value that can be serialized with nibs
----@alias Value ffi.cdata* | string | number | boolean | nil | RefScope | Reference | table<Value,Value>
+---@alias Value ffi.cdata* | string | number | boolean | nil | RefScope | Ref | table<Value,Value>
 
 --- Class used to store references when encoding.
----@class Reference
+---@class Ref
 ---@field index number
-Reference = {}
-Nibs.Reference = Reference
-Reference.__index = Reference
-Reference.__name = "Reference"
+Ref = {}
+Nibs.Ref = Ref
+Ref.__name = "Ref"
 ---Construct a nibs ref instance from a ref index
----@param index number
----@return Reference
-function Reference.new(index)
-    return setmetatable({ index = index }, Reference)
+---@return Ref
+function Ref.new(index)
+    return setmetatable({ index }, Ref)
 end
 
-function Reference:__tostring()
-    return "&" .. self.index
+function Ref:__tojson()
+    return '&' .. self[1]
 end
 
 --- Scope used to encode references.
 ---@class RefScope
----@field value Value
----@field refs Value[]
 RefScope = {}
 Nibs.RefScope = RefScope
-RefScope.__index = RefScope
 RefScope.__name = "RefScope"
-function RefScope:__index(k)
-    return self.value[k]
-end
-
-function RefScope:__newindex(k, v)
-    self.value[k] = v
-end
-
-function RefScope:__len()
-    return #self.value
-end
-
-function RefScope:__pairs()
-    return pairs(self.value)
-end
-
-function RefScope:__ipairs()
-    return ipairs(self.value)
-end
 
 ---Construct a nibs ref scope from a list of values to be referenced and a child value
 ---@param value Value Child value that may use refs from this scope
 ---@param refs Value[] list of values that can be referenced
 function RefScope.new(value, refs)
-    return setmetatable({ value = value, refs = refs }, RefScope)
+    return setmetatable({ value, unpack(refs) }, RefScope)
 end
 
----@class Array
----@field list Value[]
-Array = {}
-Nibs.Array = Array
-Array.__index = Array
-Array.__name = "Array"
----Mark a list as needing array index when encoding.
----@param list Value[]
-function Array.new(list)
-    return setmetatable({ list = list }, Array)
-end
-
----@class Trie
----@field map table<Value,Value>
----@field seed integer
----@field optimize number
-Trie = {}
-Nibs.Trie = Trie
-Trie.__index = Trie
-Trie.__name = "Trie"
----Mark a list as needing trie index when encoding.
----@param map table<Value,Value>
----@param seed integer initial seed to use for key hash
----@param optimize integer amount of sequential seeds to try before picking best
-function Trie.new(map, seed, optimize)
-    return setmetatable({ map = map, seed = seed or 0, optimize = optimize or 10 }, Trie)
+function RefScope:__tojson(inner)
+    local parts = {}
+    for i, v in ipairs(self) do
+        parts[i] = inner(v)
+    end
+    return '@(' .. concat(parts, ',') .. ')'
 end
 
 ---Encode any value into a nibs encoded binary string
@@ -301,7 +241,7 @@ function encode_any(val)
             -- Treat cdata floats as floats
             return encode_pair(FLOAT, encode_float(val))
         else
-            local len = sizeof(val)
+            local len = assert(sizeof(val))
             local size, head = encode_pair(BYTES, len)
             return size + len, { head, val }
         end
@@ -311,20 +251,20 @@ function encode_any(val)
         return encode_pair(SIMPLE, NULL)
     elseif t == "table" then
         local mt = getmetatable(val)
-        if mt == Reference then
-            return encode_pair(REF, val.index)
+        if mt == Ref then
+            return encode_pair(REF, val[1])
         elseif mt == RefScope then
             return encode_scope(val)
-        elseif mt == Array then
-            return encode_array(val)
-        elseif mt == Trie then
-            return encode_trie(val)
-        else
-            if is_array_like(val) then
-                return encode_list(val)
-            else
-                return encode_map(val)
+        elseif is_array_like(val) then
+            if mt and mt.__is_indexed then
+                return encode_array(val)
             end
+            return encode_list(val)
+        else
+            if mt and mt.__is_indexed then
+                return encode_trie(val)
+            end
+            return encode_map(val)
         end
     else
         return encode_any(tostring(val))
@@ -347,11 +287,10 @@ function encode_list(list)
     return size + total, { prefix, body }
 end
 
----@param array Array
+---@param list Value[]
 ---@return integer
 ---@return any
-function encode_array(array)
-    local list = array.list
+function encode_array(list)
     local total = 0
     local body = {}
     local offsets = {}
@@ -371,12 +310,16 @@ end
 ---@return integer
 ---@return any
 function encode_scope(scope)
+    ---@type Value
+    local value = scope[1]
+    ---@type Value[]
+    local refs = { unpack(scope, 2) }
     local total = 0
     local body = {}
     local offsets = {}
-    local size, value_entry = encode_any(scope.value)
+    local size, value_entry = encode_any(value)
     total = total + size
-    for i, v in ipairs(scope.refs) do
+    for i, v in ipairs(refs) do
         local entry
         size, entry = encode_any(v)
         body[i] = entry
@@ -385,7 +328,8 @@ function encode_scope(scope)
     end
     local more, index = generate_array_index(offsets)
     total = total + more
-    local size, prefix = encode_pair(SCOPE, total)
+    local prefix
+    size, prefix = encode_pair(SCOPE, total)
     return size + total, { prefix, index, value_entry, body }
 end
 
@@ -407,13 +351,12 @@ function encode_map(map)
     return size + total, { head, body }
 end
 
----@param trie Trie
+---@param map table<Value,Value>
 ---@return integer
 ---@return any
-function encode_trie(trie)
-    local map = trie.map
-    local seed = trie.seed
-    local optimize = trie.optimize
+function encode_trie(map)
+    local seed = 0 -- TODO find way to configure this option
+    local optimize = 0 -- TODO find way to configure this option
     local total = 0
     local body = {}
     local offsets = OrderedMap.new()
@@ -485,7 +428,7 @@ local function build_trie(inputs, bits, hash64, seed)
                 count = count + 1
                 -- And try again
             else
-                local segment = tonumber(band(rshift(hash, o), mask))
+                local segment = assert(tonumber(band(rshift(hash, o), mask)))
                 if node ~= trie and not next(node) then
                     -- Otherwise, check if node is empty
                     -- and claim it
@@ -536,6 +479,7 @@ function generate_trie_index(offsets, seed, optimize)
     end
     local width = lshift(1, bits - 3)
     local mod = lshift(1ULL, U64(width * 8))
+    local high = lshift(1ULL, U64(width * 8) - 1)
 
     local min, win, ss
     for i = 0, optimize do
@@ -555,48 +499,44 @@ function generate_trie_index(offsets, seed, optimize)
     local function write_node(node)
         -- Sort highest first since we're writing backwards
         local segments = {}
-        for k in pairs(node) do table.insert(segments, k) end
-        table.sort(segments, function(a, b) return a > b end)
+        for k in pairs(node) do insert(segments, k) end
+        sort(segments, function(a, b) return a > b end)
 
         -- Calculate the target addresses
         local targets = {}
         for i, k in ipairs(segments) do
             local v = node[k]
             if type(v[2]) == "number" then
-                targets[i] = -1 - v[2]
+                targets[i] = bor(v[2], high)
             else
                 targets[i] = height
                 write_node(v)
             end
         end
-        -- p { targets = targets }
 
         -- Generate the pointers
         local bitfield = U64(0)
         for i, k in ipairs(segments) do
             bitfield = bor(bitfield, lshift(1, k))
             local target = targets[i]
-            if target >= 0 then
+            if target < high then
                 target = height - target - width
             end
             -- p(height, { segment = k, pointer = target })
-            table.insert(parts, target)
+            insert(parts, target)
             height = height + width
         end
 
         -- p(height, { bitfield = bit.tohex(bitfield) })
-        table.insert(parts, bitfield)
+        insert(parts, bitfield)
         height = height + width
 
 
     end
 
-    -- p { trie = trie }
-
     write_node(trie)
 
-    -- p { parts = parts }
-    table.insert(parts, seed)
+    insert(parts, seed)
     local count = #parts
     local slice = Slice(count)
     for i, part in ipairs(parts) do
@@ -616,7 +556,7 @@ end
 ---@return number
 ---@return number
 local function decode_pair(read, offset)
-    local data = read(tonumber(offset), 9)
+    local data = read(assert(tonumber(offset)), 9)
     local ptr = cast(U8Ptr, data)
     local head = ptr[0]
     local little = rshift(head, 4)
@@ -646,8 +586,6 @@ local function decode_zigzag(big)
     local i = I64(big)
     return tonumberMaybe(bxor(rshift(i, 1), -band(i, 1)))
 end
-
-local converter = ffi.new 'union {double f;uint64_t i;}'
 
 local function decode_float(val)
     converter.i = val
@@ -801,6 +739,7 @@ local NibsMeta = setmetatable({}, { __mode = "k" })
 ---@class NibsList
 NibsList = {}
 NibsList.__name = "NibsList"
+NibsList.__is_array_like = true
 
 ---@param read ByteProvider
 ---@param offset number
@@ -850,6 +789,10 @@ function NibsList:__index(idx)
     end
 end
 
+function NibsList.__newindex()
+    error "NibsList is read-only"
+end
+
 function NibsList:__ipairs()
     local meta = NibsMeta[self]
     local offset = meta.alpha
@@ -872,21 +815,10 @@ end
 
 NibsList.__pairs = NibsList.__ipairs
 
-function NibsList:__tostring()
-    local parts = { "[" }
-    for i, v in ipairs(self) do
-        if i > 1 then
-            insert(parts, ",")
-        end
-        insert(parts, tostring(v))
-    end
-    insert(parts, "]")
-    return concat(parts)
-end
-
 ---@class NibsMap
 NibsMap = {}
 NibsMap.__name = "NibsMap"
+NibsMap.__is_array_like = false
 
 ---@param read ByteProvider
 ---@param offset number
@@ -904,7 +836,7 @@ function NibsMap.new(read, offset, length, scope)
     return self
 end
 
-function NibsMap:__len()
+function NibsMap.__len()
     return 0
 end
 
@@ -945,23 +877,15 @@ function NibsMap:__index(idx)
     end
 end
 
-function NibsMap:__tostring()
-    local parts = { "{" }
-    local first = true
-    for k, v in pairs(self) do
-        if not first then
-            insert(parts, ",")
-        end
-        first = false
-        insert(parts, tostring(k) .. ":" .. tostring(v))
-    end
-    insert(parts, "}")
-    return concat(parts)
+function NibsMap.__newindex()
+    error "NibsMap is read-only"
 end
 
 ---@class NibsArray
 NibsArray = {}
 NibsArray.__name = "NibsArray"
+NibsArray.__is_array_like = true
+NibsArray.__is_indexed = true
 
 ---@param read ByteProvider
 ---@param offset number
@@ -993,6 +917,10 @@ function NibsArray:__index(idx)
     return value
 end
 
+function NibsArray.__newindex()
+    error "NibsArray is read-only"
+end
+
 function NibsArray:__len()
     local meta = NibsMeta[self]
     return meta.count
@@ -1011,11 +939,11 @@ end
 
 NibsArray.__pairs = NibsArray.__ipairs
 
-NibsArray.__tostring = NibsList.__tostring
-
 ---@class NibsTrie
 NibsTrie = {}
 NibsTrie.__name = "NibsTrie"
+NibsTrie.__is_array_like = false
+NibsTrie.__is_indexed = true
 
 ---@param read ByteProvider
 ---@param offset number
@@ -1043,7 +971,7 @@ function NibsTrie:__index(idx)
     local meta = NibsMeta[self]
     local read = meta.read
     local offset = meta.alpha + meta.width
-    local encoded = nibs:encode(idx)
+    local encoded = Nibs.encode(idx)
     local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
 
     local bits = assert(meta.width == 1 and 3
@@ -1066,7 +994,11 @@ function NibsTrie:__index(idx)
     return value
 end
 
-function NibsTrie:__len()
+function NibsTrie.__newindex()
+    error "NibsTrie is read-only"
+end
+
+function NibsTrie.__len()
     return 0
 end
 
@@ -1078,12 +1010,11 @@ function NibsTrie:__pairs()
             local key, value
             key, offset = get(meta.read, offset, meta.scope)
             value, offset = get(meta.read, offset, meta.scope)
+            assert(self[key] == value)
             return key, value
         end
     end
 end
-
-NibsTrie.__tostring = NibsMap.__tostring
 
 ---@class DecodeScope
 ---@field parent DecodeScope?
@@ -1116,6 +1047,7 @@ end
 ---@param scope DecodeScope?
 ---@return any, number
 function get(read, offset, scope)
+    local start = offset
     local little, big
     offset, little, big = decode_pair(read, offset)
     if little == ZIGZAG then
@@ -1143,10 +1075,156 @@ function get(read, offset, scope)
     elseif little == SCOPE then
         return decode_scope(read, offset, big, scope), offset + big
     else
-        error('Unexpected nibs type: ' .. little)
+        error(string.format('Unexpected nibs type: %s at %08x', little, start))
     end
 end
 
 Nibs.get = get
+
+---Decode a nibs string from memory
+---@param str string
+---@return any
+function Nibs.decode(str)
+    local val, offset = Nibs.get(function(offset, length)
+        return string.sub(str, offset + 1, offset + length)
+    end, 0)
+    assert(offset == #str, "extra data in input string")
+    return val
+end
+
+---Turn lists and maps into arrays and tries if they are over some limit
+---@param value Value
+---@param index_limit number
+function Nibs.autoIndex(value, index_limit)
+    index_limit = index_limit or 10
+
+    ---@param o Value
+    local function walk(o)
+        if type(o) ~= "table" then return o end
+        local mt = getmetatable(o)
+        if mt == Ref then
+            return o
+        elseif mt == RefScope then
+            o[1] = walk(o[1])
+            return o
+        end
+        if is_array_like(o) then
+            if #o < index_limit then
+                for i = 1, #o do
+                    o[i] = walk(o[i])
+                end
+                return o
+            else
+                local r = OrderedArray.new()
+                for i = 1, #o do
+                    r[i] = walk(o[i])
+                end
+                return r
+            end
+        end
+        local count = 0
+        for _ in pairs(o) do count = count + 1 end
+        if count < index_limit then
+            for k, v in pairs(o) do
+                o[walk(k)] = walk(v)
+            end
+            return o
+        else
+            local r = OrderedTrie.new()
+            for k, v in pairs(o) do
+                r[walk(k)] = walk(v)
+            end
+            return r
+        end
+    end
+
+    return walk(value)
+end
+
+---Walk through a value and replace values found in the reference table with refs.
+---@param value Value
+---@param refs RefScope
+function Nibs.addRefs(value, refs)
+    if #refs == 0 then return value end
+    ---@param o Value
+    ---@return Value
+    local function walk(o)
+        if type(o) == "table" then
+            if getmetatable(o) == Nibs.RefScope then return o end
+            if is_array_like(o) then
+                local a = OrderedList.new()
+                for i, v in ipairs(o) do
+                    a[i] = walk(v)
+                end
+                return a
+            end
+            local m = OrderedMap.new()
+            for k, v in pairs(o) do
+                m[walk(k)] = walk(v)
+            end
+            return m
+        end
+        for i, r in ipairs(refs) do
+            if r == o then
+                return Ref.new(i - 1)
+            end
+        end
+        return o
+    end
+
+    return RefScope.new(walk(value), refs)
+end
+
+local function potentiallyBig(val)
+    local t = type(val)
+    if t == "string" then
+        return #t > 5
+    elseif t == "number" then
+        return math.floor(val) ~= val or val <= -0x80 or val > 0x80
+    end
+    return false
+end
+
+---Walk through a value and find duplicate values (sorted by frequency)
+---@param value Value
+---@retun Value[]
+function Nibs.findDuplicates(value)
+    local seen = {}
+    local duplicates = {}
+    ---@param o Value
+    ---@return Value
+    local function walk(o)
+        if type(o) == "table" then
+            if getmetatable(o) == RefScope then return o end
+
+            for k, v in pairs(o) do
+                walk(k)
+                walk(v)
+            end
+        elseif o and potentiallyBig(o) then
+            local old = seen[o]
+            if not old then
+                seen[o] = 1
+            else
+                if old == 1 then
+                    table.insert(duplicates, o)
+                end
+                seen[o] = old + 1
+            end
+        end
+    end
+
+    -- Extract all duplicate strings
+    walk(value)
+    -- Sort by frequency
+    table.sort(duplicates, function(a, b)
+        return seen[a] > seen[b]
+    end)
+    return duplicates
+end
+
+function Nibs.deduplicate(val)
+    return Nibs.addRefs(val, Nibs.findDuplicates(val))
+end
 
 return Nibs

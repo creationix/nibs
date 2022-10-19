@@ -1,7 +1,10 @@
 local floor = math.floor
 
+local Ordered = {}
+
 --- JavaScript/JSON Object semantics for Lua tables
 local OrderedMap = {}
+Ordered.Map = OrderedMap
 do
     -- Weak keys for storing object order out of table
     local orders = setmetatable({}, { __mode = "k" })
@@ -21,7 +24,8 @@ do
         return order
     end
 
-    OrderedMap.__name = "Map"
+    OrderedMap.__name = "OrderedMap"
+    OrderedMap.__is_array_like = false
 
     function OrderedMap:__pairs()
         local order = getOrder(self)
@@ -85,6 +89,7 @@ end
 
 --- JavaScript/JSON Array semantics for Lua tables
 local OrderedList = {}
+Ordered.List = OrderedList
 do
     -- Weak keys for storing array length out of table
     local lengths = setmetatable({}, { __mode = "k" })
@@ -101,7 +106,8 @@ do
         return length
     end
 
-    OrderedList.__name = "List"
+    OrderedList.__name = "OrderedList"
+    OrderedList.__is_array_like = true
 
     function OrderedList.new(...)
         local self = setmetatable({}, OrderedList)
@@ -152,7 +158,51 @@ do
     end
 end
 
-return {
-    OrderedMap = OrderedMap,
-    OrderedList = OrderedList,
-}
+-- Same as OrderedArray, but marked for indexing when serializing to nibs
+local OrderedArray = {}
+Ordered.Array = OrderedArray
+do
+    OrderedArray.__name = "OrderedArray"
+    OrderedArray.__is_indexed = true
+    function OrderedArray.new(...)
+        return setmetatable(OrderedList.new(...), OrderedArray)
+    end
+
+    OrderedArray.__len = OrderedList.__len
+    OrderedArray.__index = OrderedList.__index
+    OrderedArray.__newindex = OrderedList.__newindex
+    OrderedArray.__pairs = OrderedList.__pairs
+    OrderedArray.__ipairs = OrderedList.__ipairs
+end
+
+-- Same as OrderedMap, but marked for indexing when serializing to nibs
+local OrderedTrie = {}
+Ordered.Trie = OrderedTrie
+do
+    OrderedTrie.__name = "OrderedTrie"
+    OrderedTrie.__is_indexed = true
+    function OrderedTrie.new(...)
+        return setmetatable(OrderedMap.new(...), OrderedTrie)
+    end
+
+    OrderedTrie.__len = OrderedMap.__len
+    OrderedTrie.__index = OrderedMap.__index
+    OrderedTrie.__newindex = OrderedMap.__newindex
+    OrderedTrie.__pairs = OrderedMap.__pairs
+    OrderedTrie.__ipairs = OrderedMap.__ipairs
+end
+
+function Ordered.__is_array_like(val)
+    local mt = getmetatable(val)
+    if mt and mt.__is_array_like ~= nil then
+        return mt.__is_array_like
+    end
+    local i = 1
+    for key in pairs(val) do
+        if key ~= i then return false end
+        i = i + 1
+    end
+    return true
+end
+
+return Ordered

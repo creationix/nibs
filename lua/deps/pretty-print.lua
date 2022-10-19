@@ -130,8 +130,8 @@ function loadColors(index)
   quote2   = colorize('quotes', "'")
   dquote   = colorize('quotes', '"', 'string')
   dquote2  = colorize('quotes', '"')
-  obrace   = colorize('braces', '{ ')
-  cbrace   = colorize('braces', '}')
+  obrace   = colorize('braces', '{')
+  cbrace   = colorize('braces', ' }')
   obracket = colorize('property', '[')
   cbracket = colorize('property', ']')
   comma    = colorize('sep', ', ')
@@ -248,35 +248,25 @@ function dump(value, recurse, nocolor)
       end
     elseif typ == 'table' and not seen[localValue] then
       if not recurse then seen[localValue] = true end
-      local keys = {}
-      do
-        local i = 1
-        local k = next(localValue)
-        while k ~= nil do
-          keys[i] = k
-          i = i + 1
-          k = next(localValue, k)
-        end
-      end
+
       local m = getmetatable(localValue)
       if m and m.__name then
         write(colorize('sep', m.__name))
       end
-
-      local arr = true
-      for i, k in ipairs(keys) do
-        if type(k) == "number" and k ~= i then
-          arr = false
-          break
-        end
-      end
-
       write(obrace)
 
-      for i, k in ipairs(keys) do
+      local i = 0
+      local arr = true
+      for k, v in pairs(localValue) do
+        i = i + 1
+        if k ~= i then arr = false end
         indent()
-        local v = rawget(localValue, k)
-        if arr and k == i then
+        if i > 1 then
+          write(comma)
+        else
+          write(" ")
+        end
+        if arr then
           -- if the key matches the numerical index, print without key
           process(v)
         else
@@ -295,11 +285,6 @@ function dump(value, recurse, nocolor)
             process(v)
             unindent()
           end
-        end
-        if i < #keys then
-          write(comma)
-        else
-          write(" ")
         end
         unindent()
       end
