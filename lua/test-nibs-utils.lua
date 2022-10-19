@@ -28,21 +28,28 @@ end
 local inputs = OrderedMap.new(unpack {
     -- "vercel", require('fs').readFileSync('test.json'),
     -- "array", '[1,2,3,4]',
-    "small-object", '{0:1,2:3,4:5}',
-    "object", '{"name":"Tim","age":40,"color":"blue"}',
-    "mixed", '[' ..
-        '{"color":"red",   "fruits":["apple","strawberry"]},' ..
-        '{"color":"green", "fruits":["apple"]},' ..
-        '{"color":"yellow","fruits":["apple","banana"]}' ..
-        ']',
-    "test", [[{
-        "one":   { "name": "one",   "value": 1000, "beef": false },
-        "two":   { "name": "Two",   "value": 2000, "dead": true },
-        "three": { "name": "three", "value": 3000, "ffee": null },
-        "four":  { "name": "Four",  "value": 2000 },
-        "five":  { "name": "five",  "value": 1000 }
+    -- "small-object", '{0:1,2:3,4:5}',
+    -- "object", '{"name":"Tim","age":40,"color":"blue"}',
+    -- "mixed", '[' ..
+    --     '{"color":"red",   "fruits":["apple","strawberry"]},' ..
+    --     '{"color":"green", "fruits":["apple"]},' ..
+    --     '{"color":"yellow","fruits":["apple","banana"]}' ..
+    --     ']',
+    "trie", [[{
+      0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
     }]],
+    -- "test", [[{
+    --     "one":   { "name": "one",   "value": 1000, "beef": false },
+    --     "two":   { "name": "Two",   "value": 2000, "dead": true },
+    --     "three": { "name": "three", "value": 3000, "ffee": null },
+    --     "four":  { "name": "Four",  "value": 2000 },
+    --     "five":  { "name": "five",  "value": 1000 }
+    -- }]],
 })
+
+local function autoIndex(val)
+    return Nibs.autoIndex(val, 4)
+end
 
 local tests = OrderedMap.new(unpack {
     -- "Input Json", {},
@@ -65,22 +72,22 @@ local tests = OrderedMap.new(unpack {
     -- "Deduplicated -> Nibs -> Lua -> Json", { Json.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode, Json.encode },
     -- "Deduplicated -> Nibs -> Lua -> Nibs", { Json.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode, Nibs.encode },
 
-    "Indexed", { Json.decode, { Nibs.autoIndex, 3 } },
-    -- "Indexed -> Json", { Json.decode, { Nibs.autoIndex, 3 }, Json.encode },
-    "Indexed -> Nibs", { Json.decode, { Nibs.autoIndex, 3 }, Nibs.encode },
-    -- "Indexed -> Json -> Lua", { Json.decode, { Nibs.autoIndex, 3 }, Json.encode, Json.decode },
-    "Indexed -> Nibs -> Lua", { Json.decode, { Nibs.autoIndex, 3 }, Nibs.encode, Nibs.decode },
-    -- "Indexed -> Json -> Lua -> Json", { Json.decode, { Nibs.autoIndex, 3 }, Json.encode, Json.decode, Json.encode },
-    -- "Indexed -> Nibs -> Lua -> Json", { Json.decode, { Nibs.autoIndex, 3 }, Nibs.encode, Nibs.decode, Json.encode },
-    -- "Indexed -> Json -> Lua -> Nibs", { Json.decode, { Nibs.autoIndex, 3 }, Json.encode, Json.decode, Nibs.encode },
-    -- "Indexed -> Nibs -> Lua -> Nibs", { Json.decode, { Nibs.autoIndex, 3 }, Nibs.encode, Nibs.decode, Nibs.encode },
+    "Indexed", { Json.decode, autoIndex },
+    -- "Indexed -> Json", { Json.decode, autoIndex, Json.encode },
+    "Indexed -> Nibs", { Json.decode, autoIndex, Nibs.encode },
+    -- "Indexed -> Json -> Lua", { Json.decode, autoIndex, Json.encode, Json.decode },
+    "Indexed -> Nibs -> Lua", { Json.decode, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Indexed -> Json -> Lua -> Json", { Json.decode, autoIndex, Json.encode, Json.decode, Json.encode },
+    -- "Indexed -> Nibs -> Lua -> Json", { Json.decode, autoIndex, Nibs.encode, Nibs.decode, Json.encode },
+    -- "Indexed -> Json -> Lua -> Nibs", { Json.decode, autoIndex, Json.encode, Json.decode, Nibs.encode },
+    -- "Indexed -> Nibs -> Lua -> Nibs", { Json.decode, autoIndex, Nibs.encode, Nibs.decode, Nibs.encode },
 
-    -- "Deduped -> Indexed", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 } },
-    -- "Indexed -> Deduped", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 } },
-    -- "Deduped -> Indexed -> Json", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 }, Json.encode },
-    -- "Indexed -> Deduped -> Json", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 }, Json.encode },
-    -- "Deduped -> Indexed -> Nibs", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 }, Nibs.encode },
-    -- "Indexed -> Deduped -> Nibs", { Json.decode, Nibs.deduplicate, { Nibs.autoIndex, 3 }, Nibs.encode },
+    -- "Deduped -> Indexed", { Json.decode, Nibs.deduplicate, autoIndex },
+    -- "Indexed -> Deduped", { Json.decode, Nibs.deduplicate, autoIndex },
+    -- "Deduped -> Indexed -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
+    -- "Indexed -> Deduped -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
+    -- "Deduped -> Indexed -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    -- "Indexed -> Deduped -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
 })
 
 local matchers = {

@@ -356,7 +356,7 @@ end
 ---@return any
 function encode_trie(map)
     local seed = 0 -- TODO find way to configure this option
-    local optimize = 0 -- TODO find way to configure this option
+    local optimize = 256 -- TODO find way to configure this option
     local total = 0
     local body = {}
     local offsets = OrderedMap.new()
@@ -412,7 +412,7 @@ end
 local function build_trie(inputs, bits, hash64, seed)
     local mask = U64(lshift(1, bits) - 1)
     local trie = {}
-    local count = 0
+    local count = 1
     -- Insert the offsets into the trie
     for key, offset in pairs(inputs) do
         local ptr, len = unpack(key)
@@ -425,7 +425,7 @@ local function build_trie(inputs, bits, hash64, seed)
                 local has, off = node[1], node[2]
                 node[1], node[2] = nil, nil
                 node[tonumber(band(rshift(has, o), mask))] = { has, off }
-                count = count + 1
+                count = count + 2
                 -- And try again
             else
                 local segment = assert(tonumber(band(rshift(hash, o), mask)))
@@ -433,6 +433,7 @@ local function build_trie(inputs, bits, hash64, seed)
                     -- Otherwise, check if node is empty
                     -- and claim it
                     node[1], node[2] = hash, offset
+                    count = count + 1
                     break
                 end
                 -- Or follow/create the next in the path
@@ -441,7 +442,6 @@ local function build_trie(inputs, bits, hash64, seed)
                     node = next
                 else
                     next = {}
-                    count = count + 1
                     node[segment] = next
                     node = next
                 end
@@ -507,10 +507,12 @@ function generate_trie_index(offsets, seed, optimize)
         for i, k in ipairs(segments) do
             local v = node[k]
             if type(v[2]) == "number" then
+                assert(v[2] < high, "Target too high for pointer width")
                 targets[i] = bor(v[2], high)
             else
-                targets[i] = height
                 write_node(v)
+                assert(height < high, "Index too tall for pointer width")
+                targets[i] = height
             end
         end
 
@@ -520,14 +522,13 @@ function generate_trie_index(offsets, seed, optimize)
             bitfield = bor(bitfield, lshift(1, k))
             local target = targets[i]
             if target < high then
-                target = height - target - width
+                target = height - target
+                assert(target < high, "Internal pointer too big for pointer width")
             end
-            -- p(height, { segment = k, pointer = target })
             insert(parts, target)
             height = height + width
         end
 
-        -- p(height, { bitfield = bit.tohex(bitfield) })
         insert(parts, bitfield)
         height = height + width
 
