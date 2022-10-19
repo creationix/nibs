@@ -16,6 +16,9 @@ jobs:
           curl -L https://github.com/luvit/lit/raw/master/get-lit.sh | sh
       - name: Run tests
         run: |
-          ./luvit lua/test-nibs2.lua
+          ./luvit lua/test-nibs-decoder.lua
+          ./luvit lua/test-nibs-encoder.lua
+          ./luvit lua/test-nibs-utils.lua
           ./luvit lua/test-xxhash.lua
+          ./luvit lua/test-bytes.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."
