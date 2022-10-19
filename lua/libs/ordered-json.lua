@@ -10,9 +10,9 @@ local format = string.format
 local concat = table.concat
 
 local ordered = require 'ordered'
-local Object = ordered.OrderedMap
-local Array = ordered.OrderedList
-
+local is_array_like = ordered.__is_array_like
+local Object = ordered.Map
+local Array = ordered.List
 
 -- Use Object to control order of exports
 local Json = Object.new(
@@ -37,7 +37,7 @@ do
     --- the lua representation.  Array/Object/null semantics are preserved.
     ---@param json string
     ---@return boolean|string|number|table|nil parsed value
-    ---@return string error
+    ---@return string? error
     function Json.decode(json)
         assert(type(json) == "string", "JSON string expected")
         local value, index = parseAny(json, 1)
@@ -503,7 +503,9 @@ do
         return "{" .. concat(parts, ",") .. "}"
     end
 
+    local reentered = nil
     function Json.encode(val)
+
         local typ = type(val)
         if typ == 'nil' then
             return "null"
@@ -514,11 +516,20 @@ do
         elseif typ == 'number' then
             return tostring(val)
         elseif typ == 'table' then
-            local meta = getmetatable(val)
-            if meta == Array then return encodeArray(val) end
-            if meta == Object then return encodeObject(val) end
-            if #val > 0 or next(val) == nil then return encodeArray(val) end
-            return encodeObject(val)
+
+            local mt = getmetatable(val)
+            if mt and reentered ~= val and mt.__tojson then
+                reentered = val
+                local json = mt.__tojson(val, Json.encode)
+                reentered = nil
+                return json
+            end
+            local prefix = mt and mt.__is_indexed and "#" or ""
+            if is_array_like(val) then
+                return prefix .. encodeArray(val)
+            else
+                return prefix .. encodeObject(val)
+            end
         else
             error("Cannot serialize " .. typ)
         end
