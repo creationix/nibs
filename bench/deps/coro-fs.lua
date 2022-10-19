@@ -27,7 +27,7 @@ local function noop() end
 
 local function makeCallback()
   local thread = coroutine.running()
-  return function (err, value, ...)
+  return function(err, value, ...)
     if err then
       assertResume(thread, nil, err)
     else
@@ -40,66 +40,82 @@ function fs.mkdir(path, mode)
   uv.fs_mkdir(path, mode or 511, makeCallback())
   return coroutine.yield()
 end
+
 function fs.open(path, flags, mode)
   uv.fs_open(path, flags or "r", mode or 438, makeCallback())
   return coroutine.yield()
 end
+
 function fs.unlink(path)
   uv.fs_unlink(path, makeCallback())
   return coroutine.yield()
 end
+
 function fs.stat(path)
   uv.fs_stat(path, makeCallback())
   return coroutine.yield()
 end
+
 function fs.lstat(path)
   uv.fs_lstat(path, makeCallback())
   return coroutine.yield()
 end
+
 function fs.symlink(target, path, flags)
   uv.fs_symlink(target, path, flags, makeCallback())
   return coroutine.yield()
 end
+
 function fs.readlink(path)
   uv.fs_readlink(path, makeCallback())
   return coroutine.yield()
 end
+
 function fs.fstat(fd)
   uv.fs_fstat(fd, makeCallback())
   return coroutine.yield()
 end
+
 function fs.chmod(path, mode)
   uv.fs_chmod(path, mode, makeCallback())
   return coroutine.yield()
 end
+
 function fs.fchmod(fd, mode)
   uv.fs_fchmod(fd, mode, makeCallback())
   return coroutine.yield()
 end
+
 function fs.read(fd, length, offset)
-  uv.fs_read(fd, length or 1024*48, offset or -1, makeCallback())
+  uv.fs_read(fd, length or (1024 * 48), offset or -1, makeCallback())
   return coroutine.yield()
 end
+
 function fs.write(fd, data, offset)
   uv.fs_write(fd, data, offset or -1, makeCallback())
   return coroutine.yield()
 end
+
 function fs.close(fd)
   uv.fs_close(fd, makeCallback())
   return coroutine.yield()
 end
+
 function fs.access(path, mode)
   uv.fs_access(path, mode or "", makeCallback())
   return coroutine.yield()
 end
+
 function fs.rename(path, newPath)
   uv.fs_rename(path, newPath, makeCallback())
   return coroutine.yield()
 end
+
 function fs.rmdir(path)
   uv.fs_rmdir(path, makeCallback())
   return coroutine.yield()
 end
+
 function fs.rmrf(path)
   local success, err
   success, err = fs.rmdir(path)
@@ -117,11 +133,12 @@ function fs.rmrf(path)
   end
   return fs.rmdir(path)
 end
+
 function fs.scandir(path)
   uv.fs_scandir(path, makeCallback())
   local req, err = coroutine.yield()
   if not req then return nil, err end
-  return function ()
+  return function()
     local name, typ = uv.fs_scandir_next(req)
     if not name then return name, typ end
     if type(name) == "table" then return name end
@@ -201,57 +218,74 @@ function fs.chroot(base)
   }
   local function resolve(path)
     assert(path, "path missing")
-    return pathJoin(base, pathJoin("./".. path))
+    return pathJoin(base, pathJoin("./" .. path))
   end
+
   function chroot.mkdir(path, mode)
     return fs.mkdir(resolve(path), mode)
   end
+
   function chroot.mkdirp(path, mode)
     return fs.mkdirp(resolve(path), mode)
   end
+
   function chroot.open(path, flags, mode)
     return fs.open(resolve(path), flags, mode)
   end
+
   function chroot.unlink(path)
     return fs.unlink(resolve(path))
   end
+
   function chroot.stat(path)
     return fs.stat(resolve(path))
   end
+
   function chroot.lstat(path)
     return fs.lstat(resolve(path))
   end
+
   function chroot.symlink(target, path, flags)
     -- TODO: should we resolve absolute target paths or treat it as opaque data?
     return fs.symlink(target, resolve(path), flags)
   end
+
   function chroot.readlink(path)
     return fs.readlink(resolve(path))
   end
+
   function chroot.chmod(path, mode)
     return fs.chmod(resolve(path), mode)
   end
+
   function chroot.access(path, mode)
     return fs.access(resolve(path), mode)
   end
+
   function chroot.rename(path, newPath)
     return fs.rename(resolve(path), resolve(newPath))
   end
+
   function chroot.rmdir(path)
     return fs.rmdir(resolve(path))
   end
+
   function chroot.rmrf(path)
     return fs.rmrf(resolve(path))
   end
-  function chroot.scandir(path, iter)
-    return fs.scandir(resolve(path), iter)
+
+  function chroot.scandir(path)
+    return fs.scandir(resolve(path))
   end
+
   function chroot.readFile(path)
     return fs.readFile(resolve(path))
   end
+
   function chroot.writeFile(path, data, mkdir)
     return fs.writeFile(resolve(path), data, mkdir)
   end
+
   return chroot
 end
 
