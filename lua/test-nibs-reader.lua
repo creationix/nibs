@@ -1,12 +1,11 @@
-local Bytes = require './bytes'
-local Nibs = require 'nibs2'
+local Bytes = require 'bytes'
+local Nibs = require 'nibs'
 local ffi = require 'ffi'
 local I64 = ffi.typeof 'int64_t'
 
 local p = require('pretty-print').prettyPrint
 local dump = require('pretty-print').dump
 local colorize = require('pretty-print').colorize
-local color = require('pretty-print').colorize
 
 local function dumper(val)
     if type(val) == "cdata" and ffi.typeof(val) ~= I64 then
@@ -27,8 +26,6 @@ local readFileSync = require('fs').readFileSync
 
 local tests = readFileSync(module.dir .. "/../nibs-tests.txt")
 local Json = require 'ordered-json'
-
-local nibs = Nibs.new()
 
 local function equal(a, b)
     if a == b then return true end
@@ -68,10 +65,11 @@ local function equal(a, b)
     return false
 end
 
+local options = {}
 for line in string.gmatch(tests, "[^\n]+") do
     if line:match("^[a-z]") then
         local code = "return function(self) self." .. line .. " end"
-        loadstring(code)()(nibs)
+        loadstring(code)()(options)
     else
         local text, hex = line:match " *([^|]+) +%| +(..+)"
         if not text then

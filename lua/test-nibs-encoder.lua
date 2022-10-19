@@ -1,10 +1,11 @@
 local p = require('pretty-print').prettyPrint
 local colorize = require('pretty-print').colorize
-local color = require('pretty-print').colorize
-local Nibs = require "nibs2"
+local Nibs = require "nibs"
 local readFileSync = require('fs').readFileSync
+local ffi = require 'ffi'
+local I64 = ffi.typeof 'int64_t'
 
-local tests = readFileSync(module.dir .. "/nibs-tests.txt")
+local tests = assert(readFileSync(module.dir .. "/../nibs-tests.txt"))
 local Json = require 'ordered-json'
 
 local tohex = bit.tohex
@@ -19,19 +20,17 @@ local function dump_string(str)
     return concat(parts)
 end
 
-local nibs = Nibs.new()
-
 p(Nibs)
-p(nibs)
 
 collectgarbage("collect")
+local options = {}
 for line in string.gmatch(tests, "[^\n]+") do
     collectgarbage("collect")
     if line:match("^[a-z]") then
         collectgarbage("collect")
         local code = "return function(self) self." .. line .. " end"
         collectgarbage("collect")
-        loadstring(code)()(nibs)
+        loadstring(code)()(options)
         collectgarbage("collect")
     else
         collectgarbage("collect")
@@ -42,13 +41,34 @@ for line in string.gmatch(tests, "[^\n]+") do
             print("\n" .. colorize("highlight", line) .. "\n")
         else
             collectgarbage("collect")
-            local value = Json.decode(text) or loadstring(
-                "local inf,nan,null=1/0,0/0\n" ..
-                "return " .. text)()
+            local value
+            if string.match(text, "^-?[0-9]+$") then
+                local neg = false
+                local big = I64(0)
+                for i = 1, #text do
+                    if string.sub(text, i, i) == "-" then
+                        neg = true
+                    else
+                        big = big * 10 - (string.byte(text, i, i) - 48)
+                    end
+                end
+                if not neg then big = -big end
+                p(big)
+                if I64(tonumber(big)) == big then
+                    value = tonumber(big)
+                else
+                    value = big
+                end
+                p(value)
+            else
+                value = Json.decode(text) or loadstring(
+                    "local inf,nan,null=1/0,0/0\n" ..
+                    "return " .. text)()
+            end
             collectgarbage("collect")
             local expected = loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"')()
             collectgarbage("collect")
-            local actual = nibs:encode(value)
+            local actual = Nibs.encode(value)
             -- p(value, dump_string(actual))
 
             collectgarbage("collect")

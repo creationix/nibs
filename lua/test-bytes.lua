@@ -1,4 +1,4 @@
-local Bytes = require './bytes'
+local Bytes = require 'bytes'
 
 ---Create a tiny LRU that holds a single value
 ---@return SliceLRU
