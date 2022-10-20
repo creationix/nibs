@@ -1,3 +1,6 @@
+local PrettyPrint = require 'pretty-print'
+local p = PrettyPrint.prettyPrint
+
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -33,19 +36,19 @@ local cast = ffi.cast
 local istype = ffi.istype
 
 local insert = table.insert
-local concat = table.concat
 local sort = table.sort
 local unpack = table.unpack
 
-local ordered = require 'ordered'
-local OrderedMap = ordered.Map
-local OrderedArray = ordered.Array
-local OrderedTrie = ordered.Trie
-local is_array_like = ordered.__is_array_like
+local Ordered = require 'ordered'
+local OrderedList = Ordered.List
+local OrderedMap = Ordered.Map
+local OrderedArray = Ordered.Array
+local OrderedTrie = Ordered.Trie
+local Ref = Ordered.Ref
+local RefScope = Ordered.RefScope
+local is_array_like = Ordered.__is_array_like
 
 local xxh64 = require 'xxhash64'
-
-local Ref, RefScope
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
@@ -154,43 +157,6 @@ local Nibs = {}
 
 --- A value that can be serialized with nibs
 ---@alias Value ffi.cdata* | string | number | boolean | nil | RefScope | Ref | table<Value,Value>
-
---- Class used to store references when encoding.
----@class Ref
----@field index number
-Ref = {}
-Nibs.Ref = Ref
-Ref.__name = "Ref"
----Construct a nibs ref instance from a ref index
----@return Ref
-function Ref.new(index)
-    return setmetatable({ index }, Ref)
-end
-
-function Ref:__tojson()
-    return '&' .. self[1]
-end
-
---- Scope used to encode references.
----@class RefScope
-RefScope = {}
-Nibs.RefScope = RefScope
-RefScope.__name = "RefScope"
-
----Construct a nibs ref scope from a list of values to be referenced and a child value
----@param value Value Child value that may use refs from this scope
----@param refs Value[] list of values that can be referenced
-function RefScope.new(value, refs)
-    return setmetatable({ value, unpack(refs) }, RefScope)
-end
-
-function RefScope:__tojson(inner)
-    local parts = {}
-    for i, v in ipairs(self) do
-        parts[i] = inner(v)
-    end
-    return '@(' .. concat(parts, ',') .. ')'
-end
 
 ---Encode any value into a nibs encoded binary string
 ---@param val Value
@@ -355,8 +321,8 @@ end
 ---@return integer
 ---@return any
 function encode_trie(map)
-    local seed = 0 -- TODO find way to configure this option
-    local optimize = 256 -- TODO find way to configure this option
+    local seed = 2 -- TODO find way to configure this option
+    local optimize = 0 -- TODO find way to configure this option
     local total = 0
     local body = {}
     local offsets = OrderedMap.new()
@@ -417,6 +383,7 @@ local function build_trie(inputs, bits, hash64, seed)
     for key, offset in pairs(inputs) do
         local ptr, len = unpack(key)
         local hash = hash64(ptr, len, seed)
+        p { seed = seed, key = ffi.string(ptr, len), hash = hash }
         local o = 0
         local node = trie
         while o < 64 do
@@ -429,6 +396,10 @@ local function build_trie(inputs, bits, hash64, seed)
                 -- And try again
             else
                 local segment = assert(tonumber(band(rshift(hash, o), mask)))
+                local skey = ffi.string(ptr, len)
+                if skey == '\147one' then
+                    p { o = o, key = skey, segment = segment }
+                end
                 if node ~= trie and not next(node) then
                     -- Otherwise, check if node is empty
                     -- and claim it
@@ -518,6 +489,7 @@ function generate_trie_index(offsets, seed, optimize)
 
         -- Generate the pointers
         local bitfield = U64(0)
+        p(segments)
         for i, k in ipairs(segments) do
             bitfield = bor(bitfield, lshift(1, k))
             local target = targets[i]
@@ -530,6 +502,7 @@ function generate_trie_index(offsets, seed, optimize)
         end
 
         insert(parts, bitfield)
+        print(string.format("writing bitfield %02x", tonumber(bitfield)))
         height = height + width
 
 
@@ -547,7 +520,7 @@ function generate_trie_index(offsets, seed, optimize)
     local index_width = count * width
     assert(sizeof(slice) == index_width)
 
-    local more, head = encode_pair(width, index_width)
+    local more, head = encode_pair(width, count)
     return more + index_width, { head, slice }
 end
 
@@ -663,12 +636,6 @@ local function skip(read, offset)
     end
 end
 
-local UintPtrs = {
-    [3] = U8Ptr,
-    [4] = U16Ptr,
-    [5] = U32Ptr,
-    [6] = U64Ptr,
-}
 -- http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
 local function popcnt(v)
     local c = 0
@@ -681,13 +648,18 @@ end
 
 --- Walk a HAMT index checking for matching offset output
 ---@param read ByteProvider
----@param offset number
 ---@param hash integer u64 hash of key
----@param bits number bits per path segment (3 for 8 bit, 4 for 16 bit, etc...)
+---@param offset number start of hamt index (after seed)
+---@param omega number end of hamt index (before payload)
+---@param width number pointer width in bytes
 ---@return integer? result usually an offset
-local function hamtWalk(read, offset, hash, bits)
-    local UintPtr = assert(UintPtrs[bits], "Invalid segment bit width")
-    local width = lshift(1, bits - 3)
+local function hamtWalk(read, hash, offset, omega, width)
+    local bits = assert(width == 1 and 3
+        or width == 2 and 4
+        or width == 4 and 5
+        or width == 8 and 6
+        or nil, "Invalid byte width")
+
     local segmentMask = lshift(1, bits) - 1
     local highBit = lshift(1ULL, segmentMask)
 
@@ -695,11 +667,15 @@ local function hamtWalk(read, offset, hash, bits)
 
         -- Consume the next path segment
         local segment = band(hash, segmentMask)
+        p { segment = segment }
         hash = rshift(hash, bits)
 
         -- Read the next bitfield
-        local bitfield = cast(UintPtr, read(offset, width))[0]
+
+        local bitfield = decode_pointer(read, offset, width)
+        print(string.format("bitfield=%02x popcnt=%d", bitfield, tonumber(popcnt(bitfield))))
         offset = offset + width
+        assert(offset < omega)
 
         -- Check if segment is in bitfield
         local match = lshift(1, segment)
@@ -710,7 +686,9 @@ local function hamtWalk(read, offset, hash, bits)
 
         -- Jump to the pointer and read it
         offset = offset + skipCount * width
-        local ptr = cast(U8Ptr, read(offset, width))[0]
+        assert(offset < omega)
+        print(string.format("pointer offset=%08x width=%d", offset, width))
+        local ptr = decode_pointer(read, offset, width)
 
         -- If there is a leading 1, it's a result pointer.
         if band(ptr, highBit) > 0 then
@@ -718,7 +696,8 @@ local function hamtWalk(read, offset, hash, bits)
         end
 
         -- Otherwise it's an internal pointer
-        offset = offset + 1 + ptr
+        offset = offset + width + ptr
+        assert(offset < omega)
     end
 end
 
@@ -971,17 +950,15 @@ end
 function NibsTrie:__index(idx)
     local meta = NibsMeta[self]
     local read = meta.read
-    local offset = meta.alpha + meta.width
+    local width = assert(meta.width)
+    local offset = meta.alpha + width -- start after seed at first bitfield
     local encoded = Nibs.encode(idx)
     local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
+    p { hash = hash, key = encoded, seed = meta.seed }
 
-    local bits = assert(meta.width == 1 and 3
-        or meta.width == 2 and 4
-        or meta.width == 4 and 5
-        or meta.width == 8 and 6
-        or nil, "Invalid byte width")
+    print(string.format("root bitfield offset=%08x width=%d hash=%s idx=%q", offset, width, bit.tohex(hash), encoded))
 
-    local target = hamtWalk(read, offset, hash, bits)
+    local target = hamtWalk(read, hash, offset, meta.omega, width)
     if not target then return end
 
     target = tonumber(target)
@@ -1011,7 +988,12 @@ function NibsTrie:__pairs()
             local key, value
             key, offset = get(meta.read, offset, meta.scope)
             value, offset = get(meta.read, offset, meta.scope)
-            assert(self[key] == value)
+            -- TODO: remove this sanity check once we're confident in __index
+            local check = self[key]
+            if not (type(value) == "table" or type(value) == "cdata" or check == value) then
+                p("MISMATCH", key, value, check)
+                error "Mismatch"
+            end
             return key, value
         end
     end
@@ -1035,11 +1017,16 @@ local function decode_scope(read, offset, big, scope)
     })
 end
 
+---@param read ByteProvider
+---@param scope? DecodeScope
+---@param big integer
+---@return any
 local function decode_ref(read, scope, big)
     assert(scope, "Ref found outside of scope")
     local ptr = decode_pointer(read, scope.alpha + big * scope.width, scope.width)
-    local start = scope.alpha + scope.width * scope.count + ptr
-    return get(read, start)
+    local payload = scope.alpha + scope.width * scope.count
+    local start = payload + ptr
+    return (get(read, start, scope))
 end
 
 ---Read a nibs value at offset
@@ -1048,6 +1035,7 @@ end
 ---@param scope DecodeScope?
 ---@return any, number
 function get(read, offset, scope)
+    print(string.format("get offset=%08x %02x", offset, string.byte(read(offset, 1), 1, 1)))
     local start = offset
     local little, big
     offset, little, big = decode_pair(read, offset)
@@ -1144,14 +1132,14 @@ end
 
 ---Walk through a value and replace values found in the reference table with refs.
 ---@param value Value
----@param refs RefScope
+---@param refs Value[]
 function Nibs.addRefs(value, refs)
     if #refs == 0 then return value end
     ---@param o Value
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
-            if getmetatable(o) == Nibs.RefScope then return o end
+            if getmetatable(o) == RefScope then return o end
             if is_array_like(o) then
                 local a = OrderedList.new()
                 for i, v in ipairs(o) do
@@ -1179,7 +1167,7 @@ end
 local function potentiallyBig(val)
     local t = type(val)
     if t == "string" then
-        return #t > 5
+        return #t > 2
     elseif t == "number" then
         return math.floor(val) ~= val or val <= -0x80 or val > 0x80
     end
@@ -1221,7 +1209,23 @@ function Nibs.findDuplicates(value)
     table.sort(duplicates, function(a, b)
         return seen[a] > seen[b]
     end)
-    return duplicates
+    local trimmed = {}
+    local i = 0
+    for _, v in ipairs(duplicates) do
+        local cost = #Nibs.encode(v)
+        local refCost = i < 12 and 1
+            or i < 0x100 and 2
+            or i < 0x10000 and 3
+            or i < 0x100000000 and 5
+            or 9
+        if refCost < cost then
+            i = i + 1
+            trimmed[i] = v
+        else
+            p("Too expensive", v, cost, refCost)
+        end
+    end
+    return trimmed
 end
 
 function Nibs.deduplicate(val)

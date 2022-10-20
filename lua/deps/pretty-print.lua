@@ -256,8 +256,8 @@ function dump(value, recurse, nocolor)
       write(obrace)
 
       local i = 0
-      local arr = true
-      for k, v in pairs(localValue) do
+      local arr = not m or m.__is_array_like ~= false
+      for k, v in (m and m.__is_array_like == true and ipairs or pairs)(localValue) do
         i = i + 1
         if k ~= i then arr = false end
         indent()

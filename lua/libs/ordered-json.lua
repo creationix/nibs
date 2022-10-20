@@ -1,3 +1,6 @@
+local PrettyPrint = require 'pretty-print'
+local p = PrettyPrint.prettyPrint
+
 local bit = require 'bit'
 local ffi = require 'ffi'
 local bor = bit.bor
@@ -9,23 +12,22 @@ local sub = string.sub
 local format = string.format
 local concat = table.concat
 
-local ordered = require 'ordered'
-local is_array_like = ordered.__is_array_like
-local Object = ordered.Map
-local Array = ordered.List
+local Ordered = require 'ordered'
+local is_array_like = Ordered.__is_array_like
+local Map = Ordered.Map
+local List = Ordered.List
+local Array = Ordered.Array
+local Trie = Ordered.Trie
+local Ref = Ordered.Ref
+local RefScope = Ordered.RefScope
 
--- Use Object to control order of exports
-local Json = Object.new(
-    "decode", nil,
-    "encode", nil,
-    "Object", Object,
-    "Array", Array,
-    "Fail", nil
-)
+
+---@class Non Nibs Object Notation codec
+local Non = {}
 
 -- Unique token used for parse errors
 local Fail = { FAIL = true }
-Json.Fail = Fail
+Non.Fail = Fail
 
 -- Wrap parser implementation in collapsable block scope
 do
@@ -38,7 +40,7 @@ do
     ---@param json string
     ---@return boolean|string|number|table|nil parsed value
     ---@return string? error
-    function Json.decode(json)
+    function Non.decode(json)
         assert(type(json) == "string", "JSON string expected")
         local value, index = parseAny(json, 1)
         local b
@@ -77,7 +79,7 @@ do
         end
     end
 
-    function Json.parseNumber(json, index)
+    function Non.parseNumber(json, index)
         local b, start = nextToken(json, index)
 
         -- Optional leading `-`
@@ -142,7 +144,7 @@ do
         return tonumber(sub(json, start, index - 1)), index
     end
 
-    local parseNumber = Json.parseNumber
+    local parseNumber = Non.parseNumber
 
     local stringEscapes = {
         [92] = char(92),
@@ -266,7 +268,7 @@ do
         return concat(parts), index + 1
     end
 
-    function Json.parseString(json, index)
+    function Non.parseString(json, index)
         local b, start = nextToken(json, index)
         index = start
         if b ~= 34 then -- `"`
@@ -287,9 +289,9 @@ do
         return sub(json, start + 1, index - 1), index + 1
     end
 
-    local parseString = Json.parseString
+    local parseString = Non.parseString
 
-    function Json.parseBytes(json, index)
+    function Non.parseBytes(json, index)
         local b, start = nextToken(json, index)
         index = start
         if b ~= 60 then -- `<`
@@ -320,16 +322,24 @@ do
         return bytes, index + 1
     end
 
-    local parseBytes = Json.parseBytes
+    local parseBytes = Non.parseBytes
 
-    function Json.parseArray(json, index)
+    function Non.parseArray(json, index)
         local b
         -- Consume opening square bracket
         b, index = nextToken(json, index)
         if b ~= 91 then return Fail, index end -- `[`
         index = index + 1
 
-        local array = Array.new()
+        -- Consume indexed tag
+        local indexed = false
+        b, index = nextToken(json, index)
+        if b == 35 then -- `#`
+            indexed = true
+            index = index + 1
+        end
+
+        local array = indexed and Array.new() or List.new()
         local i = 1
         while true do
             -- Read the next token
@@ -360,16 +370,24 @@ do
         return array, index
     end
 
-    local parseArray = Json.parseArray
+    local parseArray = Non.parseArray
 
-    function Json.parseObject(json, index)
+    function Non.parseObject(json, index)
         local b
         -- Consume opening curly brace
         b, index = nextToken(json, index)
         if b ~= 123 then return Fail, index end -- `{`
         index = index + 1
 
-        local object = Object.new()
+        -- Consume indexed tag
+        local indexed = false
+        b, index = nextToken(json, index)
+        if b == 35 then -- `#`
+            indexed = true
+            index = index + 1
+        end
+
+        local object = indexed and Trie.new() or Map.new()
         local i = 1
         while true do
             -- Read the next token
@@ -414,9 +432,69 @@ do
         return object, index
     end
 
-    local parseObject = Json.parseObject
+    local parseObject = Non.parseObject
 
-    function Json.parseAny(json, index)
+    function Non.parseScope(json, index)
+        local b
+        -- Consume opening paren brace
+        b, index = nextToken(json, index)
+        if b ~= 40 then return Fail, index end -- `(`
+        index = index + 1
+
+        -- Parse a single value as child
+        local child
+        child, index = parseAny(json, index)
+        if child == Fail then
+            return Fail, index
+        end
+
+        local scope = List.new(child)
+        local i = 1
+        while true do
+            -- Read the next token
+            b, index = nextToken(json, index)
+            if not b then return Fail, index end
+
+            -- Exit the loop if it's a closing paren
+            if b == 41 then -- `)`
+                index = index + 1
+                break
+            end
+
+            -- Consume a comma
+            if b ~= 44 then return Fail, index end -- `,`
+            index = index + 1
+
+            local ref
+            ref, index = parseAny(json, index)
+            if ref == Fail then
+                return Fail, index
+            end
+            i = i + 1
+            scope[i] = ref
+
+        end
+        return RefScope.fromList(scope), index
+    end
+
+    local parseScope = Non.parseScope
+
+    function Non.parseRef(json, index)
+        local b
+        -- Consume ampersand
+        b, index = nextToken(json, index)
+        if b ~= 38 then return Fail, index end -- `&`
+        index = index + 1
+
+        local idx
+        idx, index = parseNumber(json, index)
+        if not idx then return nil, index end
+        return Ref.new(idx), index
+    end
+
+    local parseRef = Non.parseRef
+
+    function Non.parseAny(json, index)
         -- Exit if we run out of string to parse
         local b
         b, index = nextToken(json, index)
@@ -427,6 +505,10 @@ do
             return parseObject(json, index)
         elseif b == 91 then -- `[` `]`
             return parseArray(json, index)
+        elseif b == 40 then -- `(` `)`
+            return parseScope(json, index)
+        elseif b == 38 then -- `&`
+            return parseRef(json, index)
         elseif b == 34 then -- `"`
             return parseString(json, index)
         elseif b == 60 then -- `<`
@@ -444,7 +526,7 @@ do
         end
     end
 
-    parseAny = Json.parseAny
+    parseAny = Non.parseAny
 
 end
 
@@ -485,26 +567,26 @@ do
         return '"' .. concat(parts) .. '"'
     end
 
-    local function encodeArray(arr)
+    local function encodeArray(arr, tag)
         local parts = {}
         for i, v in ipairs(arr) do
             parts[i] = encode(v)
         end
-        return "[" .. concat(parts, ",") .. "]"
+        return "[" .. tag .. concat(parts, ",") .. "]"
     end
 
-    local function encodeObject(obj)
+    local function encodeObject(obj, tag)
         local parts = {}
         local i = 1
         for k, v in pairs(obj) do
             parts[i] = encode(k) .. ':' .. encode(v)
             i = i + 1
         end
-        return "{" .. concat(parts, ",") .. "}"
+        return "{" .. tag .. concat(parts, ",") .. "}"
     end
 
     local reentered = nil
-    function Json.encode(val)
+    function Non.encode(val)
 
         local typ = type(val)
         if typ == 'nil' then
@@ -520,22 +602,22 @@ do
             local mt = getmetatable(val)
             if mt and reentered ~= val and mt.__tojson then
                 reentered = val
-                local json = mt.__tojson(val, Json.encode)
+                local json = mt.__tojson(val, Non.encode)
                 reentered = nil
                 return json
             end
-            local prefix = mt and mt.__is_indexed and "#" or ""
+            local tag = mt and mt.__is_indexed and "#" or ""
             if is_array_like(val) then
-                return prefix .. encodeArray(val)
+                return encodeArray(val, tag)
             else
-                return prefix .. encodeObject(val)
+                return encodeObject(val, tag)
             end
         else
             error("Cannot serialize " .. typ)
         end
     end
 
-    encode = Json.encode
+    encode = Non.encode
 end
 
-return Json
+return Non
