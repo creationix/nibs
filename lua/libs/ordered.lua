@@ -1,4 +1,5 @@
 local floor = math.floor
+local concat = table.concat
 
 local Ordered = {}
 
@@ -163,6 +164,7 @@ local OrderedArray = {}
 Ordered.Array = OrderedArray
 do
     OrderedArray.__name = "OrderedArray"
+    OrderedArray.__is_array_like = true
     OrderedArray.__is_indexed = true
     function OrderedArray.new(...)
         return setmetatable(OrderedList.new(...), OrderedArray)
@@ -203,6 +205,63 @@ function Ordered.__is_array_like(val)
         i = i + 1
     end
     return true
+end
+
+--- Class used to store references when encoding.
+---@class Ref
+---@field index number
+local Ref = {}
+Ordered.Ref = Ref
+do
+    Ref.__name = "Ref"
+    ---Construct a nibs ref instance from a ref index
+    ---@return Ref
+    function Ref.new(index)
+        return setmetatable({ index }, Ref)
+    end
+
+    function Ref:__tojson()
+        return '&' .. self[1]
+    end
+end
+
+--- Scope used to encode references.
+---@class RefScope
+local RefScope = {}
+Ordered.RefScope = RefScope
+do
+    RefScope.__name = "RefScope"
+
+    ---Construct a nibs ref scope from a list of values to be referenced and a child value
+    ---@param value Value Child value that may use refs from this scope
+    ---@param refs Value[] list of values that can be referenced
+    function RefScope.new(value, refs)
+        local list = OrderedList.new(value)
+        for i, v in ipairs(refs) do
+            list[i + 1] = v
+        end
+        return RefScope.fromList(list)
+    end
+
+    function RefScope.fromList(list)
+        assert(getmetatable(list) == OrderedList, "must be OrderedList")
+        return setmetatable(list, RefScope)
+    end
+
+    function RefScope:__tojson(inner)
+        local parts = {}
+        for i, v in ipairs(self) do
+            parts[i] = inner(v)
+        end
+        return '(' .. concat(parts, ',') .. ')'
+    end
+
+    RefScope.__len = OrderedList.__len
+    RefScope.__index = OrderedList.__index
+    RefScope.__newindex = OrderedList.__newindex
+    RefScope.__pairs = OrderedList.__pairs
+    RefScope.__ipairs = OrderedList.__ipairs
+
 end
 
 return Ordered
