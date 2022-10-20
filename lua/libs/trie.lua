@@ -35,15 +35,15 @@ function Pointer.new(hash, target)
 end
 
 ---@class Node
----@field bits number
+---@field power number
 local Node = {}
 Node.__index = Node
 Node.__name = "Node"
 Node.__is_array_like = false
 
----@param bits number bits for each path segment
-function Node.new(bits)
-    return setmetatable({ bits = bits }, Node)
+---@param power number bits for each path segment
+function Node.new(power)
+    return setmetatable({ power = power }, Node)
 end
 
 ---Insert an entry into a node
@@ -52,7 +52,7 @@ end
 ---@return integer
 function Node:insert(pointer, depth)
     local segment = assert(tonumber(
-        band(rshift(pointer.hash, depth * self.bits), lshift(1, self.bits) - 1)
+        band(rshift(pointer.hash, depth * self.power), lshift(1, self.power) - 1)
     ))
     ---@type Node|Pointer|nil
     local existing = self[segment]
@@ -61,7 +61,7 @@ function Node:insert(pointer, depth)
         if mt == Node then
             return existing:insert(pointer, depth + 1)
         elseif mt == Pointer then
-            local child = Node.new(self.bits)
+            local child = Node.new(self.power)
             self[segment] = child
             return 1
                 + child:insert(existing, depth + 1)
@@ -76,21 +76,25 @@ end
 function Node:serialize(write)
     -- Serialize subnodes first
     local targets = {}
-    for i = lshift(1, self.bits) - 1, 0, -1 do
+    local top = lshift(1, self.power) - 1
+    for i = top, 0, -1 do
         ---@type Pointer|Node|nil
         local entry = self[i]
         if entry then
             local mt = getmetatable(entry)
             if mt == Node then
-                targets[i] = entry:serialize(write)
+                local serialized, err = entry:serialize(write)
+                if not serialized then return nil, err end
+                targets[i] = serialized
             end
         end
     end
-    local high = lshift(1, self.bits + 4)
+    local high = lshift(1ULL, lshift(1ULL, self.power) - 1)
+
     local bitfield = 0ULL
     local current = write()
     -- Write our own table now
-    for i = lshift(1, self.bits) - 1, 0, -1 do
+    for i = top, 0, -1 do
         ---@type Pointer|Node|nil
         local entry = self[i]
         if entry then
@@ -98,7 +102,9 @@ function Node:serialize(write)
             local mt = getmetatable(entry)
             if mt == Node then
                 local offset = current - targets[i]
-                if offset >= high then return nil, "overflow" end
+                if offset >= high then
+                    return nil, "overflow"
+                end
                 current = write(bor(high, offset))
             elseif mt == Pointer then
                 local target = entry.target
@@ -107,7 +113,7 @@ function Node:serialize(write)
             end
         end
     end
-    return write(bitfield) -- TODO calculate bitfield
+    return write(bitfield)
 end
 
 ---print a colorful hexdump of a string
@@ -136,6 +142,23 @@ end
 ---@return ffi.cdata* index as Slice8
 local function hamt_encode(map)
 
+    -- Calculate largest output target...
+    local max_target = 0
+    for _, v in pairs(map) do
+        if v > max_target then max_target = v end
+    end
+    -- ... and use that for the smallest possible start power that works
+    local start_power
+    if max_target < 0x100 then
+        start_power = 3
+    elseif max_target < 0x10000 then
+        start_power = 4
+    elseif max_target < 0x100000000 then
+        start_power = 5
+    else
+        start_power = 6
+    end
+
     -- Try several combinations of parameters to find the smallest encoding.
     local win = nil
     -- The size of the currently winning index
@@ -148,10 +171,8 @@ local function hamt_encode(map)
             hashes[k] = xxhash64(k, assert(sizeof(k)), seed)
         end
         -- Try bit sizes small first and break of first successful encoding.
-        for power = 3, 6 do
-            -- p { seed = seed, power = power }
-            -- Width of pointers in bytes
-            local width = lshift(1, power - 3)
+        for power = start_power, 6 do
+
             -- Create a new Trie and insert the data
             local trie = Node.new(power)
             -- Count number of rows in the index
@@ -160,6 +181,9 @@ local function hamt_encode(map)
                 local hash = hashes[k]
                 count = count + trie:insert(Pointer.new(hash, v), 0)
             end
+
+            -- Width of pointers in bytes
+            local width = lshift(1, power - 3)
             -- Total byte size of index if generated
             local size = count * width
 
@@ -177,24 +201,24 @@ local function hamt_encode(map)
                 end
 
                 local i = 0
-                local _, err = trie:serialize(function(word)
+                local function write(word)
                     if word then
                         i = i + 1
-                        -- p("writing", i * width, word, string.format("%08x", tonumber(word)))
                         index[count - i] = word
                     end
                     return (i - 1) * width
-                end)
-                -- p { size = size, err = err }
+                end
+
+                local _, err = trie:serialize(write)
                 if not err then
                     min = size
                     win = { seed, count, width, index }
-                    p { size, win }
                     break
                 end
             end
         end
     end
+    assert(win, "there was no winner")
     return unpack(win)
 end
 
@@ -202,15 +226,18 @@ local function buf(str)
     return Slice8(#str, str)
 end
 
-local sample = {}
-for i = 1, 1000 do
-    sample[buf('n' .. tostring(i))] = i
+local y = 1
+while y < 100000 do
+    local size = math.floor(y + 0.5)
+    y = y * 1.7782794100389228
+    local sample = {}
+    for i = 1, size do
+        sample[buf('n' .. tostring(i))] = i
+    end
+    local seed, count, width, index = hamt_encode(sample)
+    print(string.format("data-size=%d seed=%02x width=%d count=%d size=%d overhead=%.2f",
+        size, seed, width, count, width * count, width * count / size
+    ))
 end
--- p(sample)
-local seed, count, width, index = hamt_encode(sample)
-
-
-p { seed = seed, count = count, width = width, index = index }
-hex_dump(ffi.string(index, ffi.sizeof(index)))
 
 return hamt_encode
