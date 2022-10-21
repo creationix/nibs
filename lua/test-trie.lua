@@ -37,6 +37,7 @@ while y < 100000 do
     local sample = {}
     for i = 1, size do
         sample[buf('n' .. tostring(i))] = i
+        -- sample[buf('x' .. tostring(i))] = i * 10
     end
     local count, width, index = Trie.encode(sample)
     print(string.format("data-size=%d width=%d count=%d size=%d overhead=%.2f",
@@ -47,8 +48,8 @@ while y < 100000 do
         local read = Bytes.fromMemory(index)
         local o = Trie.walk(read, 0, count, width, k)
         if tonumber(o) ~= tonumber(v) then
-            hex_dump(index)
             p(k, v, o)
+            hex_dump(index)
             error "Mismatch"
         end
     end

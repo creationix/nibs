@@ -724,7 +724,7 @@ function NibsTrie:__index(idx)
     local width = assert(meta.width)
     local encoded = Nibs.encode(idx)
 
-    local target = Trie.walk(read, meta.alpha, meta.count, width, cast(U8Ptr, encoded))
+    local target = Trie.walk(read, meta.alpha, meta.count, width, Slice8(#encoded, encoded))
     if not target then return end
 
     target = tonumber(target)
