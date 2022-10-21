@@ -399,11 +399,10 @@ The pointers have a 1 prefix in the most significant position when pointing to a
 
 The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest `scope` wrapping the current value.
 
-Typically this is the outermost value in a nibs document so that all data can reuse the same refs dictionary.
+Typically this is the outermost value in a nibs document so that all data can reuse the same refs array.
 
-This is encoded like array, except it's semantic meaning is special.
-The first value is some container that has refs inside it
-the rest of the values are the refs themselves offset by 1
+This is encoded like array, except it's semantic meaning is special.  All entries except for the
+last store the values of referenced values and the last entry can then reference them by index.
 
 For example, consider the following value:
 
@@ -426,10 +425,10 @@ Then the encoded value would look more like this with the refs applied.
 ```js
 // encoding with refs and refsscope
 RefScope(
+  "color", "fruits", "apple",
   [ { &0: "red", &1: [&2, "strawberry"] },
     { &0: "green", &1: [&2] },
-    { &0: "yellow", &1: [&2, "banana"] } ],
-  "color", "fruits", "apple"
+    { &0: "yellow", &1: [&2, "banana"] } ]
 )
 ```
 
@@ -459,47 +458,53 @@ In this example, the refs table overhead is:
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
 ```lua
-fc 0e --> Ref-8(14)
+fc 0f --> Ref-8(15)
   14 --> ArrayIndex(width=1,count=4)
-    05 --> Pointer(5) -> 1
-    06 --> Pointer(6) -> 2
-    07 --> Pointer(7) -> 3
-    08 --> Pointer(8) -> 4
+    00 --> Pointer(0) -> 1
+    01 --> Pointer(1) -> 2
+    02 --> Pointer(2) -> 3
+    03 --> Pointer(3) -> 4
+    04 --> Pointer(4) -> value
+  02 --> ZigZag(2) = 1
+  04 --> ZigZag(4) = 2
+  06 --> ZigZag(6) = 3
+  08 --> ZigZag(8) = 4
   b4 --> List(4)
     33 --> Ref(3) -> Pointer(8) -> 4
     31 --> Ref(1) -> Pointer(6) -> 2
     32 --> Ref(2) -> Pointer(7) -> 3
     30 --> Ref(0) -> Pointer(5) -> 1
-  02 --> ZigZag(2) = 1
-  04 --> ZigZag(4) = 2
-  06 --> ZigZag(6) = 3
-  08 --> ZigZag(8) = 4
---> RefScope([&3,&1,&2,&0],1,2,3,4)
+--> RefScope(1,2,3,4,[&3,&1,&2,&0])
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
 
 ```lua
-fa --> Ref(10)
-  12 --> ArrayIndex(width=1,count=2)
-    01 --> Pointer(1) -> "dead"
-    04 --> Pointer(4) -> "beef"
-  31 --> Ref(1) -> "beef"
+fb --> Ref(11)
+  13 --> ArrayIndex(width=1,count=2)
+    00 --> Pointer(0) -> "dead"
+    03 --> Pointer(6) -> "beef"
+    06 --> Pointer(6) -> value
   a2 --> HexString(2)
     dead
   a2 --> HexString(2)
     beef
---> RefScope(&1,"dead","beef")
+  31 --> Ref(1) -> "beef"
+--> RefScope("dead","beef",&1)
 ```
 
 The larger ref example from above would be encoded like this:
 
 ```lua
-fc 4e --> Ref-8(78)
-  13 --> ArrayIndex(width=1,count=3)
-    37 --> Ptr(55)
-    3d --> Ptr(61)
-    44 --> Ptr(68)
+fc 4f --> Ref-8(79)
+  14 --> ArrayIndex(width=1,count=3)
+    00 --> Ptr(0)
+    06 --> Ptr(6)
+    0d --> Ptr(13)
+    13 --> Ptr(19)
+  95636f6c6f72 --> "color"
+  96667275697473 --> "fruits"
+  956170706c65 --> "apple"
   bc 35 --> List-8(53)
     cc 14 --> Map-8(20)
       30 --> Ref(0)
@@ -521,7 +526,4 @@ fc 4e --> Ref-8(78)
       b8 --> List(8)
         32 --> Ref(2)
         9662616e616e61 --> "banana"
-  95636f6c6f72 --> "color"
-  96667275697473 --> "fruits"
-  956170706c65 --> "apple"
 ```

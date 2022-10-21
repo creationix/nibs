@@ -276,16 +276,11 @@ end
 ---@return integer
 ---@return any
 function encode_scope(scope)
-    ---@type Value
-    local value = scope[1]
-    ---@type Value[]
-    local refs = { unpack(scope, 2) }
     local total = 0
     local body = {}
     local offsets = {}
-    local size, value_entry = encode_any(value)
-    total = total + size
-    for i, v in ipairs(refs) do
+    local size
+    for i, v in ipairs(scope) do
         local entry
         size, entry = encode_any(v)
         body[i] = entry
@@ -296,7 +291,7 @@ function encode_scope(scope)
     total = total + more
     local prefix
     size, prefix = encode_pair(SCOPE, total)
-    return size + total, { prefix, index, value_entry, body }
+    return size + total, { prefix, index, body }
 end
 
 ---@param map table<Value,Value>
@@ -383,7 +378,6 @@ local function build_trie(inputs, bits, hash64, seed)
     for key, offset in pairs(inputs) do
         local ptr, len = unpack(key)
         local hash = hash64(ptr, len, seed)
-        p { seed = seed, key = ffi.string(ptr, len), hash = hash }
         local o = 0
         local node = trie
         while o < 64 do
@@ -396,10 +390,6 @@ local function build_trie(inputs, bits, hash64, seed)
                 -- And try again
             else
                 local segment = assert(tonumber(band(rshift(hash, o), mask)))
-                local skey = ffi.string(ptr, len)
-                if skey == '\147one' then
-                    p { o = o, key = skey, segment = segment }
-                end
                 if node ~= trie and not next(node) then
                     -- Otherwise, check if node is empty
                     -- and claim it
@@ -489,7 +479,6 @@ function generate_trie_index(offsets, seed, optimize)
 
         -- Generate the pointers
         local bitfield = U64(0)
-        p(segments)
         for i, k in ipairs(segments) do
             bitfield = bor(bitfield, lshift(1, k))
             local target = targets[i]
@@ -502,7 +491,7 @@ function generate_trie_index(offsets, seed, optimize)
         end
 
         insert(parts, bitfield)
-        print(string.format("writing bitfield %02x", tonumber(bitfield)))
+        -- print(string.format("writing bitfield %02x", tonumber(bitfield)))
         height = height + width
 
 
@@ -667,13 +656,12 @@ local function hamtWalk(read, hash, offset, omega, width)
 
         -- Consume the next path segment
         local segment = band(hash, segmentMask)
-        p { segment = segment }
         hash = rshift(hash, bits)
 
         -- Read the next bitfield
 
         local bitfield = decode_pointer(read, offset, width)
-        print(string.format("bitfield=%02x popcnt=%d", bitfield, tonumber(popcnt(bitfield))))
+        -- print(string.format("bitfield=%02x popcnt=%d", bitfield, tonumber(popcnt(bitfield))))
         offset = offset + width
         assert(offset < omega)
 
@@ -687,7 +675,6 @@ local function hamtWalk(read, hash, offset, omega, width)
         -- Jump to the pointer and read it
         offset = offset + skipCount * width
         assert(offset < omega)
-        print(string.format("pointer offset=%08x width=%d", offset, width))
         local ptr = decode_pointer(read, offset, width)
 
         -- If there is a leading 1, it's a result pointer.
@@ -954,9 +941,6 @@ function NibsTrie:__index(idx)
     local offset = meta.alpha + width -- start after seed at first bitfield
     local encoded = Nibs.encode(idx)
     local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
-    p { hash = hash, key = encoded, seed = meta.seed }
-
-    print(string.format("root bitfield offset=%08x width=%d hash=%s idx=%q", offset, width, bit.tohex(hash), encoded))
 
     local target = hamtWalk(read, hash, offset, meta.omega, width)
     if not target then return end
@@ -1008,7 +992,8 @@ end
 
 local function decode_scope(read, offset, big, scope)
     local alpha, width, count = decode_pair(read, offset)
-    return get(read, alpha + width * count, {
+    local ptr = decode_pointer(read, alpha + width * (count - 1), width)
+    return get(read, alpha + width * count + ptr, {
         parent = scope,
         alpha = alpha,
         omega = offset + big,
@@ -1035,7 +1020,6 @@ end
 ---@param scope DecodeScope?
 ---@return any, number
 function get(read, offset, scope)
-    print(string.format("get offset=%08x %02x", offset, string.byte(read(offset, 1), 1, 1)))
     local start = offset
     local little, big
     offset, little, big = decode_pair(read, offset)
@@ -1094,7 +1078,8 @@ function Nibs.autoIndex(value, index_limit)
         if mt == Ref then
             return o
         elseif mt == RefScope then
-            o[1] = walk(o[1])
+            local last = #o
+            o[last] = walk(o[last])
             return o
         end
         if is_array_like(o) then
@@ -1161,31 +1146,37 @@ function Nibs.addRefs(value, refs)
         return o
     end
 
-    return RefScope.new(walk(value), refs)
-end
-
-local function potentiallyBig(val)
-    local t = type(val)
-    if t == "string" then
-        return #t > 2
-    elseif t == "number" then
-        return math.floor(val) ~= val or val <= -0x80 or val > 0x80
-    end
-    return false
+    refs[#refs + 1] = walk(value)
+    return RefScope.new(refs)
 end
 
 ---Walk through a value and find duplicate values (sorted by frequency)
 ---@param value Value
 ---@retun Value[]
 function Nibs.findDuplicates(value)
+    -- Wild guess, but real data with lots of dups over 1mb is 1 for reference
+    local pointer_cost = 1
+    local small_string = pointer_cost + 1
+    local small_number = lshift(1, lshift(pointer_cost, 3) - 1)
+    local function potentiallyBig(val)
+        local t = type(val)
+        if t == "string" then
+            return #val > small_string
+        elseif t == "number" then
+            return math.floor(val) ~= val or val <= -small_number or val > small_number
+        end
+        return false
+    end
+
     local seen = {}
     local duplicates = {}
+    local total_encoded_size = 0
     ---@param o Value
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
+            -- Don't walk into nested scopes
             if getmetatable(o) == RefScope then return o end
-
             for k, v in pairs(o) do
                 walk(k)
                 walk(v)
@@ -1196,6 +1187,7 @@ function Nibs.findDuplicates(value)
                 seen[o] = 1
             else
                 if old == 1 then
+                    total_encoded_size = total_encoded_size + #Nibs.encode(o)
                     table.insert(duplicates, o)
                 end
                 seen[o] = old + 1
@@ -1203,12 +1195,24 @@ function Nibs.findDuplicates(value)
         end
     end
 
-    -- Extract all duplicate strings
+    -- Extract all duplicate values that can be potentially saved
     walk(value)
+
+    -- Update pointer cost based on real data we now have
+    -- note this is still not 100% accurate as we still need to prune any
+    -- potential refs that are not worth adding and that pruning may
+    -- drop this down a level.
+    pointer_cost = total_encoded_size < 0x100 and 1
+        or total_encoded_size < 0x10000 and 2
+        or total_encoded_size < 0x100000000 and 4
+        or 8
+
     -- Sort by frequency
     table.sort(duplicates, function(a, b)
         return seen[a] > seen[b]
     end)
+
+    -- Remove any entries that cost more than they save
     local trimmed = {}
     local i = 0
     for _, v in ipairs(duplicates) do
@@ -1218,13 +1222,15 @@ function Nibs.findDuplicates(value)
             or i < 0x10000 and 3
             or i < 0x100000000 and 5
             or 9
-        if refCost < cost then
+        local count = seen[v]
+        if refCost * count + pointer_cost < cost * count then
             i = i + 1
             trimmed[i] = v
-        else
-            p("Too expensive", v, cost, refCost)
         end
     end
+
+    -- This final list is guranteed to not contain any values that bloat the final size
+    -- by turning into refs, but it had a chance to miss some it should have included.
     return trimmed
 end
 
