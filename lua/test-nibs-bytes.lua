@@ -44,7 +44,7 @@ walk(doc)
 
 --[[
 in a repl do:
-> doc = require('remote-nibs')('http://localhost:8000/solana.com.deployment_paths.reffed.indexed.nibs', 1024)
+> doc = require('remote-nibs')('http://localhost:8000/solana.com.deployment_paths.reffed.indexed.nibs')
 
 have fun!
 
