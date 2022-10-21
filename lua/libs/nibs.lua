@@ -1,3 +1,4 @@
+local Trie = require 'trie'
 local PrettyPrint = require 'pretty-print'
 local p = PrettyPrint.prettyPrint
 
@@ -303,30 +304,32 @@ end
 ---@return integer
 ---@return any
 function encode_trie(map)
-    local seed = 2 -- TODO find way to configure this option
-    local optimize = 0 -- TODO find way to configure this option
     local total = 0
     local body = {}
-    local offsets = OrderedMap.new()
-    local i = 0
+    local offsets = {}
     for k, v in pairs(map) do
-        i = i + 1
+
         local size, entry = combine(encode_any(k))
-
-        local key = { entry, size }
-        offsets[key] = total
-
+        offsets[entry] = total
         insert(body, entry)
         total = total + size
+
         size, entry = encode_any(v)
         insert(body, entry)
         total = total + size
     end
 
-    local more, index = generate_trie_index(offsets, seed, optimize)
-    total = total + more
-    local size, prefix = encode_pair(TRIE, total)
-    return size + total, { prefix, index, body }
+    local count, width, index = Trie.encode(offsets)
+    total = total + count * width
+    p { count = count, width = width, index = ffi.string(index, ffi.sizeof(index)) }
+
+    local size, prefix, meta
+    size, meta = encode_pair(width, count)
+    total = total + size
+
+    size, prefix = encode_pair(TRIE, total)
+
+    return total + size, { prefix, meta, index, body }
 end
 
 ---@private
@@ -355,149 +358,6 @@ function generate_array_index(offsets)
     end
     local more, head = encode_pair(width, count)
     return more + sizeof(index), { head, index }
-end
-
-local function build_trie(inputs, bits, hash64, seed)
-    local mask = U64(lshift(1, bits) - 1)
-    local trie = {}
-    local count = 1
-    -- Insert the offsets into the trie
-    for key, offset in pairs(inputs) do
-        local ptr, len = unpack(key)
-        local hash = hash64(ptr, len, seed)
-        local o = 0
-        local node = trie
-        while o < 64 do
-            if type(node[2]) == "number" then
-                -- If the node already has data, move it down one
-                local has, off = node[1], node[2]
-                node[1], node[2] = nil, nil
-                node[tonumber(band(rshift(has, o), mask))] = { has, off }
-                count = count + 2
-                -- And try again
-            else
-                local segment = assert(tonumber(band(rshift(hash, o), mask)))
-                if node ~= trie and not next(node) then
-                    -- Otherwise, check if node is empty
-                    -- and claim it
-                    node[1], node[2] = hash, offset
-                    count = count + 1
-                    break
-                end
-                -- Or follow/create the next in the path
-                local next = node[segment]
-                if next then
-                    node = next
-                else
-                    next = {}
-                    node[segment] = next
-                    node = next
-                end
-                o = o + bits
-            end
-        end
-    end
-    return trie, count
-end
-
----@private
----@param offsets table<ffi.cdata*,integer>
----@param seed integer
----@param optimize integer
----@return integer
----@return any
-function generate_trie_index(offsets, seed, optimize)
-    local last = 0
-    for _, offset in pairs(offsets) do
-        last = offset
-    end
-    local Slice, bits
-    if last < 0x80 then
-        Slice = Slice8
-        bits = 3
-    elseif last < 0x8000 then
-        Slice = Slice16
-        bits = 4
-    elseif last < 0x80000000 then
-        Slice = Slice32
-        bits = 5
-    else
-        Slice = Slice64
-        bits = 6
-    end
-    local width = lshift(1, bits - 3)
-    local mod = lshift(1ULL, U64(width * 8))
-    local high = lshift(1ULL, U64(width * 8) - 1)
-
-    local min, win, ss
-    for i = 0, optimize do
-        local s = (seed + i) % mod
-        local trie, count = build_trie(offsets, bits, xxh64, s)
-        if not win or count < min then
-            win = trie
-            min = count
-            ss = s
-        end
-    end
-    local trie = win
-    seed = ss
-
-    local height = 0
-    local parts = {}
-    local function write_node(node)
-        -- Sort highest first since we're writing backwards
-        local segments = {}
-        for k in pairs(node) do insert(segments, k) end
-        sort(segments, function(a, b) return a > b end)
-
-        -- Calculate the target addresses
-        local targets = {}
-        for i, k in ipairs(segments) do
-            local v = node[k]
-            if type(v[2]) == "number" then
-                assert(v[2] < high, "Target too high for pointer width")
-                targets[i] = bor(v[2], high)
-            else
-                write_node(v)
-                assert(height < high, "Index too tall for pointer width")
-                targets[i] = height
-            end
-        end
-
-        -- Generate the pointers
-        local bitfield = U64(0)
-        for i, k in ipairs(segments) do
-            bitfield = bor(bitfield, lshift(1, k))
-            local target = targets[i]
-            if target < high then
-                target = height - target
-                assert(target < high, "Internal pointer too big for pointer width")
-            end
-            insert(parts, target)
-            height = height + width
-        end
-
-        insert(parts, bitfield)
-        -- print(string.format("writing bitfield %02x", tonumber(bitfield)))
-        height = height + width
-
-
-    end
-
-    write_node(trie)
-
-    insert(parts, seed)
-    local count = #parts
-    local slice = Slice(count)
-    for i, part in ipairs(parts) do
-        slice[count - i] = part
-    end
-
-    local index_width = count * width
-    assert(sizeof(slice) == index_width)
-
-    local more, head = encode_pair(width, count)
-    return more + index_width, { head, slice }
 end
 
 ---@param read ByteProvider
@@ -609,69 +469,6 @@ local function skip(read, offset)
         return offset
     else
         return offset + big
-    end
-end
-
--- http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
-local function popcnt(v)
-    local c = 0
-    while v > 0 do
-        c = c + band(v, 1ULL)
-        v = rshift(v, 1ULL)
-    end
-    return c
-end
-
---- Walk a HAMT index checking for matching offset output
----@param read ByteProvider
----@param hash integer u64 hash of key
----@param offset number start of hamt index (after seed)
----@param omega number end of hamt index (before payload)
----@param width number pointer width in bytes
----@return integer? result usually an offset
-local function hamtWalk(read, hash, offset, omega, width)
-    local bits = assert(width == 1 and 3
-        or width == 2 and 4
-        or width == 4 and 5
-        or width == 8 and 6
-        or nil, "Invalid byte width")
-
-    local segmentMask = lshift(1, bits) - 1
-    local highBit = lshift(1ULL, segmentMask)
-
-    while true do
-
-        -- Consume the next path segment
-        local segment = band(hash, segmentMask)
-        hash = rshift(hash, bits)
-
-        -- Read the next bitfield
-
-        local bitfield = decode_pointer(read, offset, width)
-        -- print(string.format("bitfield=%02x popcnt=%d", bitfield, tonumber(popcnt(bitfield))))
-        offset = offset + width
-        assert(offset < omega)
-
-        -- Check if segment is in bitfield
-        local match = lshift(1, segment)
-        if band(bitfield, match) == 0 then return end
-
-        -- If it is, calculate how many pointers to skip by counting 1s under it.
-        local skipCount = tonumber(popcnt(band(bitfield, match - 1)))
-
-        -- Jump to the pointer and read it
-        offset = offset + skipCount * width
-        assert(offset < omega)
-        local ptr = decode_pointer(read, offset, width)
-
-        -- If there is a leading 1, it's a result pointer.
-        if band(ptr, highBit) > 0 then
-            return band(ptr, highBit - 1)
-        end
-
-        -- Otherwise it's an internal pointer
-        offset = offset + width + ptr
-        assert(offset < omega)
     end
 end
 
@@ -925,16 +722,14 @@ function NibsTrie:__index(idx)
     local meta = NibsMeta[self]
     local read = meta.read
     local width = assert(meta.width)
-    local offset = meta.alpha + width -- start after seed at first bitfield
     local encoded = Nibs.encode(idx)
-    local hash = xxh64(cast(U8Ptr, encoded), #encoded, meta.seed)
 
-    local target = hamtWalk(read, hash, offset, meta.omega, width)
+    local target = Trie.walk(read, meta.alpha, meta.count, width, cast(U8Ptr, encoded))
     if not target then return end
 
     target = tonumber(target)
 
-    offset = meta.alpha + meta.width * meta.count + target
+    local offset = meta.alpha + meta.width * meta.count + target
     local key, value
     key, offset = get(read, offset, meta.scope)
     if key ~= idx then return end
