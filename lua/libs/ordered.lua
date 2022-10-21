@@ -122,6 +122,12 @@ do
         return self
     end
 
+    function OrderedList.fromTable(list)
+        local self = setmetatable(list, OrderedList)
+        lengths[self] = #list
+        return self
+    end
+
     function OrderedList:__newindex(key, value)
         local length = getLength(self)
 
@@ -233,19 +239,9 @@ do
     RefScope.__name = "RefScope"
 
     ---Construct a nibs ref scope from a list of values to be referenced and a child value
-    ---@param value Value Child value that may use refs from this scope
-    ---@param refs Value[] list of values that can be referenced
-    function RefScope.new(value, refs)
-        local list = OrderedList.new(value)
-        for i, v in ipairs(refs) do
-            list[i + 1] = v
-        end
-        return RefScope.fromList(list)
-    end
-
-    function RefScope.fromList(list)
-        assert(getmetatable(list) == OrderedList, "must be OrderedList")
-        return setmetatable(list, RefScope)
+    ---@param list Value[] list of values that can be referenced with value as last
+    function RefScope.new(list)
+        return setmetatable(OrderedList.fromTable(list), RefScope)
     end
 
     function RefScope:__tojson(inner)

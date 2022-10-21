@@ -474,7 +474,7 @@ do
             scope[i] = ref
 
         end
-        return RefScope.fromList(scope), index
+        return RefScope.new(scope), index
     end
 
     local parseScope = Non.parseScope
