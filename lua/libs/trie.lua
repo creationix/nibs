@@ -11,10 +11,15 @@ local bor = bit.bor
 
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
+local cast = ffi.cast
 local Slice8 = ffi.typeof 'uint8_t[?]'
 local Slice16 = ffi.typeof 'uint16_t[?]'
 local Slice32 = ffi.typeof 'uint32_t[?]'
 local Slice64 = ffi.typeof 'uint64_t[?]'
+local U8Ptr = ffi.typeof 'uint8_t*'
+local U16Ptr = ffi.typeof 'uint16_t*'
+local U32Ptr = ffi.typeof 'uint32_t*'
+local U64Ptr = ffi.typeof 'uint64_t*'
 
 --- The internal trie index used by nibs' HAMTrie type
 ---@class Trie
@@ -105,34 +110,15 @@ function Node:serialize(write)
                 if offset >= high then
                     return nil, "overflow"
                 end
-                current = write(bor(high, offset))
+                current = write(offset)
             elseif mt == Pointer then
                 local target = entry.target
                 if target >= high then return nil, "overflow" end
-                current = write(target)
+                current = write(bor(high, target))
             end
         end
     end
     return write(bitfield)
-end
-
----print a colorful hexdump of a string
----@param buf string
-local function hex_dump(buf)
-    local parts = {}
-    for i = 1, math.ceil(#buf / 16) * 16 do
-        if (i - 1) % 16 == 0 then
-            table.insert(parts, colorize("userdata", string.format('%08x  ', i - 1)))
-        end
-        table.insert(parts, i > #buf and '   ' or colorize('cdata', string.format('%02x ', buf:byte(i))))
-        if i % 8 == 0 then
-            table.insert(parts, ' ')
-        end
-        if i % 16 == 0 then
-            table.insert(parts, colorize('braces', buf:sub(i - 16 + 1, i):gsub('%c', '.') .. '\n'))
-        end
-    end
-    print(table.concat(parts))
 end
 
 ---@param map table<ffi.cdata*,number> map from key slice to number
@@ -190,6 +176,9 @@ function Trie.encode(map, optimize)
                 count = count + trie:insert(Pointer.new(hash, v), 0)
             end
 
+            -- Reserve a slot for the seed
+            count = count + 1
+
             -- Width of pointers in bytes
             local width = lshift(1, power - 3)
             -- Total byte size of index if generated
@@ -218,9 +207,11 @@ function Trie.encode(map, optimize)
                 end
 
                 local _, err = trie:serialize(write)
+                write(seed)
                 if not err then
                     min = size
-                    win = { seed, count, width, index }
+                    win = { count, width, index }
+                    -- p { seed = seed, trie = trie }
                     break
                 end
             end
@@ -228,6 +219,88 @@ function Trie.encode(map, optimize)
     end
     assert(win, "there was no winner")
     return unpack(win)
+end
+
+local function decode_pointer(read, offset, width)
+    local str = read(offset, width)
+    if width == 1 then return cast(U8Ptr, str)[0] end
+    if width == 2 then return cast(U16Ptr, str)[0] end
+    if width == 4 then return cast(U32Ptr, str)[0] end
+    if width == 8 then return cast(U64Ptr, str)[0] end
+    error("Illegal pointer width " .. width)
+end
+
+-- http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
+local function popcnt(v)
+    local c = 0
+    while v > 0 do
+        c = c + band(v, 1ULL)
+        v = rshift(v, 1ULL)
+    end
+    return c
+end
+
+--- Walk a HAMT index checking for matching offset output
+---@param read ByteProvider
+---@param offset number start of hamt index (including seed)
+---@param count number number of pointers in index
+---@param width number pointer width in bytes
+---@param key ffi.cdata* key
+---@return integer? result usually an offset
+function Trie.walk(read, offset, count, width, key)
+    local omega = offset + count * width
+    local bits = assert(width == 1 and 3
+        or width == 2 and 4
+        or width == 4 and 5
+        or width == 8 and 6
+        or nil, "Invalid byte width")
+
+    -- Read seed
+    local seed = decode_pointer(read, offset, width)
+    offset = offset + width
+
+    local hash = xxhash64(key, assert(ffi.sizeof(key)), seed)
+
+    local segmentMask = lshift(1, bits) - 1
+    local highBit = lshift(1ULL, segmentMask)
+
+    while true do
+
+        -- Consume the next path segment
+        local segment = band(hash, segmentMask)
+        hash = rshift(hash, bits)
+
+        -- Read the next bitfield
+        -- p { segment = segment }
+        local bitfield = decode_pointer(read, offset, width)
+        -- print(string.format("offset=%08x bitfield=%02x popcnt=%d", offset, bitfield, tonumber(popcnt(bitfield))))
+        offset = offset + width
+        assert(offset < omega)
+
+        -- Check if segment is in bitfield
+        local match = lshift(1, segment)
+        if band(bitfield, match) == 0 then return end
+
+        -- If it is, calculate how many pointers to skip by counting 1s under it.
+        local skipCount = tonumber(popcnt(band(bitfield, match - 1)))
+
+
+        -- Jump to the pointer and read it
+        offset = offset + skipCount * width
+        assert(offset < omega)
+        local ptr = decode_pointer(read, offset, width)
+        -- print(string.format("offset=%08x ptr=%02x", offset, ptr))
+        -- p { ptr = ptr }
+
+        -- If there is a leading 1, it's a result pointer.
+        if band(ptr, highBit) > 0 then
+            return band(ptr, highBit - 1)
+        end
+
+        -- Otherwise it's an internal pointer
+        offset = offset + width + ptr
+        assert(offset < omega)
+    end
 end
 
 return Trie
