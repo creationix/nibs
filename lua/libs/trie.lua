@@ -136,15 +136,18 @@ local function hex_dump(buf)
 end
 
 ---@param map table<ffi.cdata*,number> map from key slice to number
+---@param optimize number? of hashes to try
 ---@return number seed
 ---@return number count
 ---@return number width
 ---@return ffi.cdata* index as Slice8
-local function hamt_encode(map)
+function Trie.encode(map, optimize)
 
     -- Calculate largest output target...
     local max_target = 0
+    local count = 0
     for _, v in pairs(map) do
+        count = count + 1
         if v > max_target then max_target = v end
     end
     -- ... and use that for the smallest possible start power that works
@@ -159,12 +162,17 @@ local function hamt_encode(map)
         start_power = 6
     end
 
+    if not optimize then
+        -- Auto pick a optimize number so massive tries don't use too much CPU
+        optimize = math.max(2, math.min(255, 10000000 / (count * count)))
+    end
+
     -- Try several combinations of parameters to find the smallest encoding.
     local win = nil
     -- The size of the currently winning index
     local min = 1 / 0
     -- Brute force all hash seeds in the 8-bit keyspace.
-    for seed = 0, 255 do
+    for seed = 0, optimize do
         -- Precompute the hashes outside of the bitsize loop to save CPU.
         local hashes = {}
         for k in pairs(map) do
@@ -222,22 +230,4 @@ local function hamt_encode(map)
     return unpack(win)
 end
 
-local function buf(str)
-    return Slice8(#str, str)
-end
-
-local y = 1
-while y < 100000 do
-    local size = math.floor(y + 0.5)
-    y = y * 1.7782794100389228
-    local sample = {}
-    for i = 1, size do
-        sample[buf('n' .. tostring(i))] = i
-    end
-    local seed, count, width, index = hamt_encode(sample)
-    print(string.format("data-size=%d seed=%02x width=%d count=%d size=%d overhead=%.2f",
-        size, seed, width, count, width * count, width * count / size
-    ))
-end
-
-return hamt_encode
+return Trie
