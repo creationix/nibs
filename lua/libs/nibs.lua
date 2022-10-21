@@ -254,9 +254,11 @@ function encode_list(list)
 end
 
 ---@param list Value[]
+---@param tag number?
 ---@return integer
 ---@return any
-function encode_array(list)
+function encode_array(list, tag)
+    tag = tag or ARRAY
     local total = 0
     local body = {}
     local offsets = {}
@@ -268,7 +270,7 @@ function encode_array(list)
     end
     local more, index = generate_array_index(offsets)
     total = total + more
-    local size, prefix = encode_pair(ARRAY, total)
+    local size, prefix = encode_pair(tag, total)
     return size + total, { prefix, index, body }
 end
 
@@ -276,22 +278,7 @@ end
 ---@return integer
 ---@return any
 function encode_scope(scope)
-    local total = 0
-    local body = {}
-    local offsets = {}
-    local size
-    for i, v in ipairs(scope) do
-        local entry
-        size, entry = encode_any(v)
-        body[i] = entry
-        offsets[i] = total
-        total = total + size
-    end
-    local more, index = generate_array_index(offsets)
-    total = total + more
-    local prefix
-    size, prefix = encode_pair(SCOPE, total)
-    return size + total, { prefix, index, body }
+    return encode_array(scope, SCOPE)
 end
 
 ---@param map table<Value,Value>
@@ -992,6 +979,7 @@ end
 
 local function decode_scope(read, offset, big, scope)
     local alpha, width, count = decode_pair(read, offset)
+    -- nested Value is the last ref
     local ptr = decode_pointer(read, alpha + width * (count - 1), width)
     return get(read, alpha + width * count + ptr, {
         parent = scope,

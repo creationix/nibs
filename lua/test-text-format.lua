@@ -4,10 +4,10 @@ local p = PrettyPrint.prettyPrint
 local Json = require 'ordered-json'
 local tests = {
     '[1,2,3]',
-    '(&1,2,3)',
+    '(2,3,&1)',
     '[#1,2,3]',
     '[null,2,null]',
-    '([&0,null],2,null)',
+    '(2,null,[&0,null])',
     '[#null,2,null]',
     '{1:2,3:4,5:null}',
     '{#1:2,3:4,5:null}',

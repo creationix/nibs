@@ -147,20 +147,20 @@ for _, filename in ipairs(big_json_files) do
     local outfile = filename:gsub("/", ".")
     local json = assert(fs.readFile(prefix .. filename .. postfix))
     local doc = assert(Json.decode(json))
-    fs.writeFile(outfile .. ".json", Json.encode(doc))
+    -- fs.writeFile(outfile .. ".json", Json.encode(doc))
     local nibs = Nibs.encode(doc)
-    fs.writeFile(outfile .. ".nibs", nibs)
+    -- fs.writeFile(outfile .. ".nibs", nibs)
     local dups = Nibs.findDuplicates(doc)
     doc = Nibs.addRefs(doc, dups)
-    fs.writeFile(outfile .. ".reffed.json", Json.encode(doc))
+    -- fs.writeFile(outfile .. ".reffed.json", Json.encode(doc))
     local nibs2 = Nibs.encode(doc)
-    fs.writeFile(outfile .. ".reffed.nibs", nibs2)
+    -- fs.writeFile(outfile .. ".reffed.nibs", nibs2)
     doc = Nibs.autoIndex(doc, 20)
-    fs.writeFile(outfile .. ".reffed.indexed.json", Json.encode(doc))
+    -- fs.writeFile(outfile .. ".reffed.indexed.json", Json.encode(doc))
     local nibs3 = Nibs.encode(doc)
-    fs.writeFile(outfile .. ".reffed.indexed.nibs", nibs3)
-    local bnibs = brotli_compress(nibs3)
-    fs.writeFile(outfile .. ".reffed.indexed.nibs.br", bnibs)
+    -- fs.writeFile(outfile .. ".reffed.indexed.nibs", nibs3)
+    -- local bnibs = brotli_compress(nibs3)
+    -- fs.writeFile(outfile .. ".reffed.indexed.nibs.br", bnibs)
 
     print("\n" .. colorize("highlight", filename))
     printf("json size %s", humanize_bytes(#json))
@@ -173,10 +173,10 @@ for _, filename in ipairs(big_json_files) do
         humanize_bytes(#nibs3),
         percent_smaller(nibs3, nibs2))
 
-    print("Brotli compressing final nibs document...")
-    printf("compressed nibs size %s (%s smaller than json)",
-        humanize_bytes(#bnibs),
-        percent_smaller(json, bnibs)
-    )
+    -- print("Brotli compressing final nibs document...")
+    -- printf("compressed nibs size %s (%s smaller than json)",
+    --     humanize_bytes(#bnibs),
+    --     percent_smaller(json, bnibs)
+    -- )
 
 end
