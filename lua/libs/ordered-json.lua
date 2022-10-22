@@ -3,6 +3,7 @@ local p = PrettyPrint.prettyPrint
 
 local bit = require 'bit'
 local ffi = require 'ffi'
+local I64 = ffi.typeof 'int64_t'
 local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
@@ -141,7 +142,31 @@ do
             end
         end
 
-        return tonumber(sub(json, start, index - 1)), index
+        local text = sub(json, start, index - 1)
+        local num
+        p("text", text)
+        if string.match(text, "^-?[0-9]+$") then
+            local neg = false
+            local big = I64(0)
+            for i = 1, #text do
+                if string.sub(text, i, i) == "-" then
+                    neg = true
+                else
+                    big = big * 10 - (string.byte(text, i, i) - 48)
+                end
+            end
+            if not neg then big = -big end
+            p("BIG", big)
+            if I64(tonumber(big)) == big then
+                num = tonumber(big)
+            else
+                num = big
+            end
+        else
+            num = tonumber(text)
+        end
+
+        return num, index
     end
 
     local parseNumber = Non.parseNumber
@@ -513,6 +538,12 @@ do
             return parseString(json, index)
         elseif b == 60 then -- `<`
             return parseBytes(json, index)
+        elseif b == 45 and sub(json, index, index + 3) == "-inf" then
+            return -1 / 0, index + 4
+        elseif b == 110 and sub(json, index, index + 2) == "nan" then
+            return 0 / 0, index + 3
+        elseif b == 105 and sub(json, index, index + 2) == "inf" then
+            return 1 / 0, index + 3
         elseif b == 45 or (b >= 48 and b <= 57) then -- `-` or `0-9`
             return parseNumber(json, index)
         elseif b == 102 and sub(json, index, index + 4) == "false" then

@@ -26,29 +26,29 @@ local function hex_dump(buf)
 end
 
 local inputs = OrderedMap.new(unpack {
-    "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
-    "number", '1234',
-    "string", '"Hello"',
-    "array", '[1,2,3,4]',
-    "small-object", '{0:1,2:3,4:5}',
-    "hamburgers", '[2011125487,"deadbeef"]',
-    "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
-    "object", '{"name":"Tim","age":40,"color":"blue"}',
+    -- "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
+    -- "number", '1234',
+    -- "string", '"Hello"',
+    -- "array", '[1,2,3,4]',
+    -- "small-object", '{0:1,2:3,4:5}',
+    -- "hamburgers", '[2011125487,"deadbeef"]',
+    -- "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
+    -- "object", '{"name":"Tim","age":40,"color":"blue"}',
     "mixed", '[' ..
         '{"color":"red",   "fruits":["apple","strawberry"]},' ..
         '{"color":"green", "fruits":["apple"]},' ..
         '{"color":"yellow","fruits":["apple","banana"]}' ..
         ']',
-    "wide trie", [[{
-      0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
-    }]],
-    "test", [[{
-        "one":   { "name": "one",   "value": 1000, "beef": false },
-        "two":   { "name": "Two",   "value": 2000, "dead": true },
-        "three": { "name": "three", "value": 3000, "ffee": null },
-        "four":  { "name": "Four",  "value": 2000 },
-        "five":  { "name": "five",  "value": 1000 }
-    }]],
+    -- "wide trie", [[{
+    --   0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
+    -- }]],
+    -- "test", [[{
+    --     "one":   { "name": "one",   "value": 1000, "beef": false },
+    --     "two":   { "name": "Two",   "value": 2000, "dead": true },
+    --     "three": { "name": "three", "value": 3000, "ffee": null },
+    --     "four":  { "name": "Four",  "value": 2000 },
+    --     "five":  { "name": "five",  "value": 1000 }
+    -- }]],
 })
 
 local function autoIndex(val)
