@@ -41,32 +41,9 @@ for line in string.gmatch(tests, "[^\n]+") do
             print("\n" .. colorize("highlight", line) .. "\n")
         else
             collectgarbage("collect")
-            local value
-            if string.match(text, "^-?[0-9]+$") then
-                local neg = false
-                local big = I64(0)
-                for i = 1, #text do
-                    if string.sub(text, i, i) == "-" then
-                        neg = true
-                    else
-                        big = big * 10 - (string.byte(text, i, i) - 48)
-                    end
-                end
-                if not neg then big = -big end
-                p(big)
-                if I64(tonumber(big)) == big then
-                    value = tonumber(big)
-                else
-                    value = big
-                end
-                p(value)
-            else
-                value = Json.decode(text) or loadstring(
-                    "local inf,nan,null=1/0,0/0\n" ..
-                    "return " .. text)()
-            end
+            local value = Json.decode(text)
             collectgarbage("collect")
-            local expected = loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"')()
+            local expected = assert(loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"'))()
             collectgarbage("collect")
             local actual = Nibs.encode(value)
             -- p(value, dump_string(actual))

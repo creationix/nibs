@@ -24,6 +24,7 @@ local NULL = 2
 
 local bit = require 'bit'
 local rshift = bit.rshift
+local arshift = bit.arshift
 local band = bit.band
 local lshift = bit.lshift
 local bor = bit.bor
@@ -94,10 +95,17 @@ local function encode_pair(small, big)
     end
 end
 
+local function tonumberMaybe(n)
+    local nn = tonumber(n)
+    return nn == n and nn or n
+end
+
+--- Convert a signed 64 bit integer to an unsigned 64 bit integer using zigzag encoding
 ---@param num integer
 ---@return integer
 local function encode_zigzag(num)
-    return num < 0 and num * -2 - 1 or num * 2
+    local i = I64(num)
+    return U64(bxor(arshift(i, 63), lshift(i, 1)))
 end
 
 local converter = ffi.new 'union {double f;uint64_t i;}'
@@ -384,19 +392,17 @@ local function decode_pair(read, offset)
     end
 end
 
-local function tonumberMaybe(n)
-    local nn = tonumber(n)
-    return nn == n and nn or n
-end
-
----Convert a nibs big from zigzag to I64
----@param big integer
+---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag encoding
+---@param num integer
 ---@return integer
-local function decode_zigzag(big)
-    local i = I64(big)
+local function decode_zigzag(num)
+    local i = I64(num)
     return tonumberMaybe(bxor(rshift(i, 1), -band(i, 1)))
 end
 
+--- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
+---@param val number
+---@return integer
 local function decode_float(val)
     converter.i = val
     return converter.f
