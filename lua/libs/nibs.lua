@@ -48,9 +48,9 @@ local OrderedArray = Ordered.Array
 local OrderedTrie = Ordered.Trie
 local Ref = Ordered.Ref
 local RefScope = Ordered.RefScope
-local is_array_like = Ordered.__is_array_like
 
-local xxh64 = require 'xxhash64'
+local NibLib = require "nibs-lib"
+local is_array_like = NibLib.isArrayLike
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
@@ -164,7 +164,7 @@ local encode_scope
 local Nibs = {}
 
 --- A value that can be serialized with nibs
----@alias Value ffi.cdata* | string | number | boolean | nil | RefScope | Ref | table<Value,Value>
+---@alias Value ffi.cdata* | string | number | boolean | nil | Scope | Ref | table<Value,Value>
 
 ---Encode any value into a nibs encoded binary string
 ---@param val Value
@@ -282,7 +282,7 @@ function encode_array(list, tag)
     return size + total, { prefix, index, body }
 end
 
----@param scope RefScope
+---@param scope Scope
 ---@return integer
 ---@return any
 function encode_scope(scope)
