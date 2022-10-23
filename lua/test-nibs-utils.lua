@@ -6,6 +6,11 @@ local Nibs       = require 'nibs'
 local Json       = require 'ordered-json'
 local OrderedMap = require('ordered').Map
 
+local ffi = require 'ffi'
+local sizeof = ffi.sizeof
+local cast = ffi.cast
+local U8Ptr = ffi.typeof 'uint8_t*'
+
 ---print a colorful hexdump of a string
 ---@param buf string
 local function hex_dump(buf)
@@ -30,29 +35,30 @@ local inputs = OrderedMap.new(unpack {
     "empty map", "{}",
     "empty array", "[#]",
     "empty trie", "{#}",
-    -- "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
-    -- "number", '1234',
-    -- "string", '"Hello"',
-    -- "array", '[1,2,3,4]',
-    -- "small-object", '{0:1,2:3,4:5}',
-    -- "hamburgers", '[2011125487,"deadbeef"]',
-    -- "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
-    -- "object", '{"name":"Tim","age":40,"color":"blue"}',
-    -- "mixed", '[' ..
-    --     '{"color":"red",   "fruits":["apple","strawberry"]},' ..
-    --     '{"color":"green", "fruits":["apple"]},' ..
-    --     '{"color":"yellow","fruits":["apple","banana"]}' ..
-    --     ']',
-    -- "wide trie", [[{
-    --   0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
-    -- }]],
-    -- "test", [[{
-    --     "one":   { "name": "one",   "value": 1000, "beef": false },
-    --     "two":   { "name": "Two",   "value": 2000, "dead": true },
-    --     "three": { "name": "three", "value": 3000, "ffee": null },
-    --     "four":  { "name": "Four",  "value": 2000 },
-    --     "five":  { "name": "five",  "value": 1000 }
-    -- }]],
+    "mixed types", '[0,-10,100,true,false,null,<123456>,"Hello","123456"]',
+    "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
+    "number", '1234',
+    "string", '"Hello"',
+    "array", '[1,2,3,4]',
+    "small-object", '{0:1,2:3,4:5}',
+    "hamburgers", '[2011125487,"deadbeef"]',
+    "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
+    "object", '{"name":"Tim","age":40,"color":"blue"}',
+    "mixed", '[' ..
+        '{"color":"red",   "fruits":["apple","strawberry"]},' ..
+        '{"color":"green", "fruits":["apple"]},' ..
+        '{"color":"yellow","fruits":["apple","banana"]}' ..
+        ']',
+    "wide trie", [[{
+      0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
+    }]],
+    "test", [[{
+        "one":   { "name": "one",   "value": 1000, "beef": false },
+        "two":   { "name": "Two",   "value": 2000, "dead": true },
+        "three": { "name": "three", "value": 3000, "ffee": null },
+        "four":  { "name": "Four",  "value": 2000 },
+        "five":  { "name": "five",  "value": 1000 }
+    }]],
 })
 
 local function autoIndex(val)
@@ -127,8 +133,9 @@ local matchers = {
 
 local function equal(a, b)
     if a == b then return true end
-    if type(a) ~= type(b) then return false end
-    if type(a) == "table" then
+    local t = type(a)
+    if t ~= type(b) then return false end
+    if t == "table" then
         if #a ~= #b then return false end
         for k, v in pairs(a) do
             if not equal(b[k], v) then return false end
@@ -139,9 +146,19 @@ local function equal(a, b)
             assert(equal(b[k], v), "Internally inconsistent")
         end
         return true
+    elseif t == "cdata" then
+        local l1 = sizeof(a)
+        local p1 = cast(U8Ptr, a)
+        local l2 = sizeof(b)
+        local p2 = cast(U8Ptr, b)
+        if l1 ~= l2 then return false end
+        for i = 0, l1 - 1 do
+            if p1[i] ~= p2[i] then return false end
+        end
+        return true
     end
     p(a, b)
-    error("TODO: compare type" .. type(a))
+    error("TODO: compare type" .. t)
 end
 
 local extra_space = ""
