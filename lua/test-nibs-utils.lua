@@ -26,6 +26,10 @@ local function hex_dump(buf)
 end
 
 local inputs = OrderedMap.new(unpack {
+    "empty list", "[]",
+    "empty map", "{}",
+    "empty array", "[#]",
+    "empty trie", "{#}",
     -- "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
     -- "number", '1234',
     -- "string", '"Hello"',
@@ -34,11 +38,11 @@ local inputs = OrderedMap.new(unpack {
     -- "hamburgers", '[2011125487,"deadbeef"]',
     -- "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
     -- "object", '{"name":"Tim","age":40,"color":"blue"}',
-    "mixed", '[' ..
-        '{"color":"red",   "fruits":["apple","strawberry"]},' ..
-        '{"color":"green", "fruits":["apple"]},' ..
-        '{"color":"yellow","fruits":["apple","banana"]}' ..
-        ']',
+    -- "mixed", '[' ..
+    --     '{"color":"red",   "fruits":["apple","strawberry"]},' ..
+    --     '{"color":"green", "fruits":["apple"]},' ..
+    --     '{"color":"yellow","fruits":["apple","banana"]}' ..
+    --     ']',
     -- "wide trie", [[{
     --   0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
     -- }]],
@@ -60,31 +64,31 @@ local tests = OrderedMap.new(unpack {
     "Original", { Json.decode },
     "Original -> Json", { Json.decode, Json.encode },
     "Original -> Json -> Lua", { Json.decode, Json.encode, Json.decode },
-    "Original -> Json -> Lua -> Json", { Json.decode, Json.encode, Json.decode, Json.encode },
+    -- "Original -> Json -> Lua -> Json", { Json.decode, Json.encode, Json.decode, Json.encode },
     "Original -> Json -> Lua -> Nibs", { Json.decode, Json.encode, Json.decode, Nibs.encode },
-    "Original -> Nibs", { Json.decode, Nibs.encode },
-    "Original -> Nibs -> Lua", { Json.decode, Nibs.encode, Nibs.decode },
-    "Deduplicated", { Json.decode, Nibs.deduplicate },
-    "Deduplicated -> Json", { Json.decode, Nibs.deduplicate, Json.encode },
-    "Deduplicated -> Json -> Lua", { Json.decode, Nibs.deduplicate, Json.encode, Json.decode },
-    "Deduplicated -> Nibs", { Json.decode, Nibs.deduplicate, Nibs.encode },
-    "Deduplicated -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
-    "Indexed", { Json.decode, autoIndex },
-    "Indexed -> Json", { Json.decode, autoIndex, Json.encode },
-    "Indexed -> Json -> Lua", { Json.decode, autoIndex, Json.encode, Json.decode },
-    "Indexed -> Json -> Lua -> Json", { Json.decode, autoIndex, Json.encode, Json.decode, Json.encode },
-    "Indexed -> Nibs", { Json.decode, autoIndex, Nibs.encode },
-    "Indexed -> Nibs -> Lua", { Json.decode, autoIndex, Nibs.encode, Nibs.decode },
-    "Deduped -> Indexed", { Json.decode, Nibs.deduplicate, autoIndex },
-    "Indexed -> Deduped", { Json.decode, Nibs.deduplicate, autoIndex },
-    "Deduped -> Indexed -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
-    "Indexed -> Deduped -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
-    "Deduped -> Indexed -> Json -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode, Json.decode },
-    "Indexed -> Deduped -> Json -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode, Json.decode },
-    "Deduped -> Indexed -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    "Indexed -> Deduped -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    "Deduped -> Indexed -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
-    "Indexed -> Deduped -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Original -> Nibs", { Json.decode, Nibs.encode },
+    -- "Original -> Nibs -> Lua", { Json.decode, Nibs.encode, Nibs.decode },
+    -- "Deduplicated", { Json.decode, Nibs.deduplicate },
+    -- "Deduplicated -> Json", { Json.decode, Nibs.deduplicate, Json.encode },
+    -- "Deduplicated -> Json -> Lua", { Json.decode, Nibs.deduplicate, Json.encode, Json.decode },
+    -- "Deduplicated -> Nibs", { Json.decode, Nibs.deduplicate, Nibs.encode },
+    -- "Deduplicated -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
+    -- "Indexed", { Json.decode, autoIndex },
+    -- "Indexed -> Json", { Json.decode, autoIndex, Json.encode },
+    -- "Indexed -> Json -> Lua", { Json.decode, autoIndex, Json.encode, Json.decode },
+    -- "Indexed -> Json -> Lua -> Json", { Json.decode, autoIndex, Json.encode, Json.decode, Json.encode },
+    -- "Indexed -> Nibs", { Json.decode, autoIndex, Nibs.encode },
+    -- "Indexed -> Nibs -> Lua", { Json.decode, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Deduped -> Indexed", { Json.decode, Nibs.deduplicate, autoIndex },
+    -- "Indexed -> Deduped", { Json.decode, Nibs.deduplicate, autoIndex },
+    -- "Deduped -> Indexed -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
+    -- "Indexed -> Deduped -> Json", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode },
+    -- "Deduped -> Indexed -> Json -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode, Json.decode },
+    -- "Indexed -> Deduped -> Json -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Json.encode, Json.decode },
+    -- "Deduped -> Indexed -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    -- "Indexed -> Deduped -> Nibs", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    -- "Deduped -> Indexed -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Indexed -> Deduped -> Nibs -> Lua", { Json.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
 })
 
 local matchers = {
@@ -179,7 +183,7 @@ for name, json in pairs(inputs) do
         for i = 2, #group do
             local other = group[i]
             local actual = outputs[other]
-            if other and actual and not equal(expected, actual) then
+            if expected and actual and not equal(expected, actual) then
                 print(string.format("Expected (%s):", first))
                 p(expected)
                 print(string.format("Actual (%s):", other))
