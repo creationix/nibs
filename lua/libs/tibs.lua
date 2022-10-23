@@ -1,5 +1,6 @@
-local PrettyPrint = require 'pretty-print'
-local p = PrettyPrint.prettyPrint
+local Tibs = require 'tibs-types'
+local NibLib = require 'nib-lib'
+local isArrayLike = NibLib.isArrayLike
 
 local bit = require 'bit'
 local ffi = require 'ffi'
@@ -18,36 +19,26 @@ local sub = string.sub
 local format = string.format
 local concat = table.concat
 
-local Ordered = require 'ordered'
-local is_array_like = Ordered.__is_array_like
-local Map = Ordered.Map
-local List = Ordered.List
-local Array = Ordered.Array
-local Trie = Ordered.Trie
-local Ref = Ordered.Ref
-local RefScope = Ordered.RefScope
-
-
----@class Non Nibs Object Notation codec
-local Non = {}
 
 -- Unique token used for parse errors
 local Fail = { FAIL = true }
-Non.Fail = Fail
+Tibs.Fail = Fail
 
 -- Wrap parser implementation in collapsable block scope
 do
 
-    -- Hoist declaration since parseArray and parseObject mutually depend on it
-    local parseAny, nextToken
+    -- Hoist declarations
+    local nextToken, parseAny,
+    parseNumber, parseRef, parseString, parseBytes,
+    parseArray, parseObject, parseScope
 
     --- This is the main public interface.  Given a json string return
     --- the lua representation.  Array/Object/null semantics are preserved.
     ---@param json string
     ---@return boolean|string|number|table|nil parsed value
     ---@return string? error
-    function Non.decode(json)
-        assert(type(json) == "string", "JSON string expected")
+    function Tibs.decode(json)
+        assert(type(json) == "string", "JSON or Tibs string expected")
         local value, index = parseAny(json, 1)
         local b
 
@@ -85,7 +76,7 @@ do
         end
     end
 
-    function Non.parseNumber(json, index)
+    function parseNumber(json, index)
         local b, start = nextToken(json, index)
 
         -- Optional leading `-`
@@ -171,8 +162,6 @@ do
 
         return num, index
     end
-
-    local parseNumber = Non.parseNumber
 
     local stringEscapes = {
         [92] = char(92),
@@ -296,7 +285,7 @@ do
         return concat(parts), index + 1
     end
 
-    function Non.parseString(json, index)
+    function parseString(json, index)
         local b, start = nextToken(json, index)
         index = start
         if b ~= 34 then -- `"`
@@ -317,9 +306,7 @@ do
         return sub(json, start + 1, index - 1), index + 1
     end
 
-    local parseString = Non.parseString
-
-    function Non.parseBytes(json, index)
+    function parseBytes(json, index)
         local b, start = nextToken(json, index)
         index = start
         if b ~= 60 then -- `<`
@@ -346,9 +333,7 @@ do
         return bytes, index + 1
     end
 
-    local parseBytes = Non.parseBytes
-
-    function Non.parseArray(json, index)
+    function parseArray(json, index)
         local b
         -- Consume opening square bracket
         b, index = nextToken(json, index)
@@ -363,7 +348,7 @@ do
             index = index + 1
         end
 
-        local array = indexed and Array.new() or List.new()
+        local array = indexed and Tibs.Array.new() or Tibs.List.new()
         local i = 1
         while true do
             -- Read the next token
@@ -394,9 +379,7 @@ do
         return array, index
     end
 
-    local parseArray = Non.parseArray
-
-    function Non.parseObject(json, index)
+    function parseObject(json, index)
         local b
         -- Consume opening curly brace
         b, index = nextToken(json, index)
@@ -411,7 +394,7 @@ do
             index = index + 1
         end
 
-        local object = indexed and Trie.new() or Map.new()
+        local object = indexed and Tibs.Trie.new() or Tibs.Map.new()
         local i = 1
         while true do
             -- Read the next token
@@ -456,9 +439,7 @@ do
         return object, index
     end
 
-    local parseObject = Non.parseObject
-
-    function Non.parseScope(json, index)
+    function parseScope(json, index)
         local b
         -- Consume opening paren brace
         b, index = nextToken(json, index)
@@ -472,7 +453,7 @@ do
             return Fail, index
         end
 
-        local scope = List.new(child)
+        local scope = Tibs.List.new(child)
         local i = 1
         while true do
             -- Read the next token
@@ -498,12 +479,10 @@ do
             scope[i] = ref
 
         end
-        return RefScope.new(scope), index
+        return Tibs.Scope.new(scope), index
     end
 
-    local parseScope = Non.parseScope
-
-    function Non.parseRef(json, index)
+    function parseRef(json, index)
         local b
         -- Consume ampersand
         b, index = nextToken(json, index)
@@ -513,12 +492,10 @@ do
         local idx
         idx, index = parseNumber(json, index)
         if not idx then return nil, index end
-        return Ref.new(idx), index
+        return Tibs.Ref.new(idx), index
     end
 
-    local parseRef = Non.parseRef
-
-    function Non.parseAny(json, index)
+    function parseAny(json, index)
         -- Exit if we run out of string to parse
         local b
         b, index = nextToken(json, index)
@@ -555,8 +532,6 @@ do
             return Fail, index
         end
     end
-
-    parseAny = Non.parseAny
 
 end
 
@@ -621,7 +596,7 @@ do
     end
 
     local reentered = nil
-    function Non.encode(val)
+    function Tibs.encode(val)
 
         local typ = type(val)
         if typ == 'nil' then
@@ -637,12 +612,12 @@ do
             local mt = getmetatable(val)
             if mt and reentered ~= val and mt.__tojson then
                 reentered = val
-                local json = mt.__tojson(val, Non.encode)
+                local json = mt.__tojson(val, Tibs.encode)
                 reentered = nil
                 return json
             end
             local tag = mt and mt.__is_indexed and "#" or ""
-            if is_array_like(val) then
+            if isArrayLike(val) then
                 return encodeArray(val, tag)
             else
                 return encodeObject(val, tag)
@@ -662,7 +637,7 @@ do
         end
     end
 
-    encode = Non.encode
+    encode = Tibs.encode
 end
 
-return Non
+return Tibs
