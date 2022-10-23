@@ -4,6 +4,11 @@ local p = PrettyPrint.prettyPrint
 local bit = require 'bit'
 local ffi = require 'ffi'
 local I64 = ffi.typeof 'int64_t'
+local Slice8 = ffi.typeof 'uint8_t[?]'
+local U8Ptr = ffi.typeof 'uint8_t*'
+local sizeof = ffi.sizeof
+local copy = ffi.copy
+local cast = ffi.cast
 local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
@@ -144,7 +149,6 @@ do
 
         local text = sub(json, start, index - 1)
         local num
-        p("text", text)
         if string.match(text, "^-?[0-9]+$") then
             local neg = false
             local big = I64(0)
@@ -156,7 +160,6 @@ do
                 end
             end
             if not neg then big = -big end
-            p("BIG", big)
             if I64(tonumber(big)) == big then
                 num = tonumber(big)
             else
@@ -336,14 +339,10 @@ do
             index = index + 1
             b = byte(json, index, index)
         end
-        collectgarbage("collect")
         local hex = sub(json, start + 1, index - 1)
-        collectgarbage("collect")
         hex = hex:gsub('..', function(h) return string.char(tonumber(h, 16)) end)
-        collectgarbage("collect")
-        local bytes = ffi.new("uint8_t[?]", #hex)
-        ffi.copy(bytes, hex, #hex)
-        collectgarbage("collect")
+        local bytes = Slice8(#hex)
+        copy(bytes, hex, #hex)
         return bytes, index + 1
     end
 
@@ -575,6 +574,11 @@ do
         [9] = 116, --`\t`
     }
 
+    -- Convert integer to ascii code for hex digit
+    local function tohex(num)
+        return num + (num < 10 and 48 or 87)
+    end
+
     local function encodeString(str)
         local start = 1
         local parts = {}
@@ -643,6 +647,16 @@ do
             else
                 return encodeObject(val, tag)
             end
+        elseif typ == 'cdata' then
+            local len = assert(sizeof(val))
+            local data = cast(U8Ptr, val)
+            local hex = Slice8(len * 2)
+            for i = 0, len - 1 do
+                local b = data[i]
+                hex[i * 2] = tohex(rshift(b, 4))
+                hex[i * 2 + 1] = tohex(band(b, 15))
+            end
+            return '<' .. ffi.string(hex, len * 2) .. '>'
         else
             error("Cannot serialize " .. typ)
         end

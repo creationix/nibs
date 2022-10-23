@@ -158,7 +158,6 @@ local encode_map
 local encode_array
 local generate_array_index
 local encode_trie
-local generate_trie_index
 local encode_scope
 
 ---@class Nibs
@@ -329,7 +328,6 @@ function encode_trie(map)
 
     local count, width, index = Trie.encode(offsets)
     total = total + count * width
-    p { count = count, width = width, index = ffi.string(index, ffi.sizeof(index)) }
 
     local size, prefix, meta
     size, meta = encode_pair(width, count)

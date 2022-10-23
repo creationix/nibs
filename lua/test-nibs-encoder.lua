@@ -42,6 +42,7 @@ for line in string.gmatch(tests, "[^\n]+") do
         else
             collectgarbage("collect")
             local value = Json.decode(text)
+            p(value)
             collectgarbage("collect")
             local expected = assert(loadstring('return "' .. hex:gsub("..", function(h) return "\\x" .. h end) .. '"'))()
             collectgarbage("collect")
