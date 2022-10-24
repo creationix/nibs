@@ -9,6 +9,17 @@ _G.p = PrettyPrint.prettyPrint
 
 local TestUtils = {}
 
+---Turn a string into a memory backed byte provider
+---@param data string
+---@return ByteProvider
+function TestUtils.fromMemory(data)
+    ---@param offset number
+    ---@param length number
+    return function(offset, length)
+        return string.sub(data, offset + 1, offset + length)
+    end
+end
+
 ---print a colorful hexdump of a string
 ---@param buf string
 function TestUtils.hex_dump(buf)

@@ -1,3 +1,4 @@
+local Utils = require 'test-utils'
 local Bytes = require 'bytes'
 
 ---Create a tiny LRU that holds a single value
@@ -39,7 +40,7 @@ local function logger(provider, label, input, output)
 end
 
 -- Setup a simple memory based bytes provider for testing
-local b = Bytes.fromMemory "0123456789"
+local b = Utils.fromMemory "0123456789"
 
 -- Log all calls to this provider for testing.
 ---@type number

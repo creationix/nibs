@@ -1,5 +1,4 @@
-local PrettyPrint = require 'pretty-print'
-local p = PrettyPrint.prettyPrint
+require 'test-utils'
 
 local Tibs = require 'tibs'
 

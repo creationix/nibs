@@ -5,7 +5,6 @@ local Utils = require 'test-utils'
 
 local NibLib = require 'nib-lib'
 local Tibs = require 'tibs'
-local Bytes = require 'bytes'
 local Nibs = require 'nibs'
 
 local colorize = require('pretty-print').colorize
@@ -23,7 +22,7 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
             collectgarbage("collect")
 
             -- Wrapped as byte provider for nibs reader
-            local provider = Bytes.fromMemory(NibLib.bufToStr(input))
+            local provider = Utils.fromMemory(NibLib.bufToStr(input))
             collectgarbage("collect")
 
             -- Actual decoded value and offset
