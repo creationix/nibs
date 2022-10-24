@@ -1,45 +1,31 @@
+local Utils = require 'test-utils'
+local Nibs = require "nibs"
+local Tibs = require 'tibs'
 local NibLib = require 'nib-lib'
 
 local colorize = require('pretty-print').colorize
 local readFileSync = require('fs').readFileSync
 
-local Nibs = require "nibs"
-local Tibs = require 'tibs'
-
 local filename = module.dir .. "/encoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
 local allTests = assert(Tibs.decode(text))
 
-collectgarbage("collect")
-for section, tests in pairs(allTests) do
-    print("\n" .. colorize("highlight", section) .. "\n")
+
+for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
-    if line:match("^[a-z]") then
-        collectgarbage("collect")
-        local code = "return function(self) self." .. line .. " end"
-        collectgarbage("collect")
-        loadstring(code)()(options)
-        collectgarbage("collect")
-    else
-        collectgarbage("collect")
-        local text, hex = line:match " *([^|]+) +%| +(..+)"
-        collectgarbage("collect")
-        if not text then
-            collectgarbage("collect")
-        else
-            collectgarbage("collect")
-            local value = Tibs.decode(text)
-            collectgarbage("collect")
-            local expected = NibLib.hexStrToStr(hex)
-            collectgarbage("collect")
-            local actual = Nibs.encode(value)
-            collectgarbage("collect")
+    for section, tests in pairs(allTests) do
+        print("\n" .. colorize("highlight", section) .. "\n")
+        for i = 1, #tests, 2 do
+            local input = tests[i]
+            local expected = NibLib.bufToStr(tests[i + 1])
+            local actual = Nibs.encode(input)
+
             print(string.format("% 40s → %s",
-                text,
+                Tibs.encode(input),
                 colorize(expected == actual and "success" or "failure", NibLib.strToHexStr(actual))))
             if expected ~= actual then
                 collectgarbage("collect")
-                print(colorize("failure", string.format("% 26s | %s",
+                print(colorize("failure", string.format("% 40s | %s",
                     "Error, not as expected",
                     colorize("success", NibLib.strToHexStr(expected)))))
                 return nil, "Encode Mismatch"
@@ -50,4 +36,3 @@ for section, tests in pairs(allTests) do
     end
     collectgarbage("collect")
 end
-collectgarbage("collect")

@@ -11,12 +11,11 @@ local Nibs = require 'nibs'
 local colorize = require('pretty-print').colorize
 
 local readFileSync = require('fs').readFileSync
-
 local filename = module.dir .. "/decoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
 local allTests = assert(Tibs.decode(text))
 
-for i = 1, 10 do -- Multiple runs to exercise GC more
+for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
     for section, tests in pairs(allTests) do
         print("\n" .. colorize("highlight", section) .. "\n")
@@ -35,7 +34,7 @@ for i = 1, 10 do -- Multiple runs to exercise GC more
             local same = Utils.equal(expected, actual)
             collectgarbage("collect")
 
-            print(string.format("% 40s | %s, %s",
+            print(string.format("% 40s → %s, %s",
                 NibLib.bufToHexStr(input),
                 colorize(same and "success" or "failure", Tibs.encode(actual)),
                 colorize(offset == sizeof(input) and "success" or "failure", offset)

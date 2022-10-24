@@ -374,6 +374,16 @@ do
                 index = index + 1
             end
 
+            b, index = nextToken(json, index)
+            if not b then return Fail, index end
+
+            -- Allow trailing commas by checking agin for closing brace
+            if b == 93 then -- `]`
+                index = index + 1
+                break
+            end
+
+
             -- Parse a single value and add to the array
             local value
             value, index = parseAny(json, index)
