@@ -5,14 +5,8 @@ local colorize = require('pretty-print').colorize
 
 local Nibs = require 'nibs'
 local Tibs = require 'tibs'
-local Map  = Tibs.Map
 
-local ffi = require 'ffi'
-local sizeof = ffi.sizeof
-local cast = ffi.cast
-local U8Ptr = ffi.typeof 'uint8_t*'
-
-local inputs = Map.new(unpack {
+local inputs = Tibs.Map.new(unpack {
     "empty list", "[]",
     "empty map", "{}",
     "empty array", "[#]",
@@ -47,36 +41,36 @@ local function autoIndex(val)
     return Nibs.autoIndex(val, 4)
 end
 
-local tests = Map.new(unpack {
+local tests = Tibs.Map.new(unpack {
     "Input Json", {},
     "Original", { Tibs.decode },
     "Original -> Json", { Tibs.decode, Tibs.encode },
-    -- "Original -> Json -> Lua", { Tibs.decode, Tibs.encode, Tibs.decode },
-    -- "Original -> Json -> Lua -> Json", { Tibs.decode, Tibs.encode, Tibs.decode, Tibs.encode },
-    -- "Original -> Json -> Lua -> Nibs", { Tibs.decode, Tibs.encode, Tibs.decode, Nibs.encode },
-    -- "Original -> Nibs", { Tibs.decode, Nibs.encode },
-    -- "Original -> Nibs -> Lua", { Tibs.decode, Nibs.encode, Nibs.decode },
-    -- "Deduplicated", { Tibs.decode, Nibs.deduplicate },
-    -- "Deduplicated -> Json", { Tibs.decode, Nibs.deduplicate, Tibs.encode },
-    -- "Deduplicated -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, Tibs.encode, Tibs.decode },
-    -- "Deduplicated -> Nibs", { Tibs.decode, Nibs.deduplicate, Nibs.encode },
-    -- "Deduplicated -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
-    -- "Indexed", { Tibs.decode, autoIndex },
-    -- "Indexed -> Json", { Tibs.decode, autoIndex, Tibs.encode },
-    -- "Indexed -> Json -> Lua", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode },
-    -- "Indexed -> Json -> Lua -> Json", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode, Tibs.encode },
-    -- "Indexed -> Nibs", { Tibs.decode, autoIndex, Nibs.encode },
-    -- "Indexed -> Nibs -> Lua", { Tibs.decode, autoIndex, Nibs.encode, Nibs.decode },
-    -- "Deduped -> Indexed", { Tibs.decode, Nibs.deduplicate, autoIndex },
-    -- "Indexed -> Deduped", { Tibs.decode, Nibs.deduplicate, autoIndex },
-    -- "Deduped -> Indexed -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
-    -- "Indexed -> Deduped -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
-    -- "Deduped -> Indexed -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
-    -- "Indexed -> Deduped -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
-    -- "Deduped -> Indexed -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    -- "Indexed -> Deduped -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    -- "Deduped -> Indexed -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
-    -- "Indexed -> Deduped -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    "Original -> Json -> Lua", { Tibs.decode, Tibs.encode, Tibs.decode },
+    "Original -> Json -> Lua -> Json", { Tibs.decode, Tibs.encode, Tibs.decode, Tibs.encode },
+    "Original -> Json -> Lua -> Nibs", { Tibs.decode, Tibs.encode, Tibs.decode, Nibs.encode },
+    "Original -> Nibs", { Tibs.decode, Nibs.encode },
+    "Original -> Nibs -> Lua", { Tibs.decode, Nibs.encode, Nibs.decode },
+    "Deduplicated", { Tibs.decode, Nibs.deduplicate },
+    "Deduplicated -> Json", { Tibs.decode, Nibs.deduplicate, Tibs.encode },
+    "Deduplicated -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, Tibs.encode, Tibs.decode },
+    "Deduplicated -> Nibs", { Tibs.decode, Nibs.deduplicate, Nibs.encode },
+    "Deduplicated -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
+    "Indexed", { Tibs.decode, autoIndex },
+    "Indexed -> Json", { Tibs.decode, autoIndex, Tibs.encode },
+    "Indexed -> Json -> Lua", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode },
+    "Indexed -> Json -> Lua -> Json", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode, Tibs.encode },
+    "Indexed -> Nibs", { Tibs.decode, autoIndex, Nibs.encode },
+    "Indexed -> Nibs -> Lua", { Tibs.decode, autoIndex, Nibs.encode, Nibs.decode },
+    "Deduped -> Indexed", { Tibs.decode, Nibs.deduplicate, autoIndex },
+    "Indexed -> Deduped", { Tibs.decode, Nibs.deduplicate, autoIndex },
+    "Deduped -> Indexed -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
+    "Indexed -> Deduped -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
+    "Deduped -> Indexed -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
+    "Indexed -> Deduped -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
+    "Deduped -> Indexed -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    "Indexed -> Deduped -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    "Deduped -> Indexed -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    "Indexed -> Deduped -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
 })
 
 local matchers = {
@@ -113,37 +107,6 @@ local matchers = {
     },
 }
 
-local function equal(a, b)
-    if a == b then return true end
-    local t = type(a)
-    if t ~= type(b) then return false end
-    if t == "table" then
-        if #a ~= #b then return false end
-        for k, v in pairs(a) do
-            if not equal(b[k], v) then return false end
-            assert(equal(a[k], v), "Internally inconsistent")
-        end
-        for k, v in pairs(b) do
-            if not equal(a[k], v) then return false end
-            assert(equal(b[k], v), "Internally inconsistent")
-        end
-        return true
-    elseif t == "cdata" then
-        local l1 = sizeof(a)
-        local p1 = cast(U8Ptr, a)
-        local l2 = sizeof(b)
-        local p2 = cast(U8Ptr, b)
-        if l1 ~= l2 then return false end
-        for i = 0, l1 - 1 do
-            if p1[i] ~= p2[i] then return false end
-        end
-        return true
-    elseif t == "string" or t == "number" or t == "boolean" then
-        return false
-    end
-    p(a, b)
-    error("TODO: compare type " .. t)
-end
 
 local extra_space = ""
 for name, json in pairs(inputs) do
@@ -186,7 +149,7 @@ for name, json in pairs(inputs) do
         for i = 2, #group do
             local other = group[i]
             local actual = outputs[other]
-            if expected and actual and not equal(expected, actual) then
+            if expected and actual and not TestUtils.equal(expected, actual) then
                 print(string.format("Expected (%s):", first))
                 p(expected)
                 print(string.format("Actual (%s):", other))

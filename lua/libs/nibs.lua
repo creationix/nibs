@@ -33,7 +33,6 @@ local sizeof = ffi.sizeof
 local copy = ffi.copy
 local ffi_string = ffi.string
 local cast = ffi.cast
-local istype = ffi.istype
 
 local insert = table.insert
 
@@ -49,16 +48,8 @@ local NibLib = require "nib-lib"
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
-local U8 = ffi.typeof 'uint8_t'
-local U16 = ffi.typeof 'uint16_t'
-local U32 = ffi.typeof 'uint32_t'
 local U64 = ffi.typeof 'uint64_t'
-local I8 = ffi.typeof 'int8_t'
-local I16 = ffi.typeof 'int16_t'
-local I32 = ffi.typeof 'int32_t'
 local I64 = ffi.typeof 'int64_t'
-local F32 = ffi.typeof 'float'
-local F64 = ffi.typeof 'double'
 
 local U8Ptr = ffi.typeof 'uint8_t*'
 local U16Ptr = ffi.typeof 'uint16_t*'
@@ -195,17 +186,23 @@ function encode_any(val)
         local size, head = encode_pair(UTF8, len)
         return size + len, { head, val }
     elseif t == "cdata" then
-        if istype(I64, val) or istype(I32, val) or istype(I16, val) or istype(I8, val) or
-            istype(U64, val) or istype(U32, val) or istype(U16, val) or istype(U8, val) then
+        if NibLib.isInteger(val) then
             -- Treat cdata integers as integers
             return encode_pair(ZIGZAG, encode_zigzag(val))
-        elseif istype(F64, val) or istype(F32, val) then
+        elseif NibLib.isFloat(val) then
             -- Treat cdata floats as floats
             return encode_pair(FLOAT, encode_float(val))
         else
+            collectgarbage("collect")
             local len = assert(sizeof(val))
+            collectgarbage("collect")
             local size, head = encode_pair(BYTES, len)
-            return size + len, { head, val }
+            collectgarbage("collect")
+            if len > 0 then
+                return size + len, { head, val }
+            else
+                return size, head
+            end
         end
     elseif t == "boolean" then
         return encode_pair(SIMPLE, val and TRUE or FALSE)
@@ -412,10 +409,7 @@ end
 ---@param length number
 ---@return ffi.ctype*
 local function decode_bytes(read, offset, length)
-    local data = read(offset, length)
-    local bytes = Slice8(length)
-    copy(bytes, data)
-    return bytes
+    return NibLib.strToBuf(read(offset, length))
 end
 
 ---@param read ByteProvider
@@ -705,7 +699,7 @@ function NibsTrie:__index(idx)
     local width = assert(meta.width)
     local encoded = Nibs.encode(idx)
 
-    local target = Trie.walk(read, meta.alpha, meta.count, width, Slice8(#encoded, encoded))
+    local target = Trie.walk(read, meta.alpha, meta.count, width, NibLib.strToBuf(encoded))
     if not target then return end
 
     target = tonumber(target)

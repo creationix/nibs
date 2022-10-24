@@ -2,17 +2,19 @@ local Tibs = require 'tibs-types'
 local NibLib = require 'nib-lib'
 
 local bit = require 'bit'
-local ffi = require 'ffi'
-local I64 = ffi.typeof 'int64_t'
 local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
+
+local ffi = require 'ffi'
+local I64 = ffi.typeof 'int64_t'
+
 local byte = string.byte
 local char = string.char
 local sub = string.sub
 local format = string.format
-local concat = table.concat
 
+local concat = table.concat
 
 -- Unique token used for parse errors
 local Fail = { FAIL = true }
@@ -49,11 +51,21 @@ do
             return value
         end
 
+        local row = 0
+        local col = 0
+        for line in string.gmatch(string.sub(json, 1, index - 1), "[^\r\n]*\r?\n?") do
+            if #line > 0 then
+                row = row + 1
+                col = #line + 1
+            end
+        end
+
         -- Report parse error
         if index <= #json then
-            return nil, format("Unexpected %q at index %d", sub(json, index, index), index)
+            return nil, format("Unexpected %q at index %d (row %d / col %d)",
+                sub(json, index, index), index, row, col)
         end
-        return nil, format("Unexpected EOS at index %d", index)
+        return nil, format("Unexpected EOS at index %d (row %d / col %d)", index, row, col)
     end
 
     ---Skip whitespace and get next byte
@@ -63,7 +75,7 @@ do
     ---@return number new_index
     function nextToken(json, index)
         while true do
-            local b = byte(json, index, index)
+            local b = byte(json, index)
             if not (b == 9 or b == 10 or b == 13 or b == 32) then
                 return b, index
             end
@@ -83,13 +95,13 @@ do
         -- Integer part of number
         if b == 48 then -- `0`
             index = index + 1
-            b = byte(json, index, index)
+            b = byte(json, index)
         elseif b and (b >= 49 and b <= 57) then -- `[1-9]`
             index = index + 1
-            b = byte(json, index, index)
+            b = byte(json, index)
             while b and (b >= 48 and b <= 57) do -- `[0-9]*`
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
         else
             -- Must be zero or positive integer
@@ -99,7 +111,7 @@ do
         -- optional decimal part of number
         if b == 46 then -- `.`
             index = index + 1
-            b = byte(json, index, index)
+            b = byte(json, index)
 
             -- Can't stop here, must have at least one `[0-9]`.
             if not b or b < 48 or b > 57 then
@@ -108,19 +120,19 @@ do
 
             while b and (b >= 48 and b <= 57) do -- `0-9`
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
         end
 
         -- Optional exponent part of number
         if b == 69 or b == 101 then -- `E` or `e`
             index = index + 1
-            b = byte(json, index, index)
+            b = byte(json, index)
 
             -- Optional sign inside exponent
             if b == 43 or b == 45 then -- `+` or `-`
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
 
             -- Can't stop here, must have at least one `[0-9]`.
@@ -129,7 +141,7 @@ do
             end
             while b and (b >= 48 and b <= 57) do -- `0-9`
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
         end
 
@@ -142,7 +154,7 @@ do
                 if string.sub(text, i, i) == "-" then
                     neg = true
                 else
-                    big = big * 10 - (string.byte(text, i, i) - 48)
+                    big = big * 10 - (byte(text, i) - 48)
                 end
             end
             if not neg then big = -big end
@@ -207,12 +219,12 @@ do
     end
 
     local function parseEscapedString(json, index)
-        local b = byte(json, index, index)
+        local b = byte(json, index)
         if b ~= 34 then -- `"`
             return Fail, index
         end
         index = index + 1
-        b = byte(json, index, index)
+        b = byte(json, index)
 
         local first = index
         local parts = {}
@@ -226,7 +238,7 @@ do
                     i = i + 1
                 end
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
                 if not b then return Fail, index end
 
                 local e = stringEscapes[b]
@@ -234,14 +246,14 @@ do
                     parts[i] = e
                     i = i + 1
                     index = index + 1
-                    b = byte(json, index, index)
+                    b = byte(json, index)
                     first = index
                 elseif b == 117 then -- `u`
                     local d = 0
                     -- 4 required digits
                     for _ = 1, 4 do
                         index = index + 1
-                        b = byte(json, index, index)
+                        b = byte(json, index)
                         if not b then
                             return Fail, index
                         end
@@ -262,12 +274,12 @@ do
                         i = i + 1
                     end
                     index = index + 1
-                    b = byte(json, index, index)
+                    b = byte(json, index)
                     first = index
                 end
             else
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
         end
         if index > first then
@@ -287,7 +299,7 @@ do
             return Fail, index
         end
         index = index + 1
-        b = byte(json, index, index)
+        b = byte(json, index)
 
         while b ~= 34 do -- `"`
             if not b then return Fail, index end
@@ -295,20 +307,22 @@ do
                 return parseEscapedString(json, start)
             else
                 index = index + 1
-                b = byte(json, index, index)
+                b = byte(json, index)
             end
         end
         return sub(json, start + 1, index - 1), index + 1
     end
 
     function parseBytes(json, index)
-        local b, start = nextToken(json, index)
-        index = start
+        local b
+        b, index = nextToken(json, index)
         if b ~= 60 then -- `<`
             return Fail, index
         end
         index = index + 1
-        b = byte(json, index, index)
+        local start = index
+
+        b, index = nextToken(json, index)
 
         while b ~= 62 do -- `>`
             if not b
@@ -319,9 +333,10 @@ do
                 return Fail, index
             end
             index = index + 1
-            b = byte(json, index, index)
+            b, index = nextToken(json, index)
         end
-        local bytes = NibLib.hexStrToBuf(sub(json, start + 1, index - 1))
+        local inner = sub(json, start, index - 1)
+        local bytes = NibLib.hexStrToBuf(inner:gsub('[ \n\r\t]+', ''))
         return bytes, index + 1
     end
 
@@ -403,6 +418,15 @@ do
             if i > 1 then
                 if b ~= 44 then return Fail, index end -- `,`
                 index = index + 1
+            end
+
+            b, index = nextToken(json, index)
+            if not b then return Fail, index end
+
+            -- Allow trailing commas by checking agin for closing brace
+            if b == 125 then -- `}`
+                index = index + 1
+                break
             end
 
             -- Parse a single string as key
@@ -548,7 +572,7 @@ do
         local i = 1
         local len = #str
         for index = start, len do
-            local escape = stringEscapes[byte(str, index, index)]
+            local escape = stringEscapes[byte(str, index)]
             if escape then
                 if index > start then
                     parts[i] = sub(str, start, index - 1)
@@ -611,9 +635,11 @@ do
                 return encodeObject(val, tag)
             end
         elseif typ == 'cdata' then
-            p(val)
+            if NibLib.isInteger(val) or NibLib.isFloat(val) then
+                -- Treat cdata integers and floats as numbers
+                return tostring(val)
+            end
             local str = '<' .. NibLib.bufToHexStr(val) .. '>'
-            p(str)
             return str
         else
             error("Cannot serialize " .. typ)
