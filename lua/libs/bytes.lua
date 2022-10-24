@@ -20,17 +20,6 @@ local max = math.max
 ---@class Bytes
 local Bytes = {}
 
----Turn a string into a memory backed byte provider
----@param data string
----@return ByteProvider
-function Bytes.fromMemory(data)
-    ---@param offset number
-    ---@param length number
-    return function(offset, length)
-        return string.sub(data, offset + 1, offset + length)
-    end
-end
-
 ---Wrap a ByteProvider into one that aligns all reads on chunks.
 ---@param provider ByteProvider
 ---@param chunkSize number
