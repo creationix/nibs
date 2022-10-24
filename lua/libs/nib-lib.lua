@@ -7,12 +7,23 @@ local bor = bit.bor
 local byte = string.byte
 
 local ffi = require 'ffi'
-local new = ffi.new
 local cast = ffi.cast
 local sizeof = ffi.sizeof
 local ffi_string = ffi.string
+local istype = ffi.istype
+local copy = ffi.copy
 local Slice8 = ffi.typeof 'uint8_t[?]'
 local U8Ptr = ffi.typeof 'uint8_t*'
+local U8 = ffi.typeof 'uint8_t'
+local U16 = ffi.typeof 'uint16_t'
+local U32 = ffi.typeof 'uint32_t'
+local U64 = ffi.typeof 'uint64_t'
+local I8 = ffi.typeof 'int8_t'
+local I16 = ffi.typeof 'int16_t'
+local I32 = ffi.typeof 'int32_t'
+local I64 = ffi.typeof 'int64_t'
+local F32 = ffi.typeof 'float'
+local F64 = ffi.typeof 'double'
 
 local NibLib = {}
 
@@ -32,6 +43,28 @@ function NibLib.isArrayLike(val)
         i = i + 1
     end
     return true
+end
+
+--- Detect if a cdata is an integer
+---@param val ffi.cdata*
+---@return boolean is_int
+function NibLib.isInteger(val)
+    return istype(I64, val) or
+        istype(I32, val) or
+        istype(I16, val) or
+        istype(I8, val) or
+        istype(U64, val) or
+        istype(U32, val) or
+        istype(U16, val) or
+        istype(U8, val)
+end
+
+--- Detect if a cdata is a float
+---@param val ffi.cdata*
+---@return boolean is_float
+function NibLib.isFloat(val)
+    return istype(F64, val) or
+        istype(F32, val)
 end
 
 --- Convert integer to ascii code for hex digit
@@ -54,9 +87,9 @@ end
 ---@param str string
 ---@return ffi.cdata* hex
 function NibLib.strToHexBuf(str)
-    local len = #str * 2
-    local buf = new(Slice8, len)
-    for i = 1, #str do
+    local len = #str
+    local buf = Slice8(len * 2)
+    for i = 1, len do
         local b = byte(str, i)
         buf[i * 2 - 2] = tohex(rshift(b, 4))
         buf[i * 2 - 1] = tohex(band(b, 15))
@@ -77,11 +110,11 @@ end
 ---@param dat ffi.cdata*
 ---@return ffi.cdata* hex
 function NibLib.bufToHexBuf(dat)
-    local size = sizeof(dat)
-    dat = cast(U8Ptr, dat) -- input can be any cdata, not just slice8
-    local buf = new(Slice8, size * 2)
-    for i = 0, size - 1 do
-        local b = dat[i]
+    local len = sizeof(dat)
+    local ptr = cast(U8Ptr, dat) -- input can be any cdata, not just slice8
+    local buf = Slice8(len * 2)
+    for i = 0, len - 1 do
+        local b = ptr[i]
         buf[i * 2] = tohex(rshift(b, 4))
         buf[i * 2 + 1] = tohex(band(b, 15))
     end
@@ -102,7 +135,7 @@ end
 ---@return ffi.cdata* buf
 function NibLib.hexStrToBuf(hex)
     local len = #hex / 2
-    local buf = new(Slice8, len)
+    local buf = Slice8(len)
     for i = 0, len - 1 do
         buf[i] = bor(
             lshift(fromhex(byte(hex, i * 2 + 1)), 4),
@@ -125,12 +158,12 @@ end
 ---@return ffi.cdata* buf
 function NibLib.hexBufToBuf(hex)
     local len = sizeof(hex) / 2
-    hex = cast(U8Ptr, hex) -- input can be any cdata, not just slice8
-    local buf = new(Slice8, len)
+    local ptr = cast(U8Ptr, hex) -- input can be any cdata, not just slice8
+    local buf = Slice8(len)
     for i = 0, len - 1 do
         buf[i] = bor(
-            lshift(fromhex(hex[i * 2]), 4),
-            fromhex(hex[i * 2 + 1])
+            lshift(fromhex(ptr[i * 2]), 4),
+            fromhex(ptr[i * 2 + 1])
         )
     end
     return buf
@@ -145,7 +178,10 @@ function NibLib.hexBufToStr(hex)
 end
 
 function NibLib.strToBuf(str)
-    return new(Slice8, #str, str)
+    local len = #str
+    local buf = Slice8(len)
+    copy(buf, str, len)
+    return buf
 end
 
 function NibLib.bufToStr(buf)

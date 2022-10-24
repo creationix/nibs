@@ -6,11 +6,13 @@ local readFileSync = require('fs').readFileSync
 local Nibs = require "nibs"
 local Tibs = require 'tibs'
 
-local tests = assert(readFileSync(module.dir .. "/../../nibs-tests.txt"))
+local filename = module.dir .. "/encoder-fixtures.tibs"
+local text = assert(readFileSync(filename))
+local allTests = assert(Tibs.decode(text))
 
 collectgarbage("collect")
-local options = {}
-for line in string.gmatch(tests, "[^\n]+") do
+for section, tests in pairs(allTests) do
+    print("\n" .. colorize("highlight", section) .. "\n")
     collectgarbage("collect")
     if line:match("^[a-z]") then
         collectgarbage("collect")
@@ -24,7 +26,6 @@ for line in string.gmatch(tests, "[^\n]+") do
         collectgarbage("collect")
         if not text then
             collectgarbage("collect")
-            print("\n" .. colorize("highlight", line) .. "\n")
         else
             collectgarbage("collect")
             local value = Tibs.decode(text)
