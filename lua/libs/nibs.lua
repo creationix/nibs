@@ -1,6 +1,4 @@
 local Trie = require 'trie'
-local PrettyPrint = require 'pretty-print'
-local p = PrettyPrint.prettyPrint
 
 -- Main types
 local ZIGZAG = 0
@@ -38,19 +36,16 @@ local cast = ffi.cast
 local istype = ffi.istype
 
 local insert = table.insert
-local sort = table.sort
-local unpack = table.unpack
 
-local Ordered = require 'ordered'
-local OrderedList = Ordered.List
-local OrderedMap = Ordered.Map
-local OrderedArray = Ordered.Array
-local OrderedTrie = Ordered.Trie
-local Ref = Ordered.Ref
-local RefScope = Ordered.RefScope
+local Tibs = require 'tibs'
+local OrderedList = Tibs.List
+local OrderedMap = Tibs.Map
+local OrderedArray = Tibs.Array
+local OrderedTrie = Tibs.Trie
+local Ref = Tibs.Ref
+local Scope = Tibs.Scope
 
-local NibLib = require "nibs-lib"
-local is_array_like = NibLib.isArrayLike
+local NibLib = require "nib-lib"
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
@@ -112,6 +107,10 @@ local converter = ffi.new 'union {double f;uint64_t i;}'
 ---@param val number
 ---@return integer
 local function encode_float(val)
+    -- Use same NaN encoding as used by V8 JavaScript engine
+    if val ~= val then
+        return 0x7ff8000000000000ULL
+    end
     converter.f = val
     return converter.i
 end
@@ -174,17 +173,6 @@ function Nibs.encode(val)
     return ffi_string(encoded, size)
 end
 
--- Needs to be only done once
-local hex_to_char = {}
-for idx = 0, 255 do
-    hex_to_char[("%02X"):format(idx)] = string.char(idx)
-    hex_to_char[("%02x"):format(idx)] = string.char(idx)
-end
-
-local function hex_decode(val)
-    return (val:gsub("(..)", hex_to_char))
-end
-
 ---@param val any
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
@@ -202,7 +190,7 @@ function encode_any(val)
         if len % 2 == 0 and string.match(val, "^[0-9a-f]+$") then
             len = len / 2
             local size, head = encode_pair(HEXSTRING, len)
-            return size + len, { head, hex_decode(val) }
+            return size + len, { head, NibLib.hexStrToBuf(val) }
         end
         local size, head = encode_pair(UTF8, len)
         return size + len, { head, val }
@@ -227,15 +215,16 @@ function encode_any(val)
         local mt = getmetatable(val)
         if mt == Ref then
             return encode_pair(REF, val[1])
-        elseif mt == RefScope then
+        elseif mt == Scope then
             return encode_scope(val)
-        elseif is_array_like(val) then
+        elseif NibLib.isArrayLike(val) then
             if mt and mt.__is_indexed then
                 return encode_array(val)
             end
             return encode_list(val)
         else
             if mt and mt.__is_indexed then
+                collectgarbage("collect")
                 return encode_trie(val)
             end
             return encode_map(val)
@@ -315,6 +304,7 @@ function encode_trie(map)
     local body = {}
     local offsets = {}
     for k, v in pairs(map) do
+        collectgarbage("collect")
 
         local size, entry = combine(encode_any(k))
         offsets[entry] = total
@@ -423,9 +413,8 @@ end
 ---@return ffi.ctype*
 local function decode_bytes(read, offset, length)
     local data = read(offset, length)
-    local ptr = cast(U8Ptr, data)
     local bytes = Slice8(length)
-    copy(bytes, ptr, length)
+    copy(bytes, data)
     return bytes
 end
 
@@ -437,24 +426,12 @@ local function decode_string(read, offset, length)
     return read(offset, length)
 end
 
--- Convert integer to ascii code for hex digit
-local function tohex(num)
-    return num + (num < 10 and 48 or 87)
-end
-
 ---@param read ByteProvider
 ---@param offset number
 ---@param length number
 ---@return string
 local function decode_hexstring(read, offset, length)
-    local bytes = read(offset, length)
-    local chars = Slice8(length * 2)
-    for i = 1, length do
-        local b = string.byte(bytes, i, i)
-        chars[i * 2 - 2] = tohex(rshift(b, 4))
-        chars[i * 2 - 1] = tohex(band(b, 15))
-    end
-    return ffi.string(chars, length * 2)
+    return NibLib.strToHexStr(read(offset, length))
 end
 
 local function decode_pointer(read, offset, width)
@@ -864,12 +841,12 @@ function Nibs.autoIndex(value, index_limit)
         local mt = getmetatable(o)
         if mt == Ref then
             return o
-        elseif mt == RefScope then
+        elseif mt == Scope then
             local last = #o
             o[last] = walk(o[last])
             return o
         end
-        if is_array_like(o) then
+        if NibLib.isArrayLike(o) then
             if #o < index_limit then
                 for i = 1, #o do
                     o[i] = walk(o[i])
@@ -911,8 +888,8 @@ function Nibs.addRefs(value, refs)
     ---@return Value
     local function walk(o)
         if type(o) == "table" then
-            if getmetatable(o) == RefScope then return o end
-            if is_array_like(o) then
+            if getmetatable(o) == Scope then return o end
+            if NibLib.isArrayLike(o) then
                 local a = OrderedList.new()
                 for i, v in ipairs(o) do
                     a[i] = walk(v)
@@ -934,7 +911,7 @@ function Nibs.addRefs(value, refs)
     end
 
     refs[#refs + 1] = walk(value)
-    return RefScope.new(refs)
+    return Scope.new(refs)
 end
 
 ---Walk through a value and find duplicate values (sorted by frequency)
@@ -963,7 +940,7 @@ function Nibs.findDuplicates(value)
     local function walk(o)
         if type(o) == "table" then
             -- Don't walk into nested scopes
-            if getmetatable(o) == RefScope then return o end
+            if getmetatable(o) == Scope then return o end
             for k, v in pairs(o) do
                 walk(k)
                 walk(v)

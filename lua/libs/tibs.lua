@@ -1,15 +1,9 @@
 local Tibs = require 'tibs-types'
 local NibLib = require 'nib-lib'
-local isArrayLike = NibLib.isArrayLike
 
 local bit = require 'bit'
 local ffi = require 'ffi'
 local I64 = ffi.typeof 'int64_t'
-local Slice8 = ffi.typeof 'uint8_t[?]'
-local U8Ptr = ffi.typeof 'uint8_t*'
-local sizeof = ffi.sizeof
-local copy = ffi.copy
-local cast = ffi.cast
 local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
@@ -25,6 +19,7 @@ local Fail = { FAIL = true }
 Tibs.Fail = Fail
 
 -- Wrap parser implementation in collapsable block scope
+-- Tibs.decode(json)
 do
 
     -- Hoist declarations
@@ -326,10 +321,7 @@ do
             index = index + 1
             b = byte(json, index, index)
         end
-        local hex = sub(json, start + 1, index - 1)
-        hex = hex:gsub('..', function(h) return string.char(tonumber(h, 16)) end)
-        local bytes = Slice8(#hex)
-        copy(bytes, hex, #hex)
+        local bytes = NibLib.hexStrToBuf(sub(json, start + 1, index - 1))
         return bytes, index + 1
     end
 
@@ -536,6 +528,7 @@ do
 end
 
 -- Wrap encoder implementation in collapsable block scope
+-- Tibs.encode(val)
 do
     local encode
 
@@ -548,11 +541,6 @@ do
         [13] = 114, -- `\r`
         [9] = 116, --`\t`
     }
-
-    -- Convert integer to ascii code for hex digit
-    local function tohex(num)
-        return num + (num < 10 and 48 or 87)
-    end
 
     local function encodeString(str)
         local start = 1
@@ -617,21 +605,16 @@ do
                 return json
             end
             local tag = mt and mt.__is_indexed and "#" or ""
-            if isArrayLike(val) then
+            if NibLib.isArrayLike(val) then
                 return encodeArray(val, tag)
             else
                 return encodeObject(val, tag)
             end
         elseif typ == 'cdata' then
-            local len = assert(sizeof(val))
-            local data = cast(U8Ptr, val)
-            local hex = Slice8(len * 2)
-            for i = 0, len - 1 do
-                local b = data[i]
-                hex[i * 2] = tohex(rshift(b, 4))
-                hex[i * 2 + 1] = tohex(band(b, 15))
-            end
-            return '<' .. ffi.string(hex, len * 2) .. '>'
+            p(val)
+            local str = '<' .. NibLib.bufToHexStr(val) .. '>'
+            p(str)
+            return str
         else
             error("Cannot serialize " .. typ)
         end
