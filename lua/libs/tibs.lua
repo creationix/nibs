@@ -833,6 +833,10 @@ do
         [9] = 116, --`\t`
     }
 
+    local function encodeNumber(num)
+        return (tostring(I64(num)):gsub("[IUL]+", ""))
+    end
+
     local function encodeString(str)
         local start = 1
         local parts = {}
@@ -885,7 +889,7 @@ do
         elseif typ == 'string' then
             return encodeString(val)
         elseif typ == 'number' then
-            return tostring(val)
+            return encodeNumber(val)
         elseif typ == 'table' then
 
             local mt = getmetatable(val)
@@ -904,7 +908,7 @@ do
         elseif typ == 'cdata' then
             if NibLib.isInteger(val) or NibLib.isFloat(val) then
                 -- Treat cdata integers and floats as numbers
-                return tostring(val)
+                return encodeNumber(val)
             end
             local str = '<' .. NibLib.bufToHexStr(val) .. '>'
             return str
