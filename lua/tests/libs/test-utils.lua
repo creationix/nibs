@@ -8,9 +8,10 @@ local min = math.min
 local PrettyPrint = require 'pretty-print'
 local colorize = PrettyPrint.colorize
 
-local NibLib = require 'nib-lib'
-
 _G.p = PrettyPrint.prettyPrint
+
+local NibLib = require 'nib-lib'
+local U8Ptr = NibLib.U8Ptr
 
 local TestUtils = {}
 
@@ -26,7 +27,7 @@ function TestUtils.fromMemory(data)
             return string.sub(data, offset + 1, offset + length)
         end
     elseif typ == "cdata" then
-        local ptr = cast(NibLib.U8Ptr, data)
+        local ptr = cast(U8Ptr, data)
         local len = sizeof(data)
         return function(offset, length)
             return ffi_string(ptr + offset, min(length, len - offset))
@@ -62,8 +63,8 @@ local function equal(a, b)
     if type(a) == "cdata" then
         local len = sizeof(a)
         if len ~= sizeof(b) then return false end
-        a = cast("uint8_t*", a)
-        b = cast("uint8_t*", b)
+        a = cast(U8Ptr, a)
+        b = cast(U8Ptr, b)
         for i = 0, len - 1 do
             if a[i] ~= b[i] then return false end
         end

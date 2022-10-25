@@ -1,6 +1,5 @@
 local ffi = require 'ffi'
 local cast = ffi.cast
-local new = ffi.new
 local copy = ffi.copy
 local ffi_string = ffi.string
 
@@ -34,7 +33,7 @@ function Bytes.makeChunked(provider, chunkSize, cache)
         -- p(offset, length)
         local start = offset - (offset % chunkSize)
         local last = offset + length
-        local result = new(Slice8, length)
+        local result = Slice8(length)
         local ptr = cast(U8Ptr, result)
         while start < last do
             local slice = cache and cache.get(start)
