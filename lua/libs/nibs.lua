@@ -1,4 +1,4 @@
-local Trie = require 'trie'
+local HamtIndex = require 'hamt-index'
 
 -- Main types
 local ZIGZAG = 0
@@ -37,10 +37,10 @@ local cast = ffi.cast
 local insert = table.insert
 
 local Tibs = require 'tibs'
-local OrderedList = Tibs.List
-local OrderedMap = Tibs.Map
-local OrderedArray = Tibs.Array
-local OrderedTrie = Tibs.Trie
+local List = Tibs.List
+local Map = Tibs.Map
+local Array = Tibs.Array
+local Trie = Tibs.Trie
 local Ref = Tibs.Ref
 local Scope = Tibs.Scope
 
@@ -48,18 +48,20 @@ local NibLib = require "nib-lib"
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 
-local U64 = ffi.typeof 'uint64_t'
-local I64 = ffi.typeof 'int64_t'
+local U64 = NibLib.U64
+local I64 = NibLib.I64
 
-local U8Ptr = ffi.typeof 'uint8_t*'
-local U16Ptr = ffi.typeof 'uint16_t*'
-local U32Ptr = ffi.typeof 'uint32_t*'
-local U64Ptr = ffi.typeof 'uint64_t*'
+local U8Ptr = NibLib.U8Ptr
+local U16Ptr = NibLib.U16Ptr
+local U32Ptr = NibLib.U32Ptr
+local U64Ptr = NibLib.U64Ptr
 
-local Slice8 = ffi.typeof 'uint8_t[?]'
-local Slice16 = ffi.typeof 'uint16_t[?]'
-local Slice32 = ffi.typeof 'uint32_t[?]'
-local Slice64 = ffi.typeof 'uint64_t[?]'
+local Slice8 = NibLib.U8Arr
+local Slice16 = NibLib.U16Arr
+local Slice32 = NibLib.U32Arr
+local Slice64 = NibLib.U64Arr
+
+local converter = ffi.new 'union {double f;uint64_t i;}'
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
@@ -94,7 +96,6 @@ local function encode_zigzag(num)
     return U64(bxor(arshift(i, 63), lshift(i, 1)))
 end
 
-local converter = ffi.new 'union {double f;uint64_t i;}'
 ---@param val number
 ---@return integer
 local function encode_float(val)
@@ -313,7 +314,7 @@ function encode_trie(map)
         total = total + size
     end
 
-    local count, width, index = Trie.encode(offsets)
+    local count, width, index = HamtIndex.encode(offsets)
     total = total + count * width
 
     local size, prefix, meta
@@ -699,7 +700,7 @@ function NibsTrie:__index(idx)
     local width = assert(meta.width)
     local encoded = Nibs.encode(idx)
 
-    local target = Trie.walk(read, meta.alpha, meta.count, width, NibLib.strToBuf(encoded))
+    local target = HamtIndex.walk(read, meta.alpha, meta.count, width, NibLib.strToBuf(encoded))
     if not target then return end
 
     target = tonumber(target)
@@ -847,7 +848,7 @@ function Nibs.autoIndex(value, index_limit)
                 end
                 return o
             else
-                local r = OrderedArray.new()
+                local r = Array.new()
                 for i = 1, #o do
                     r[i] = walk(o[i])
                 end
@@ -862,7 +863,7 @@ function Nibs.autoIndex(value, index_limit)
             end
             return o
         else
-            local r = OrderedTrie.new()
+            local r = Trie.new()
             for k, v in pairs(o) do
                 r[walk(k)] = walk(v)
             end
@@ -884,13 +885,13 @@ function Nibs.addRefs(value, refs)
         if type(o) == "table" then
             if getmetatable(o) == Scope then return o end
             if NibLib.isArrayLike(o) then
-                local a = OrderedList.new()
+                local a = List.new()
                 for i, v in ipairs(o) do
                     a[i] = walk(v)
                 end
                 return a
             end
-            local m = OrderedMap.new()
+            local m = Map.new()
             for k, v in pairs(o) do
                 m[walk(k)] = walk(v)
             end

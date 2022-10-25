@@ -38,7 +38,9 @@ local function fromHttpUrl(url)
             offset, offset + length - 1)
         print(string.format("GET %s (Range: %s)", url, range))
         local res, body = Http.request("GET", url, { { "Range", range } })
-        assert(res.code == 206, "unexpected response code")
+        if res.code ~= 206 then
+            error("unexpected response code " .. res.code)
+        end
         return body
     end
 end

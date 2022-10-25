@@ -1,8 +1,3 @@
-local xxhash64 = require 'xxhash64'
-local PrettyPrint = require 'pretty-print'
-local p = PrettyPrint.prettyPrint
-local colorize = PrettyPrint.colorize
-
 local bit = require 'bit'
 local lshift = bit.lshift
 local rshift = bit.rshift
@@ -11,19 +6,17 @@ local bor = bit.bor
 
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
-local cast = ffi.cast
-local Slice8 = ffi.typeof 'uint8_t[?]'
-local Slice16 = ffi.typeof 'uint16_t[?]'
-local Slice32 = ffi.typeof 'uint32_t[?]'
-local Slice64 = ffi.typeof 'uint64_t[?]'
-local U8Ptr = ffi.typeof 'uint8_t*'
-local U16Ptr = ffi.typeof 'uint16_t*'
-local U32Ptr = ffi.typeof 'uint32_t*'
-local U64Ptr = ffi.typeof 'uint64_t*'
+
+local NibLib = require 'nib-lib'
+local Slice8 = NibLib.U8Arr
+local Slice16 = NibLib.U16Arr
+local Slice32 = NibLib.U32Arr
+local Slice64 = NibLib.U64Arr
+
+local xxhash64 = require 'xxhash64'
 
 --- The internal trie index used by nibs' HAMTrie type
----@class Trie
-local Trie = {}
+local HamtIndex = {}
 
 ---@class Pointer
 ---@field hash integer
@@ -123,11 +116,10 @@ end
 
 ---@param map table<ffi.cdata*,number> map from key slice to number
 ---@param optimize number? of hashes to try
----@return number seed
 ---@return number count
 ---@return number width
 ---@return ffi.cdata* index as Slice8
-function Trie.encode(map, optimize)
+function HamtIndex.encode(map, optimize)
 
     -- Calculate largest output target...
     local max_target = 0
@@ -211,7 +203,6 @@ function Trie.encode(map, optimize)
                 if not err then
                     min = size
                     win = { count, width, index }
-                    -- p { seed = seed, trie = trie }
                     break
                 end
             end
@@ -219,15 +210,6 @@ function Trie.encode(map, optimize)
     end
     assert(win, "there was no winner")
     return unpack(win)
-end
-
-local function decode_pointer(read, offset, width)
-    local str = read(offset, width)
-    if width == 1 then return cast(U8Ptr, str)[0] end
-    if width == 2 then return cast(U16Ptr, str)[0] end
-    if width == 4 then return cast(U32Ptr, str)[0] end
-    if width == 8 then return cast(U64Ptr, str)[0] end
-    error("Illegal pointer width " .. width)
 end
 
 -- http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetNaive
@@ -247,7 +229,7 @@ end
 ---@param width number pointer width in bytes
 ---@param key ffi.cdata* key
 ---@return integer? result usually an offset
-function Trie.walk(read, offset, count, width, key)
+function HamtIndex.walk(read, offset, count, width, key)
     local omega = offset + count * width
     local bits = assert(width == 1 and 3
         or width == 2 and 4
@@ -256,7 +238,7 @@ function Trie.walk(read, offset, count, width, key)
         or nil, "Invalid byte width")
 
     -- Read seed
-    local seed = decode_pointer(read, offset, width)
+    local seed = NibLib.decodePointer(read, offset, width)
     offset = offset + width
 
     local hash = xxhash64(key, assert(ffi.sizeof(key)), seed)
@@ -271,9 +253,7 @@ function Trie.walk(read, offset, count, width, key)
         hash = rshift(hash, bits)
 
         -- Read the next bitfield
-        -- p { segment = segment }
-        local bitfield = decode_pointer(read, offset, width)
-        -- print(string.format("offset=%08x bitfield=%02x popcnt=%d", offset, bitfield, tonumber(popcnt(bitfield))))
+        local bitfield = NibLib.decodePointer(read, offset, width)
         offset = offset + width
         assert(offset < omega)
 
@@ -288,9 +268,7 @@ function Trie.walk(read, offset, count, width, key)
         -- Jump to the pointer and read it
         offset = offset + skipCount * width
         assert(offset < omega)
-        local ptr = decode_pointer(read, offset, width)
-        -- print(string.format("offset=%08x ptr=%02x", offset, ptr))
-        -- p { ptr = ptr }
+        local ptr = NibLib.decodePointer(read, offset, width)
 
         -- If there is a leading 1, it's a result pointer.
         if band(ptr, highBit) > 0 then
@@ -303,4 +281,4 @@ function Trie.walk(read, offset, count, width, key)
     end
 end
 
-return Trie
+return HamtIndex
