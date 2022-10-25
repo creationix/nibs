@@ -10,10 +10,11 @@ local tobit = bit.tobit
 local ffi = require 'ffi'
 local cast = ffi.cast
 
-local U8Ptr = ffi.typeof "uint8_t*"
-local U32Ptr = ffi.typeof "uint32_t*"
-local U32 = ffi.typeof "uint32_t"
-local U64 = ffi.typeof "uint64_t"
+local NibLib = require 'nib-lib'
+local U8Ptr = NibLib.U8Ptr
+local U32Ptr = NibLib.U32Ptr
+local U32 = NibLib.U32
+local U64 = NibLib.U64
 
 local PRIME32_1 = tobit(0x9E3779B1)
 local PRIME32_2 = tobit(0x85EBCA77)

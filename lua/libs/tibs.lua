@@ -5,8 +5,7 @@ local bor = bit.bor
 local band = bit.band
 local rshift = bit.rshift
 
-local ffi = require 'ffi'
-local I64 = ffi.typeof 'int64_t'
+local I64 = NibLib.I64
 
 local byte = string.byte
 local char = string.char

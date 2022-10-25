@@ -1,4 +1,9 @@
+require 'test-utils'
+local NibLib = require 'nib-lib'
+local U8Ptr = NibLib.U8Ptr
 local ffi = require 'ffi'
+local cast = ffi.cast
+
 local xxh64 = require 'xxhash64'
 local xxh32 = require 'xxhash32'
 local color = require('pretty-print').color
@@ -28,7 +33,7 @@ local bad = color "failure"
 local reset = color ""
 for _, t in ipairs(tests) do
     local input, seed, expected_h32, expected_h64 = table.unpack(t)
-    local ptr = ffi.new("const char*", input)
+    local ptr = cast(U8Ptr, input)
     local len = #input
     local h32 = xxh32(ptr, len, seed)
     local h64 = xxh64(ptr, len, seed)

@@ -9,10 +9,11 @@ local bxor = bit.bxor
 local ffi = require 'ffi'
 local cast = ffi.cast
 
-local U8Ptr = ffi.typeof "uint8_t*"
-local U32Ptr = ffi.typeof "uint32_t*"
-local U64Ptr = ffi.typeof "uint64_t*"
-local U64 = ffi.typeof "uint64_t"
+local NibLib = require 'nib-lib'
+local U8Ptr = NibLib.U8Ptr
+local U32Ptr = NibLib.U32Ptr
+local U64Ptr = NibLib.U64Ptr
+local U64 = NibLib.U64
 
 local PRIME64_1 = 0x9E3779B185EBCA87ULL
 local PRIME64_2 = 0xC2B2AE3D27D4EB4FULL
