@@ -12,6 +12,8 @@ local tests = {
     '{1:2,3:4,5:null}',
     '{#1:2,3:4,5:null}',
     '<0123456789abcdef>',
+    '-9223372036854775808',
+    '9223372036854775807',
 }
 for i, t in ipairs(tests) do
     local decoded = Tibs.decode(t)
