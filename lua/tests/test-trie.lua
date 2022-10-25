@@ -1,7 +1,7 @@
 local Utils = require 'test-utils'
 local NibLib = require 'nib-lib'
 
-local Trie = require 'trie'
+local HamtIndex = require 'hamt-index'
 
 local y = 1
 collectgarbage("collect")
@@ -14,14 +14,13 @@ while y < 100000 do
         sample[NibLib.strToBuf('n' .. tostring(i))] = i
         -- sample[buf('x' .. tostring(i))] = i * 10
     end
-    local count, width, index = Trie.encode(sample)
+    local count, width, index = HamtIndex.encode(sample)
     print(string.format("data-size=%d width=%d count=%d size=%d overhead=%.2f",
         size, width, count, width * count, width * count / size
     ))
-    index = NibLib.bufToStr(index)
     for k, v in pairs(sample) do
         local read = Utils.fromMemory(index)
-        local o = Trie.walk(read, 0, count, width, k)
+        local o = HamtIndex.walk(read, 0, count, width, k)
         if tonumber(o) ~= tonumber(v) then
             p(k, v, o)
             Utils.hex_dump(index)

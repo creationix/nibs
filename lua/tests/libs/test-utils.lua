@@ -1,22 +1,38 @@
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
+local ffi_string = ffi.string
 local cast = ffi.cast
+
+local min = math.min
 
 local PrettyPrint = require 'pretty-print'
 local colorize = PrettyPrint.colorize
+
+local NibLib = require 'nib-lib'
 
 _G.p = PrettyPrint.prettyPrint
 
 local TestUtils = {}
 
 ---Turn a string into a memory backed byte provider
----@param data string
+---@param data string|ffi.cdata*
 ---@return ByteProvider
 function TestUtils.fromMemory(data)
-    ---@param offset number
-    ---@param length number
-    return function(offset, length)
-        return string.sub(data, offset + 1, offset + length)
+    local typ = type(data)
+    if typ == "string" then
+        ---@param offset number
+        ---@param length number
+        return function(offset, length)
+            return string.sub(data, offset + 1, offset + length)
+        end
+    elseif typ == "cdata" then
+        local ptr = cast(NibLib.U8Ptr, data)
+        local len = sizeof(data)
+        return function(offset, length)
+            return ffi_string(ptr + offset, min(length, len - offset))
+        end
+    else
+        error("Unsupported type " .. typ)
     end
 end
 

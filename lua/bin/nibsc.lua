@@ -1,12 +1,10 @@
 #!/usr/bin/env luvit
 
-
-local p = require('pretty-print').prettyPrint
-local Nibs = require 'nibs'
 local fs = require 'coro-fs'
-local luvi = require 'luvi'
-local Tibs = require 'tibs'
 
+local Nibs = require 'nibs'
+local Tibs = require 'tibs'
+print(arg)
 local input_path = assert(process.argv[2], "Missing input path as first argument")
 local output_path = assert(process.argv[3], "Missing output path as second argument")
 print("\nLoading and parsing input file '" .. input_path .. "'...")

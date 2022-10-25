@@ -3,11 +3,13 @@ local cast = ffi.cast
 local new = ffi.new
 local copy = ffi.copy
 local ffi_string = ffi.string
-local U8Ptr = ffi.typeof 'uint8_t*'
-local Slice8 = ffi.typeof 'uint8_t[?]'
+
 local min = math.min
 local max = math.max
 
+local NibLib = require 'nib-lib'
+local Slice8 = NibLib.U8Arr
+local U8Ptr = NibLib.U8Ptr
 
 --- Interface for byte providers
 ---@alias ByteProvider fun(offset:number,length:number):string
@@ -17,7 +19,6 @@ local max = math.max
 ---@field get fun(offset:number):string?
 ---@field set fun(offset:number,value:string)
 
----@class Bytes
 local Bytes = {}
 
 ---Wrap a ByteProvider into one that aligns all reads on chunks.

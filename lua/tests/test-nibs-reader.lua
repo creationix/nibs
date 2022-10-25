@@ -22,7 +22,7 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
             collectgarbage("collect")
 
             -- Wrapped as byte provider for nibs reader
-            local provider = Utils.fromMemory(NibLib.bufToStr(input))
+            local provider = Utils.fromMemory(input)
             collectgarbage("collect")
 
             -- Actual decoded value and offset

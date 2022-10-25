@@ -12,20 +12,52 @@ local sizeof = ffi.sizeof
 local ffi_string = ffi.string
 local istype = ffi.istype
 local copy = ffi.copy
-local Slice8 = ffi.typeof 'uint8_t[?]'
-local U8Ptr = ffi.typeof 'uint8_t*'
-local U8 = ffi.typeof 'uint8_t'
-local U16 = ffi.typeof 'uint16_t'
-local U32 = ffi.typeof 'uint32_t'
-local U64 = ffi.typeof 'uint64_t'
-local I8 = ffi.typeof 'int8_t'
-local I16 = ffi.typeof 'int16_t'
-local I32 = ffi.typeof 'int32_t'
-local I64 = ffi.typeof 'int64_t'
-local F32 = ffi.typeof 'float'
-local F64 = ffi.typeof 'double'
 
-local NibLib = {}
+local NibLib = {
+    U8Arr = ffi.typeof 'uint8_t[?]',
+    U16Arr = ffi.typeof 'uint16_t[?]',
+    U32Arr = ffi.typeof 'uint32_t[?]',
+    U64Arr = ffi.typeof 'uint64_t[?]',
+    U8Ptr = ffi.typeof 'uint8_t*',
+    U16Ptr = ffi.typeof 'uint16_t*',
+    U32Ptr = ffi.typeof 'uint32_t*',
+    U64Ptr = ffi.typeof 'uint64_t*',
+    U8 = ffi.typeof 'uint8_t',
+    U16 = ffi.typeof 'uint16_t',
+    U32 = ffi.typeof 'uint32_t',
+    U64 = ffi.typeof 'uint64_t',
+    I8 = ffi.typeof 'int8_t',
+    I16 = ffi.typeof 'int16_t',
+    I32 = ffi.typeof 'int32_t',
+    I64 = ffi.typeof 'int64_t',
+    F32 = ffi.typeof 'float',
+    F64 = ffi.typeof 'double',
+}
+
+local U8Arr = NibLib.U8Arr
+local U8Ptr = NibLib.U8Ptr
+local U16Ptr = NibLib.U16Ptr
+local U32Ptr = NibLib.U32Ptr
+local U64Ptr = NibLib.U64Ptr
+local U8 = NibLib.U8
+local U16 = NibLib.U16
+local U32 = NibLib.U32
+local U64 = NibLib.U64
+local I8 = NibLib.I8
+local I16 = NibLib.I16
+local I32 = NibLib.I32
+local I64 = NibLib.I64
+local F32 = NibLib.F32
+local F64 = NibLib.F64
+
+function NibLib.decodePointer(read, offset, width)
+    local str = read(offset, width)
+    if width == 1 then return cast(U8Ptr, str)[0] end
+    if width == 2 then return cast(U16Ptr, str)[0] end
+    if width == 4 then return cast(U32Ptr, str)[0] end
+    if width == 8 then return cast(U64Ptr, str)[0] end
+    error("Illegal pointer width " .. width)
+end
 
 --- Returns true if a table should be treated like an array (ipairs/length/etc)
 --- This uses the __is_array_like metaproperty if it exists, otherwise, it
@@ -88,7 +120,7 @@ end
 ---@return ffi.cdata* hex
 function NibLib.strToHexBuf(str)
     local len = #str
-    local buf = Slice8(len * 2)
+    local buf = U8Arr(len * 2)
     for i = 1, len do
         local b = byte(str, i)
         buf[i * 2 - 2] = tohex(rshift(b, 4))
@@ -112,7 +144,7 @@ end
 function NibLib.bufToHexBuf(dat)
     local len = sizeof(dat)
     local ptr = cast(U8Ptr, dat) -- input can be any cdata, not just slice8
-    local buf = Slice8(len * 2)
+    local buf = U8Arr(len * 2)
     for i = 0, len - 1 do
         local b = ptr[i]
         buf[i * 2] = tohex(rshift(b, 4))
@@ -135,7 +167,7 @@ end
 ---@return ffi.cdata* buf
 function NibLib.hexStrToBuf(hex)
     local len = #hex / 2
-    local buf = Slice8(len)
+    local buf = U8Arr(len)
     for i = 0, len - 1 do
         buf[i] = bor(
             lshift(fromhex(byte(hex, i * 2 + 1)), 4),
@@ -159,7 +191,7 @@ end
 function NibLib.hexBufToBuf(hex)
     local len = sizeof(hex) / 2
     local ptr = cast(U8Ptr, hex) -- input can be any cdata, not just slice8
-    local buf = Slice8(len)
+    local buf = U8Arr(len)
     for i = 0, len - 1 do
         buf[i] = bor(
             lshift(fromhex(ptr[i * 2]), 4),
@@ -179,7 +211,7 @@ end
 
 function NibLib.strToBuf(str)
     local len = #str
-    local buf = Slice8(len)
+    local buf = U8Arr(len)
     copy(buf, str, len)
     return buf
 end
