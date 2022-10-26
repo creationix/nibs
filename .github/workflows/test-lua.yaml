@@ -27,7 +27,7 @@ jobs:
       - name: Test encoding nibs values using fixtures
         run: ./luvit lua/tests/test-nibs-encoder.lua
       - name: Test decoding nibs values using fixtures
-        run: ./luvit lua/tests/test-nibs-reader.lua
+        run: ./luvit lua/tests/test-nibs-decoder.lua
       - name: Test nibs optimization utilities and all conversions
         run: ./luvit lua/tests/test-nibs-utils.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."

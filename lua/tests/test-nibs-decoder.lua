@@ -1,6 +1,3 @@
-local ffi = require 'ffi'
-local sizeof = ffi.sizeof
-
 local Utils = require 'test-utils'
 
 local NibLib = require 'nib-lib'
@@ -10,7 +7,7 @@ local Nibs = require 'nibs'
 local colorize = require('pretty-print').colorize
 
 local readFileSync = require('fs').readFileSync
-local filename = module.dir .. "/decoder-fixtures.tibs"
+local filename = module.dir .. "/../../fixtures/decoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
 local allTests = assert(Tibs.decode(text))
 
@@ -21,22 +18,17 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
         for input, expected in pairs(tests) do
             collectgarbage("collect")
 
-            -- Wrapped as byte provider for nibs reader
-            local provider = Utils.fromMemory(input)
-            collectgarbage("collect")
-
-            -- Actual decoded value and offset
-            local actual, offset = Nibs.get(provider, 0)
+            -- Actual decoded value
+            local actual = Nibs.decode(NibLib.bufToStr(input))
             collectgarbage("collect")
 
             -- Compare with expected value
             local same = Utils.equal(expected, actual)
             collectgarbage("collect")
 
-            print(string.format("% 40s → %s, %s",
+            print(string.format("% 40s → %s",
                 NibLib.bufToHexStr(input),
-                colorize(same and "success" or "failure", Tibs.encode(actual)),
-                colorize(offset == sizeof(input) and "success" or "failure", offset)
+                colorize(same and "success" or "failure", Tibs.encode(actual))
             ))
             if not same then
                 collectgarbage("collect")

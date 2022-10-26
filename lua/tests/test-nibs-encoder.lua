@@ -6,7 +6,7 @@ local NibLib = require 'nib-lib'
 local colorize = require('pretty-print').colorize
 local readFileSync = require('fs').readFileSync
 
-local filename = module.dir .. "/encoder-fixtures.tibs"
+local filename = module.dir .. "/../../fixtures/encoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
 local allTests = assert(Tibs.decode(text))
 
