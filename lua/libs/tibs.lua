@@ -689,13 +689,13 @@ do
             b, index = nextToken(json, index)
             if not b then return Fail, index end
 
-            -- Allow trailing commas by checking agin for closing brace
+            -- Allow trailing commas by checking again for closing brace
             if b == 125 then -- `}`
                 index = index + 1
                 break
             end
 
-            -- Parse a single string as key
+            -- Parse a single value as key
             local key
             key, index = parseAny(json, index)
             if key == Fail then
