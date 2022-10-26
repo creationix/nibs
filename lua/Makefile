@@ -13,7 +13,7 @@ test-trie:
 test-nibs-encoder:
 	luvit tests/test-nibs-encoder.lua
 test-nibs-reader:
-	luvit tests/test-nibs-reader.lua
+	luvit tests/test-nibs-decoder.lua
 test-nibs-utils:
 	luvit tests/test-nibs-utils.lua
 
