@@ -14,14 +14,20 @@ jobs:
       - name: Install Luvit
         run: |
           curl -L https://github.com/luvit/lit/raw/master/get-lit.sh | sh
-      - name: Run tests
-        run: |
-          ./luvit lua/tests/test-xxhash.lua
-          ./luvit lua/tests/test-bytes.lua
-          ./luvit lua/tests/test-lib.lua
-          ./luvit lua/tests/test-text-format.lua
-          ./luvit lua/tests/test-trie.lua
-          ./luvit lua/tests/test-nibs-encoder.lua
-          ./luvit lua/tests/test-nibs-reader.lua
-          ./luvit lua/tests/test-nibs-utils.lua
+      - name: Test xxhash32 and xxhash64 implementations
+        run: ./luvit lua/tests/test-xxhash.lua
+      - name: Test abstract byte provider interface utilities
+        run: ./luvit lua/tests/test-bytes.lua
+      - name: Test utility functions
+        run: ./luvit lua/tests/test-lib.lua
+      - name: Test text format encoder and decoder
+        run: ./luvit lua/tests/test-text-format.lua
+      - name: Test trie index encoder and decoder
+        run: ./luvit lua/tests/test-trie.lua
+      - name: Test encoding nibs values using fixtures
+        run: ./luvit lua/tests/test-nibs-encoder.lua
+      - name: Test decoding nibs values using fixtures
+        run: ./luvit lua/tests/test-nibs-reader.lua
+      - name: Test nibs optimization utilities and all conversions
+        run: ./luvit lua/tests/test-nibs-utils.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."
