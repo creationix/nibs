@@ -2,7 +2,7 @@ return {
     name = "creationix/nibs",
     version = "2.0.0",
     dependencies = {},
-    description = "A simple description of my little package.",
+    description = "Nibs and Tibs serialization formats.",
     tags = { "lua", "lit", "luvit", "tibs", "nibs", "serialization" },
     license = "MIT",
     author = { name = "Tim Caswell", email = "tim@creationix.com" },
