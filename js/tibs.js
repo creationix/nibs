@@ -378,3 +378,47 @@ export function decode(str, filename) {
         return scope
     }
 }
+
+/**
+ * @param {any} val 
+ * @returns {string}
+ */
+export function encode(val) {
+    const t = typeof (val)
+    if (t !== 'object' || !val) return JSON.stringify(val)
+    if (val[isScope]) {
+        return '(' +
+            val
+                .map(entry => encode(entry))
+                .join(",") +
+            ')'
+    }
+    if (val[isRef] !== undefined) {
+        return '&' + val[isRef]
+    }
+    const c = Object.prototype.toString.call(val)
+    switch (c) {
+        case '[object Map]':
+            return '{' + (val[isIndexed] ? "#" : "") +
+                Array.from(val.entries())
+                    .map((([k, v]) => encode(k) + ":" + encode(v)))
+                    .join(',') +
+                '}'
+        case '[object Array]':
+            return '[' + (val[isIndexed] ? "#" : "") +
+                val
+                    .map(entry => encode(entry))
+                    .join(",") +
+                ']'
+        case '[object Uint8Array]':
+            return '<' +
+                Array.prototype.map.call(val, byte => byte.toString(16).padStart(2, '0'))
+                    .join('') +
+                '>'
+    }
+    return '{' + (val[isIndexed] ? "#" : "") +
+        Array.from(Object.entries(val))
+            .map((([k, v]) => encode(k) + ":" + encode(v)))
+            .join(',') +
+        '}'
+}
