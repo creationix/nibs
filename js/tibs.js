@@ -1,3 +1,4 @@
+import { isRef, isScope, isIndexed } from "./symbols.js"
 /**
  * Decode a tibs value to native JS values.
  * @param {string} str input tibs encoded string (JSON superset)
@@ -131,7 +132,6 @@ export function decode(str, filename) {
         const m = str.substr(offset).match(/^-?[0-9]+(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?/)
         if (!m) syntaxError()
         const match = m[0]
-        console.log({ match })
         offset += match.length
         return parseFloat(match)
     }
@@ -237,7 +237,7 @@ export function decode(str, filename) {
             break
         }
         const obj = {}
-        Object.defineProperty(obj, Symbol("ref"), { value: ref })
+        Object.defineProperty(obj, isRef, { value: ref })
         return obj
     }
 
@@ -249,7 +249,7 @@ export function decode(str, filename) {
         offset++
 
         if (str[offset] === '#') {
-            Object.defineProperty(arr, Symbol("isIndexed"), { value: true })
+            Object.defineProperty(arr, isIndexed, { value: true })
             offset++
         }
         for (let expectComma = false; ; expectComma = true) {
@@ -287,14 +287,14 @@ export function decode(str, filename) {
 
     /** @returns {object} */
     function decodeMapOrTrie() {
-        const obj = {}
+        const obj = new Map()
 
         // Skip leading curly brace
         offset++
 
         // If the object is annotated with `#` mark it as indexed for nibs.
         if (str[offset] === '#') {
-            Object.defineProperty(obj, Symbol("isIndexed"), { value: true })
+            Object.defineProperty(obj, isIndexed, { value: true })
             offset++
         }
 
@@ -333,15 +333,14 @@ export function decode(str, filename) {
             const value = decodeAny()
 
             // Store it in the object
-            // TODO: consider option to use Map type
-            obj[key] = value
+            obj.set(key, value)
         }
         return obj
     }
     function decodeScope() {
         const scope = []
 
-        Object.defineProperty(scope, Symbol("isScope"), { value: true })
+        Object.defineProperty(scope, isScope, { value: true })
 
         offset++ // Skip leading paren
 
@@ -379,8 +378,3 @@ export function decode(str, filename) {
         return scope
     }
 }
-
-import { readFileSync } from 'fs'
-
-const filename = '../fixtures/encoder-fixtures.tibs'
-console.log(decode(readFileSync(filename, 'utf8'), filename))

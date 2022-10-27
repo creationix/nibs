@@ -12,13 +12,13 @@ const tests = [
         0, 0x02f60492, 0x6d04390fc9d61a90n],
     [utf8`Some years ago--never mind how long precisely-`,
         0, 0x5f85f0d4, 0x8f26f2b986afdc52n],
-    // // Exactly 63 characters, which exercises all code paths.
-    // [utf8`Call me Ishmael.Some years ago--never mind how long precisely - `,
-    //     0, 0x6f320359, 0x02a2e85470d6fd96n],
-    // [utf8`0123456789abcdef`,
-    //     0, 0xc2c45b69, 0x5c5b90c34e376d0bn],
-    // [utf8`0123456789abcdef0123456789abcdef`,
-    //     0, 0xeb888d30, 0x642a94958e71e6c5n],
+    // Exactly 63 characters, which exercises all code paths.
+    [utf8`Call me Ishmael.Some years ago--never mind how long precisely - `,
+        0, 0x6f320359, 0x02a2e85470d6fd96n],
+    [utf8`0123456789abcdef`,
+        0, 0xc2c45b69, 0x5c5b90c34e376d0bn],
+    [utf8`0123456789abcdef0123456789abcdef`,
+        0, 0xeb888d30, 0x642a94958e71e6c5n],
 
     // // Common nibs values
 
