@@ -26,7 +26,6 @@ local tests = {
         0, 0xc2c45b69, 0x5c5b90c34e376d0bULL },
     { "0123456789abcdef0123456789abcdef",
         0, 0xeb888d30, 0x642a94958e71e6c5ULL },
-
 }
 local good = color "success"
 local bad = color "failure"
