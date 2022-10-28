@@ -570,8 +570,10 @@ function skip(data, offset) {
  */
 function decodeZigZag(num) {
     num = BigInt(num)
-    num = ((num + 1n) >> 1n) * ((num % 2n) * -2n + 1n)
-    return BigInt(Number(num)) === num ? Number(num) : num
+    num = (num >> 1n) ^ (-(num & 1n))
+    // Return as normal number when safe
+    return num <= Number.MAX_SAFE_INTEGER && num >= Number.MIN_SAFE_INTEGER ?
+        Number(num) : num
 }
 
 /**

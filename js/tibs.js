@@ -2,9 +2,9 @@ import { isRef, isScope, isIndexed } from "./symbols.js"
 /**
  * Decode a tibs value to native JS values.
  * @param {string} str input tibs encoded string (JSON superset)
- * @param {string} filename? optional filename for error messages
+ * @param {string} filename optional filename for error messages
  */
-export function decode(str, filename) {
+export function decode(str, filename = '(string)') {
     let offset = 0
     return decodeAny()
 
@@ -120,11 +120,9 @@ export function decode(str, filename) {
             }
         }
 
-        // Apply sign
-        num *= sign
-
-        // Return as normal number when possible
-        return BigInt(Number(num)) == num ? Number(num) : num
+        // Return as normal number when safe
+        return num <= Number.MAX_SAFE_INTEGER ?
+            Number(num * sign) : num * sign
     }
 
     /** @returns {number} */
@@ -385,6 +383,7 @@ export function decode(str, filename) {
  */
 export function encode(val) {
     const t = typeof (val)
+    if (t === 'bigint') return val.toString(10)
     if (t !== 'object' || !val) return JSON.stringify(val)
     if (val[isScope]) {
         return '(' +

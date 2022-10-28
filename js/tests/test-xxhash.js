@@ -1,4 +1,4 @@
-import { xxh64 } from "./xxhash64.js"
+import { xxh64 } from "../xxhash64.js"
 
 /** @type {[Uint8Array,number,number,bigint][]} */
 const tests = [
