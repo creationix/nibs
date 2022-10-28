@@ -83,9 +83,13 @@ local function encode_pair(small, big)
     end
 end
 
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
 local function tonumberMaybe(n)
-    local nn = tonumber(n)
-    return nn == n and nn or n
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
 end
 
 --- Convert a signed 64 bit integer to an unsigned 64 bit integer using zigzag encoding

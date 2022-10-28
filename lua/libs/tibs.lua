@@ -404,21 +404,19 @@ do
         local text = sub(json, start, index - 1)
         local num
         if string.match(text, "^-?[0-9]+$") then
-            local neg = false
+            local sign = I64(1)
             local big = I64(0)
             for i = 1, #text do
                 if string.sub(text, i, i) == "-" then
-                    neg = true
+                    sign = I64(1)
                 else
-                    big = big * 10 - (byte(text, i) - 48)
+                    big = big * 10LL - I64(byte(text, i) - 48)
                 end
             end
-            if not neg then big = -big end
-            if I64(tonumber(big)) == big then
-                num = tonumber(big)
-            else
-                num = big
-            end
+
+            num = (big <= 0x1fffffffffffff)
+                and tonumber(big * sign)
+                or (big * sign)
         else
             num = tonumber(text)
         end
