@@ -290,8 +290,8 @@ function encodeTrie(val) {
 
 class TriePointer {
     /**
-     * @param {bigint} hash 
-     * @param {number} target 
+     * @param {bigint} hash
+     * @param {number} target
      */
     constructor(hash, target) {
         this.hash = hash
@@ -308,8 +308,8 @@ class TrieNode {
     }
 
     /**
-     * @param {TriePointer} pointer 
-     * @param {number} depth 
+     * @param {TriePointer} pointer
+     * @param {number} depth
      * @returns {number} nodes created
      */
     insert(pointer, depth) {
@@ -333,7 +333,7 @@ class TrieNode {
     }
 
     /**
-     * @param {(word?:number)=>number} write 
+     * @param {(word?:number)=>number} write
      * @returns {number|undefined}
      */
     serialize(write) {
@@ -374,7 +374,7 @@ class TrieNode {
 }
 
 /**
- * @param {Map<Uint8Array,number>} map 
+ * @param {Map<Uint8Array,number>} map
  * @param {number} optimize
  * @returns {{count:number,width:number,index:Uint8Array|Uint16Array|Uint32Array|BigUint64Array}}
 */
@@ -394,7 +394,7 @@ function encodeHamt(map, optimize = -1) {
 
     // Try to set a sane default optimization level if not specified
     if (optimize === -1) {
-        optimize = Math.max(2, Math.min(255, 10000000 / (count * count)))
+        optimize = Math.max(2, Math.min(255, 100 / (count * count)))
     }
 
     // Try several combinations of parameters to find the smallest encoding.
@@ -522,7 +522,7 @@ function encodeAny(val) {
 }
 
 /**
- * @param {Uint8Array} buf 
+ * @param {Uint8Array} buf
  * @returns {any}
  */
 export function decode(buf) {
@@ -555,8 +555,8 @@ function decodePair(data, offset) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
+ * @param {DataView} data
+ * @param {number} offset
  * @returns {number}
  */
 function skip(data, offset) {
@@ -565,7 +565,7 @@ function skip(data, offset) {
 }
 
 /**
- * @param {number|bigint} num 
+ * @param {number|bigint} num
  * @returns {number|bigint}
  */
 function decodeZigZag(num) {
@@ -577,7 +577,7 @@ function decodeZigZag(num) {
 }
 
 /**
- * @param {number|bigint} num 
+ * @param {number|bigint} num
  * @returns {number}
  */
 function decodeFloat(num) {
@@ -587,9 +587,9 @@ function decodeFloat(num) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
- * @param {number} width 
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} width
  * @returns {number|bigint}
  */
 function decodePointer(data, offset, width) {
@@ -603,9 +603,9 @@ function decodePointer(data, offset, width) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} indexOffset 
- * @param {number} id 
+ * @param {DataView} data
+ * @param {number} indexOffset
+ * @param {number} id
  * @returns {any}
  */
 function decodeRef(data, indexOffset, id) {
@@ -616,9 +616,9 @@ function decodeRef(data, indexOffset, id) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
- * @param {number} len 
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} len
  * @returns {[Uint8Array, number]}
  */
 function decodeBytes(data, offset, len) {
@@ -626,9 +626,9 @@ function decodeBytes(data, offset, len) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
- * @param {number} len 
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} len
  * @returns {[string, number]}
  */
 function decodeString(data, offset, len) {
@@ -637,9 +637,9 @@ function decodeString(data, offset, len) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
- * @param {number} len 
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} len
  * @returns {[string, number]}
  */
 function decodeHexstring(data, offset, len) {
@@ -649,10 +649,10 @@ function decodeHexstring(data, offset, len) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
+ * @param {DataView} data
+ * @param {number} offset
  * @param {number} indexOffset
- * @param {number} end 
+ * @param {number} end
  * @returns {[any[], number]}
  */
 function decodeList(data, offset, indexOffset, end) {
@@ -667,10 +667,10 @@ function decodeList(data, offset, indexOffset, end) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
+ * @param {DataView} data
+ * @param {number} offset
  * @param {number} indexOffset
- * @param {number} end 
+ * @param {number} end
  * @returns {[any[], number]}
  */
 function decodeArray(data, offset, indexOffset, end) {
@@ -682,10 +682,10 @@ function decodeArray(data, offset, indexOffset, end) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
+ * @param {DataView} data
+ * @param {number} offset
  * @param {number} indexOffset
- * @param {number} end 
+ * @param {number} end
  * @returns {[Map<any,any>, number]}
  */
 function decodeMap(data, offset, indexOffset, end) {
@@ -702,9 +702,9 @@ function decodeMap(data, offset, indexOffset, end) {
 }
 
 /**
- * @param {DataView} data 
+ * @param {DataView} data
  * @param {number} offset
- * @param {number} indexOffset 
+ * @param {number} indexOffset
  * @param {number} end
  * @returns {[Map<any,any>, number]}
  */
@@ -717,9 +717,9 @@ function decodeTrie(data, offset, indexOffset, end) {
 }
 
 /**
- * @param {DataView} data 
- * @param {number} offset 
- * @param {number} end 
+ * @param {DataView} data
+ * @param {number} offset
+ * @param {number} end
  * @returns {[any, number]}
  */
 function decodeScope(data, offset, end) {
@@ -769,4 +769,104 @@ function decodeAny(data, offset, indexOffset) {
             return decodeScope(data, offset, offset + Number(big))
     }
     throw new Error("Invalid type")
+}
+
+/**
+ * @param {any} doc
+ * @returns {Map<any,number>}
+ */
+function findRefs(doc) {
+
+    // Wild guess, but real data with lots of dups over 1mb is 1 for reference
+    let pointer_cost = 2
+    const small_string = pointer_cost + 1
+    const small_number = 1 << (pointer_cost << 3) - 1
+    function potentiallyBig(val) {
+        const t = typeof (val)
+        if (t === "string") {
+            return val.length > small_string
+        } else if (t === "number") {
+            return Math.floor(val) !== val || val <= -small_number || val > small_number
+        }
+        return false
+    }
+
+    const seen = new Map()
+
+    /** @param {any} val */
+    function walk(val) {
+        if (!val) return
+        if (typeof (val) !== 'object') {
+            if (!potentiallyBig(val)) return
+            let count = seen.get(val)
+            if (count == undefined) {
+                seen.set(val, 1)
+            } else {
+                seen.set(val, count + 1)
+            }
+            return
+        }
+        if (Array.isArray(val)) {
+            for (const v of val) {
+                walk(v)
+            }
+        } else {
+            const entries = val instanceof Map ? val.entries() : Object.entries(val)
+            for (const [k, v] of entries) {
+                walk(k)
+                walk(v)
+            }
+        }
+    }
+
+    walk(doc)
+
+    return new Map([...seen.entries()]
+        .filter(([k, v]) => v > 1)
+        .sort(([, v1], [, v2]) => v2 - v1)
+        .map(([k], index) => [k, index])
+    )
+}
+
+/**
+ * @param {any} doc
+ * @param {number} indexLimit Use indexes if count is at least this number
+ * @param {Map<any,number>|undefined} refs Optional list of values to use as references.
+ * @returns {any} but with optimizations
+ */
+export function optimize(doc, indexLimit = 12, refs = undefined) {
+    if (!refs) {
+        const found = findRefs(doc)
+        doc = optimize(doc, indexLimit, found)
+        const scope = [doc, ...(found.keys())]
+        Object.defineProperty(scope, isScope, { value: true })
+        return scope
+    }
+    if (refs.get(doc) !== undefined) {
+        const ref = {}
+        Object.defineProperty(ref, isRef, { value: refs.get(doc) })
+        return ref
+    }
+    const t = typeof (doc)
+    if (t !== "object" || !doc) return doc
+    let count
+    if (Array.isArray(doc)) {
+        count = doc.length
+        doc = doc.map(v => optimize(v, indexLimit, refs))
+    } else {
+        if (!(doc instanceof Map)) {
+            doc = new Map(Object.entries(doc))
+        }
+        count = 0
+        const copy = new Map()
+        for (const [k, v] of doc.entries()) {
+            copy.set(optimize(k, indexLimit, refs), optimize(v, indexLimit, refs))
+            count++
+        }
+        doc = copy
+    }
+    if (count >= indexLimit) {
+        Object.defineProperty(doc, isIndexed, { value: true })
+    }
+    return doc
 }
