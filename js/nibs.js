@@ -394,7 +394,7 @@ function encodeHamt(map, optimize = -1) {
 
     // Try to set a sane default optimization level if not specified
     if (optimize === -1) {
-        optimize = Math.max(2, Math.min(255, 100 / (count * count)))
+        optimize = Math.max(2, Math.min(255, 1000 / (count * count)))
     }
 
     // Try several combinations of parameters to find the smallest encoding.
@@ -602,171 +602,225 @@ function decodePointer(data, offset, width) {
     throw new Error("Invalid width")
 }
 
+/** @typedef {{refs:any[],offset:number}} RefScope */
+
 /**
  * @param {DataView} data
- * @param {number} indexOffset
+ * @param {RefScope} scope
  * @param {number} id
  * @returns {any}
  */
-function decodeRef(data, indexOffset, id) {
-    const { little: width, big: count, newoffset } = decodePair(data, indexOffset)
+function decodeRef(data, scope, id) {
+    let cached = scope.refs[id]
+    if (cached) return cached.value
+    scope.refs[id] = cached = {}
+    const { little: width, big: count, newoffset } = decodePair(data, scope.offset)
     const ptr = decodePointer(data, newoffset + id * width, width)
-    const offset = newoffset + Number(count) * width + Number(ptr)
-    return decodeAny(data, offset, indexOffset)[0]
+    const alpha = newoffset + Number(count) * width + Number(ptr)
+    const [value, omega] = decodeAny(data, alpha, scope)
+    cached.value = value
+    return value
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
+ * @param {number} alpha
  * @param {number} len
  * @returns {[Uint8Array, number]}
  */
-function decodeBytes(data, offset, len) {
-    return [new Uint8Array(data.buffer, data.byteOffset + offset, len), offset + len]
+function decodeBytes(data, alpha, len) {
+    return [new Uint8Array(data.buffer, data.byteOffset + alpha, len), alpha + len]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
+ * @param {number} alpha
  * @param {number} len
  * @returns {[string, number]}
  */
-function decodeString(data, offset, len) {
-    const str = new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset + offset, len))
-    return [str, offset + len]
+function decodeString(data, alpha, len) {
+    const str = new TextDecoder().decode(new Uint8Array(data.buffer, data.byteOffset + alpha, len))
+    return [str, alpha + len]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
+ * @param {number} alpha
  * @param {number} len
  * @returns {[string, number]}
  */
-function decodeHexstring(data, offset, len) {
-    const buf = new Uint8Array(data.buffer, data.byteOffset + offset, len)
+function decodeHexstring(data, alpha, len) {
+    const buf = new Uint8Array(data.buffer, data.byteOffset + alpha, len)
     const hex = Array.prototype.map.call(buf, byte => byte.toString(16).padStart(2, '0')).join('')
-    return [hex, offset + len]
+    return [hex, alpha + len]
+}
+
+function makeLazy(obj, index, data, alpha, scope) {
+    Object.defineProperty(obj, index, {
+        configurable: true,
+        enumerable: true,
+        get: () => {
+            const value = decodeAny(data, alpha, scope)[0]
+            Object.defineProperty(obj, index, {
+                writable: true,
+                enumerable: true,
+                value
+            })
+            return value
+        }
+    })
+    return skip(data, alpha)
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} indexOffset
- * @param {number} end
+ * @param {number} alpha
+ * @param {number} omega
+ * @param {RefScope} scope
  * @returns {[any[], number]}
  */
-function decodeList(data, offset, indexOffset, end) {
+function decodeList(data, alpha, omega, scope) {
     const list = []
-    while (offset < end) {
-        const [value, newoffset] = decodeAny(data, offset, indexOffset)
-        list.push(value)
-        offset = newoffset
+    let i = 0
+    while (alpha < omega) {
+        alpha = makeLazy(list, i++, data, alpha, scope)
     }
-    if (offset !== end) throw new Error("Extra data in map/trie")
-    return [list, end]
+    list.length = i
+    if (alpha !== omega) throw new Error("Extra data in map/trie")
+    return [list, omega]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} indexOffset
- * @param {number} end
+ * @param {number} alpha
+ * @param {number} omega
+ * @param {RefScope} scope
  * @returns {[any[], number]}
  */
-function decodeArray(data, offset, indexOffset, end) {
-    const { little, big, newoffset } = decodePair(data, offset)
-    offset = newoffset + little * Number(big)
-    const [list] = decodeList(data, offset, indexOffset, end)
+function decodeArray(data, alpha, omega, scope) {
+    const { little, big, newoffset } = decodePair(data, alpha)
+    alpha = newoffset + little * Number(big)
+    const [list] = decodeList(data, alpha, omega, scope)
     Object.defineProperty(list, isIndexed, { value: true })
-    return [list, end]
+    return [list, omega]
 }
+
+const lazy = Symbol('lazy')
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} indexOffset
- * @param {number} end
+ * @param {number} alpha
+ * @param {number} omega
+ * @param {RefScope} scope
  * @returns {[Map<any,any>, number]}
  */
-function decodeMap(data, offset, indexOffset, end) {
+function decodeMap(data, alpha, omega, scope) {
     const map = new Map()
-    while (offset < end) {
-        const [key, newoffset] = decodeAny(data, offset, indexOffset)
-        offset = newoffset
-        const [value, newoffset2] = decodeAny(data, offset, indexOffset)
-        offset = newoffset2
-        map.set(key, value)
+    const indices = new Map()
+    /**
+     * @param {any} key 
+     * @returns {any}
+     */
+    let left = 0
+    Object.defineProperty(map, 'get', {
+        writable: true, configurable: true, value: key => {
+            let value = Map.prototype.get.call(map, key)
+            if (value === lazy) {
+                left--
+                const offset = indices.get(key)
+                if (typeof offset !== 'number') return
+                value = decodeAny(data, offset, scope)[0]
+                map.set(key, value)
+                if (left === 0) {
+                    delete map.get
+                }
+            }
+            return value
+        }
+    })
+
+    while (alpha < omega) {
+        const [key, newoffset] = decodeAny(data, alpha, scope)
+        alpha = newoffset
+        indices.set(key, alpha)
+        alpha = skip(data, alpha)
+        map.set(key, lazy)
+        left++
     }
-    if (offset !== end) throw new Error("Extra data in map/trie")
-    return [map, end]
+    if (alpha !== omega) throw new Error("Extra data in map/trie")
+
+    return [map, omega]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} indexOffset
- * @param {number} end
+ * @param {number} alpha
+ * @param {number} omega
+ * @param {RefScope} scope
  * @returns {[Map<any,any>, number]}
  */
-function decodeTrie(data, offset, indexOffset, end) {
-    const { little, big, newoffset } = decodePair(data, offset)
-    offset = newoffset + little * Number(big)
-    const [map] = decodeMap(data, offset, indexOffset, end)
+function decodeTrie(data, alpha, omega, scope) {
+    const { little, big, newoffset } = decodePair(data, alpha)
+    alpha = newoffset + little * Number(big)
+    const [map] = decodeMap(data, alpha, omega, scope)
     Object.defineProperty(map, isIndexed, { value: true })
-    return [map, end]
+    return [map, omega]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} end
+ * @param {number} alpha
+ * @param {number} omega
  * @returns {[any, number]}
  */
-function decodeScope(data, offset, end) {
-    const indexOffset = skip(data, offset)
-    const [value, newoffset1] = decodeAny(data, offset, indexOffset)
-    return [value, end]
+function decodeScope(data, alpha, omega) {
+    // Calculate offset after wrapped value
+    // This is where the ref index starts with a nibs pair for width/count
+    const offset = skip(data, alpha)
+    const [value] = decodeAny(data, alpha, { refs: [], offset })
+    // Return the wrapped value
+    return [value, omega]
 }
 
 /**
  * @param {DataView} data
- * @param {number} offset
- * @param {number} indexOffset
+ * @param {number} alpha
+ * @param {RefScope} scope
  * @returns {[any, number]} value and new offset
  */
-function decodeAny(data, offset, indexOffset) {
-    const { little, big, newoffset } = decodePair(data, offset)
-    offset = newoffset
+function decodeAny(data, alpha, scope) {
+    const { little, big, newoffset } = decodePair(data, alpha)
+    alpha = newoffset
     switch (little) {
         case ZIGZAG:
-            return [decodeZigZag(big), offset]
+            return [decodeZigZag(big), alpha]
         case FLOAT:
-            return [decodeFloat(big), offset]
+            return [decodeFloat(big), alpha]
         case SIMPLE:
             switch (big) {
-                case FALSE: return [false, offset]
-                case TRUE: return [true, offset]
-                case NULL: return [null, offset]
+                case FALSE: return [false, alpha]
+                case TRUE: return [true, alpha]
+                case NULL: return [null, alpha]
             }
             throw new Error("Invalid subtype")
         case REF:
-            return [decodeRef(data, indexOffset, Number(big)), offset]
+            return [decodeRef(data, scope, Number(big)), alpha]
         case BYTES:
-            return decodeBytes(data, offset, Number(big))
+            return decodeBytes(data, alpha, Number(big))
         case UTF8:
-            return decodeString(data, offset, Number(big))
+            return decodeString(data, alpha, Number(big))
         case HEXSTRING:
-            return decodeHexstring(data, offset, Number(big))
+            return decodeHexstring(data, alpha, Number(big))
         case LIST:
-            return decodeList(data, offset, indexOffset, offset + Number(big))
+            return decodeList(data, alpha, alpha + Number(big), scope)
         case MAP:
-            return decodeMap(data, offset, indexOffset, offset + Number(big))
+            return decodeMap(data, alpha, alpha + Number(big), scope)
         case ARRAY:
-            return decodeArray(data, offset, indexOffset, offset + Number(big))
+            return decodeArray(data, alpha, alpha + Number(big), scope)
         case TRIE:
-            return decodeTrie(data, offset, indexOffset, offset + Number(big))
+            return decodeTrie(data, alpha, alpha + Number(big), scope)
         case SCOPE:
-            return decodeScope(data, offset, offset + Number(big))
+            return decodeScope(data, alpha, alpha + Number(big))
     }
     throw new Error("Invalid type")
 }
@@ -792,6 +846,7 @@ function findRefs(doc) {
     }
 
     const seen = new Map()
+    const objects = new Map()
 
     /** @param {any} val */
     function walk(val) {
@@ -806,6 +861,17 @@ function findRefs(doc) {
             }
             return
         }
+        const objectSeen = objects.get(val)
+        if (objects.get(val)) {
+            const count = seen.get(val)
+            if (count) {
+                seen.set(val, count + 1)
+            } else {
+                seen.set(val, 2)
+            }
+            return
+        }
+        objects.set(val, true)
         if (Array.isArray(val)) {
             for (const v of val) {
                 walk(v)
@@ -834,15 +900,19 @@ function findRefs(doc) {
  * @param {Map<any,number>|undefined} refs Optional list of values to use as references.
  * @returns {any} but with optimizations
  */
-export function optimize(doc, indexLimit = 12, refs = undefined) {
+export function optimize(doc, indexLimit = 12, refs = undefined, skipRefCheck = false) {
     if (!refs) {
         const found = findRefs(doc)
         doc = optimize(doc, indexLimit, found)
-        const scope = [doc, ...(found.keys())]
+        if (found.size === 0) return doc
+        const scope = [doc]
+        for (const ref of found.keys()) {
+            scope.push(optimize(ref, indexLimit, found, true))
+        }
         Object.defineProperty(scope, isScope, { value: true })
         return scope
     }
-    if (refs.get(doc) !== undefined) {
+    if (!skipRefCheck && refs.get(doc) !== undefined) {
         const ref = {}
         Object.defineProperty(ref, isRef, { value: refs.get(doc) })
         return ref
