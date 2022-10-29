@@ -62,10 +62,11 @@ for (const [name, list] of tests.entries()) {
         const input = list[i];
         const expected = list[i + 1]
         const actual = Nibs.decode(input)
+        const pass = same(expected, actual)
         console.log("\nInput    " + Buffer.from(input).toString('hex'))
         console.log("Expected " + inspect(expected, { showHidden: true, depth: 2, colors: true, breakLength: 100 }))
         console.log("Actual   " + inspect(actual, { showHidden: true, depth: 2, colors: true, breakLength: 100 }))
-        if (!same(expected, actual)) {
+        if (!pass) {
             throw new Error("Mismatch")
         }
     }
