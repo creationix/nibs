@@ -3,30 +3,35 @@ local Bytes   = require 'bytes'
 local PureLru = require 'lrucache-pureffi'
 local Nibs    = require 'nibs'
 
-local chunkSize = 1024 * 64 -- 64KiB
+-- local chunkSize = 1024 * 64 -- 64KiB
+local chunkSize = 1024
 local maxCacheSize = 1024 * 1024 * 100 -- 100 MiB
 local lru = assert(PureLru.new(maxCacheSize / chunkSize))
 
----@return ChunkCache
-local function makeLRU(prefix)
-    local function key(offset)
-        local k = prefix .. '@' .. offset
-        return k
-    end
+--- Cache instance that acts like a plain table, but caches in the
+--- shared lru instance using a local prefix.
+---@class LRUCache
+---@field prefix string
+local Cache = {}
 
-    return {
-        ---@param offset number
-        ---@return string?
-        get = function(offset)
-            return lru:get(key(offset))
-        end,
+-- TODO: use strong etag as cache key somehow
 
-        ---@param offset number
-        ---@param value string
-        set = function(offset, value)
-            lru:set(key(offset), value)
-        end
-    }
+---@param prefix string
+---@return LRUCache
+function Cache.new(prefix)
+    return setmetatable({ prefix = prefix }, Cache)
+end
+
+---@param offset number
+---@return string?
+function Cache:__index(offset)
+    return lru:get(self.prefix .. '@' .. offset)
+end
+
+---@param offset number
+---@param value string
+function Cache:__newindex(offset, value)
+    lru:set(self.prefix .. '@' .. offset, value)
 end
 
 ---Create a byte provider from an HTTP url
@@ -47,7 +52,7 @@ end
 
 return function(url)
     -- Make a caching chunked byte reader for reading this url
-    local read = Bytes.makeChunked(fromHttpUrl(url), chunkSize, makeLRU(url .. '(' .. chunkSize .. ')'))
+    local read = Bytes.makeChunked(fromHttpUrl(url), chunkSize, Cache.new(url .. '(' .. chunkSize .. ')'))
     -- Mount the remote as a nibs document and return it.
     return Nibs.get(read, 0)
 end

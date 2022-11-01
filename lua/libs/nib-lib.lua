@@ -99,6 +99,17 @@ function NibLib.isFloat(val)
         istype(F32, val)
 end
 
+--- Detect if a number is whole or not
+---@param num number|ffi.cdata*
+function NibLib.isWhole(num)
+    local t = type(num)
+    if t == 'cdata' then
+        return NibLib.isInteger(num)
+    elseif t == 'number' then
+        return not (num ~= num or num == 1 / 0 or num == -1 / 0 or math.floor(num) ~= num)
+    end
+end
+
 --- Convert integer to ascii code for hex digit
 --- Assumes input is valid number (0-15)
 ---@param num integer numerical value (0-15)
@@ -218,6 +229,15 @@ end
 
 function NibLib.bufToStr(buf)
     return ffi_string(buf, sizeof(buf))
+end
+
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
+function NibLib.tonumberMaybe(n)
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
 end
 
 return NibLib
