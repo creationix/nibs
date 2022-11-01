@@ -414,9 +414,7 @@ do
                 end
             end
 
-            num = (big <= 0x1fffffffffffff)
-                and tonumber(big * sign)
-                or (big * sign)
+            num = NibLib.tonumberMaybe(big *sign)
         else
             num = tonumber(text,10)
         end
@@ -830,8 +828,14 @@ do
         [9] = 116, --`\t`
     }
 
+    ---@param num number|ffi.cdata*
+    ---@return string
     local function encodeNumber(num)
-        return (tostring(I64(num)):gsub("[IUL]+", ""))
+        if NibLib.isWhole(num) then
+            return (tostring(I64(num)):gsub("[IUL]+", ""))
+        else
+            return tostring(num)
+        end
     end
 
     local function encodeString(str)

@@ -13,17 +13,12 @@ local U8Ptr = NibLib.U8Ptr
 --- Interface for byte providers
 ---@alias ByteProvider fun(offset:number,length:number):string
 
---- Interface for cache implementations
----@class ChunkCache
----@field get fun(offset:number):string?
----@field set fun(offset:number,value:string)
-
 local Bytes = {}
 
 ---Wrap a ByteProvider into one that aligns all reads on chunks.
 ---@param provider ByteProvider
 ---@param chunkSize number
----@param cache ChunkCache?
+---@param cache table? the cache interface is a normal lua table (but can be virtual)
 ---@return ByteProvider
 function Bytes.makeChunked(provider, chunkSize, cache)
 
@@ -36,11 +31,12 @@ function Bytes.makeChunked(provider, chunkSize, cache)
         local result = Slice8(length)
         local ptr = cast(U8Ptr, result)
         while start < last do
-            local slice = cache and cache.get(start)
+            ---@type string?
+            local slice = cache and cache[start]
             if not slice then
                 slice = provider(start, chunkSize)
                 if cache then
-                    cache.set(start, slice)
+                    cache[start] = slice
                 end
             end
             local sptr = cast(U8Ptr, slice)

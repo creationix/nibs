@@ -83,15 +83,6 @@ local function encode_pair(small, big)
     end
 end
 
---- Convert an I64 to a normal number if it's in the safe range
----@param n integer cdata I64
----@return integer|number maybeNum
-local function tonumberMaybe(n)
-    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
-        and tonumber(n)
-        or n
-end
-
 --- Convert a signed 64 bit integer to an unsigned 64 bit integer using zigzag encoding
 ---@param num integer
 ---@return integer
@@ -175,7 +166,7 @@ end
 function encode_any(val)
     local t = type(val)
     if t == "number" then
-        if math.floor(val) == val then
+        if NibLib.isWhole(val) then
             return encode_pair(ZIGZAG, encode_zigzag(val))
         else
             return encode_pair(FLOAT, encode_float(val))
@@ -407,7 +398,7 @@ end
 local function decode_zigzag(num)
     local i = I64(num)
     local o = bxor(rshift(i, 1), -band(i, 1))
-    return tonumberMaybe(o)
+    return NibLib.tonumberMaybe(o)
 end
 
 --- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
@@ -766,39 +757,34 @@ function NibsTrie:__pairs()
 end
 
 ---@class DecodeScope
----@field parent DecodeScope?
 ---@field alpha number
 ---@field omega number
----@field width number
----@field count number
 
 ---@param read ByteProvider
 ---@param offset number
 ---@param big number
----@param scope DecodeScope?
 ---@return any
 ---@return number
-local function decode_scope(read, offset, big, scope)
-    p({ read(offset, big) })
-    local alpha, width, count = decode_pair(read, skip(read, offset))
+local function decode_scope(read, offset, big)
     return get(read, offset, {
-        parent = scope,
-        alpha = alpha,
+        alpha = skip(read, offset),
         omega = offset + big,
-        width = width,
-        count = count
     })
 end
 
 ---@param read ByteProvider
 ---@param scope? DecodeScope
----@param big integer
+---@param id integer
 ---@return any
-local function decode_ref(read, scope, big)
+local function decode_ref(read, scope, id)
     assert(scope, "Ref found outside of scope")
-    local ptr = decode_pointer(read, scope.alpha + big * scope.width, scope.width)
-    local payload = scope.alpha + scope.width * scope.count
-    local start = payload + ptr
+    local offset, width, count = decode_pair(read, scope.alpha)
+    assert(offset < scope.omega)
+    local ptr_offset = offset + id * width
+    assert(ptr_offset < scope.omega)
+    local ptr = decode_pointer(read, ptr_offset, width)
+    local start = offset + width * count + ptr
+    assert(start < scope.omega)
     return (get(read, start, scope))
 end
 
@@ -834,7 +820,7 @@ function get(read, offset, scope)
     elseif little == TRIE then
         return NibsTrie.new(read, offset, big, scope), offset + big
     elseif little == SCOPE then
-        return decode_scope(read, offset, big, scope), offset + big
+        return decode_scope(read, offset, big), offset + big
     else
         error(string.format('Unexpected nibs type: %s at %08x', little, start))
     end
@@ -858,6 +844,9 @@ end
 ---@param index_limit number
 function Nibs.autoIndex(value, index_limit)
     index_limit = index_limit or 10
+    -- TODO: index if the serialized size is above some threshold,
+    -- this is what matters for reducing chunk fetches
+    -- which matters more than overall data size
 
     ---@param o Value
     local function walk(o)
@@ -871,33 +860,19 @@ function Nibs.autoIndex(value, index_limit)
             return o
         end
         if NibLib.isArrayLike(o) then
-            if #o < index_limit then
-                for i = 1, #o do
-                    o[i] = walk(o[i])
-                end
-                return o
-            else
-                local r = Array.new()
-                for i = 1, #o do
-                    r[i] = walk(o[i])
-                end
-                return r
-            end
-        end
-        local count = 0
-        for _ in pairs(o) do count = count + 1 end
-        if count < index_limit then
-            for k, v in pairs(o) do
-                o[walk(k)] = walk(v)
-            end
-            return o
-        else
-            local r = Trie.new()
-            for k, v in pairs(o) do
-                r[walk(k)] = walk(v)
+            local r = #o < index_limit and o or Array.new()
+            for i = 1, #o do
+                r[i] = walk(o[i])
             end
             return r
         end
+        local count = 0
+        for _ in pairs(o) do count = count + 1 end
+        local r = count < index_limit and o or Trie.new()
+        for k, v in pairs(o) do
+            r[walk(k)] = walk(v)
+        end
+        return r
     end
 
     return walk(value)

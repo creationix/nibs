@@ -2,23 +2,31 @@ local Utils = require 'test-utils'
 local Bytes = require 'bytes'
 
 ---Create a tiny LRU that holds a single value
----@return ChunkCache
+---@return table<number,string>
 local function singleLru()
     ---@type number
     local lastOffset
     ---@type string
     local lastValue
-    return {
-        get = function(offset)
-            if offset == lastOffset then
-                return lastValue
-            end
-        end,
-        set = function(offset, value)
-            lastOffset = offset
-            lastValue = value
-        end,
-    }
+
+    local meta = {}
+
+    ---@param offset number
+    ---@return string?
+    function meta:__index(offset)
+        if offset == lastOffset then
+            return lastValue
+        end
+    end
+
+    ---@param offset number
+    ---@param value string
+    function meta:__newindex(offset, value)
+        lastOffset = offset
+        lastValue = value
+    end
+
+    return setmetatable({}, meta)
 end
 
 ---Logs calls to provider with a callback
