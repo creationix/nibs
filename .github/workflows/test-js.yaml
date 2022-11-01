@@ -13,7 +13,7 @@ jobs:
       - run: echo "🖥️ The workflow is now ready to test your code on the runner."
       - name: Run tests
         run: |
-          npm install
+          cd js/tests && npm install ../
           node js/tests/test-text-format.js
           node js/tests/test-nibs-encoder.js
           node js/tests/test-nibs-decoder.js
