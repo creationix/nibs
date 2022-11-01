@@ -404,7 +404,7 @@ do
         local text = sub(json, start, index - 1)
         local num
         if string.match(text, "^-?[0-9]+$") then
-            local sign = I64(1)
+            local sign = I64(-1)
             local big = I64(0)
             for i = 1, #text do
                 if string.sub(text, i, i) == "-" then
@@ -418,7 +418,7 @@ do
                 and tonumber(big * sign)
                 or (big * sign)
         else
-            num = tonumber(text)
+            num = tonumber(text,10)
         end
 
         return num, index
