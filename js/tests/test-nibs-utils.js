@@ -9,78 +9,114 @@ import * as Nibs from '../nibs.js'
 
 const filename = pathJoin(fileURLToPath(import.meta.url), '../../../fixtures/multi-tests.tibs')
 const inputs = Tibs.decode(readFileSync(filename, 'utf8'), filename)
-console.log(inputs)
 
 function autoIndex(val) {
-    return Nibs.autoIndex(val, 4)
+    return Nibs.optimize(val, 4, new Map())
+}
+
+function deduplicate(doc) {
+    return Nibs.optimize(doc, 1 / 0)
+}
+
+function optimize(doc) {
+    return Nibs.optimize(doc, 4)
+}
+
+// Walk an entire document to expand lazy properties
+function expand(doc) {
+    const seen = new Set()
+    function walk(val) {
+        if (doc && typeof doc === 'object') {
+
+            // Break cycles
+            if (seen.has(doc)) return
+            seen.add(doc)
+
+            if (Array.isArray(doc)) {
+                doc.forEach(walk)
+            } else {
+                for (const [k, v] of doc.entries()) {
+                    walk(k)
+                    walk(v)
+                }
+            }
+        }
+    }
+    walk(doc)
+    return doc
 }
 
 const tests = {
-    "Input Json": [],
-    "Original": [Tibs.decode],
-    "Original -> Json": [Tibs.decode, Tibs.encode],
-    "Original -> Json -> Lua": [Tibs.decode, Tibs.encode, Tibs.decode],
-    "Original -> Json -> Lua -> Json": [Tibs.decode, Tibs.encode, Tibs.decode, Tibs.encode],
-    "Original -> Json -> Lua -> Nibs": [Tibs.decode, Tibs.encode, Tibs.decode, Nibs.encode],
-    "Original -> Nibs": [Tibs.decode, Nibs.encode],
-    "Original -> Nibs -> Lua": [Tibs.decode, Nibs.encode, Nibs.decode],
-    "Deduplicated": [Tibs.decode, Nibs.deduplicate],
-    "Deduplicated -> Json": [Tibs.decode, Nibs.deduplicate, Tibs.encode],
-    "Deduplicated -> Json -> Lua": [Tibs.decode, Nibs.deduplicate, Tibs.encode, Tibs.decode],
-    "Deduplicated -> Nibs": [Tibs.decode, Nibs.deduplicate, Nibs.encode],
-    "Deduplicated -> Nibs -> Lua": [Tibs.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode],
-    "Indexed": [Tibs.decode, autoIndex],
-    "Indexed -> Json": [Tibs.decode, autoIndex, Tibs.encode],
-    "Indexed -> Json -> Lua": [Tibs.decode, autoIndex, Tibs.encode, Tibs.decode],
-    "Indexed -> Json -> Lua -> Json": [Tibs.decode, autoIndex, Tibs.encode, Tibs.decode, Tibs.encode],
-    "Indexed -> Nibs": [Tibs.decode, autoIndex, Nibs.encode],
-    "Indexed -> Nibs -> Lua": [Tibs.decode, autoIndex, Nibs.encode, Nibs.decode],
-    "Deduped -> Indexed": [Tibs.decode, Nibs.deduplicate, autoIndex],
-    "Indexed -> Deduped": [Tibs.decode, Nibs.deduplicate, autoIndex],
-    "Deduped -> Indexed -> Json": [Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode],
-    "Indexed -> Deduped -> Json": [Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode],
-    "Deduped -> Indexed -> Json -> Lua": [Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode],
-    "Indexed -> Deduped -> Json -> Lua": [Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode],
-    "Deduped -> Indexed -> Nibs": [Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode],
-    "Indexed -> Deduped -> Nibs": [Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode],
-    "Deduped -> Indexed -> Nibs -> Lua": [Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode],
-    "Indexed -> Deduped -> Nibs -> Lua": [Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode],
+    // "Original": [],
+    // "Original -> Json": [Tibs.encode],
+    // "Original -> Json -> JS": [Tibs.encode, Tibs.decode],
+    // "Original -> Json -> JS -> Json": [Tibs.encode, Tibs.decode, Tibs.encode],
+    // "Original -> Json -> JS -> Nibs": [Tibs.encode, Tibs.decode, Nibs.encode],
+    // "Original -> Nibs": [Nibs.encode],
+    // "Original -> Nibs -> JS": [Nibs.encode, Nibs.decode],
+    // "Deduplicated": [deduplicate],
+    // "Deduplicated -> Json": [deduplicate, Tibs.encode],
+    // "Deduplicated -> Json -> JS": [deduplicate, Tibs.encode, Tibs.decode],
+    // "Deduplicated -> Nibs": [deduplicate, Nibs.encode],
+    // "Deduplicated -> Nibs -> JS": [deduplicate, Nibs.encode, Nibs.decode],
+    // "Indexed": [autoIndex],
+    // "Indexed -> Json": [autoIndex, Tibs.encode],
+    // "Indexed -> Json -> JS": [autoIndex, Tibs.encode, Tibs.decode],
+    // "Indexed -> Json -> JS -> Json": [autoIndex, Tibs.encode, Tibs.decode, Tibs.encode],
+    // "Indexed -> Nibs": [autoIndex, Nibs.encode],
+    // "Indexed -> Nibs -> JS": [autoIndex, Nibs.encode, Nibs.decode],
+    // "Optimized": [optimize],
+    // "Optimized -> Json": [optimize, Tibs.encode],
+    // "Optimized -> Json -> JS": [optimize, Tibs.encode, Tibs.decode],
+    // "Optimized -> Nibs": [optimize, Nibs.encode],
+    "Optimized -> Nibs -> JS": [optimize, Nibs.encode, Nibs.decode],
+    "Optimized -> Nibs -> JS -> Expanded": [optimize, Nibs.encode, Nibs.decode, expand],
 }
 
 const matchers = [
     [
         "Original",
-        "Original -> Json -> Lua",
-        "Original -> Nibs -> Lua",
+        "Original -> Json -> JS",
+        "Original -> Nibs -> JS",
     ],
     [
         "Original -> Json",
-        "Original -> Json -> Lua -> Json",
+        "Original -> Json -> JS -> Json",
     ],
     [
         "Original -> Nibs",
-        "Original -> Json -> Lua -> Nibs",
+        "Original -> Json -> JS -> Nibs",
     ],
     [
         "Deduped",
-        "Deduped -> Json -> Lua",
-        // "Deduped -> Nibs -> Lua",
+        "Deduped -> Json -> JS",
+        // "Deduped -> Nibs -> JS",
     ],
     [
         "Deduped -> Json",
-        "Deduped -> Json -> Lua -> Json",
+        "Deduped -> Json -> JS -> Json",
     ],
     [
         "Indexed",
-        "Indexed -> Json -> Lua",
-        // "Indexed -> Nibs -> Lua",
+        "Indexed -> Json -> JS",
+        // "Indexed -> Nibs -> JS",
     ],
     [
         "Indexed -> Json",
-        "Indexed -> Json -> Lua -> Json",
+        "Indexed -> Json -> JS -> Json",
     ],
 ]
 
+for (const [name, value] of inputs.entries()) {
+
+    for (const [test, actions] of Object.entries(tests)) {
+        let result = value
+        for (const action of actions) {
+            result = action(result)
+        }
+        console.log(inspect({ name, test, result }, true, 3, true))
+    }
+}
 
 // local extra_space = ""
 // for name, json in pairs(inputs) do
