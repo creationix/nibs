@@ -10,13 +10,14 @@ local filename = module.dir .. "/../../fixtures/encoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
 local allTests = assert(Tibs.decode(text))
 
-
+p(allTests)
 for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
     for section, tests in pairs(allTests) do
         print("\n" .. colorize("highlight", section) .. "\n")
         for i = 1, #tests, 2 do
             local input = tests[i]
+            p { i = i, input = input }
             local expected = NibLib.bufToStr(tests[i + 1])
             local actual = Nibs.encode(input)
 

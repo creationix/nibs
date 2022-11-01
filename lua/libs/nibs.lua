@@ -173,10 +173,9 @@ end
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
 function encode_any(val)
-
     local t = type(val)
     if t == "number" then
-        if val % 1 == 0 then
+        if math.floor(val) == val then
             return encode_pair(ZIGZAG, encode_zigzag(val))
         else
             return encode_pair(FLOAT, encode_float(val))
@@ -253,11 +252,9 @@ function encode_list(list)
 end
 
 ---@param list Value[]
----@param tag number?
 ---@return integer
 ---@return any
-function encode_array(list, tag)
-    tag = tag or ARRAY
+function encode_array(list)
     local total = 0
     local body = {}
     local offsets = {}
@@ -269,7 +266,7 @@ function encode_array(list, tag)
     end
     local more, index = generate_array_index(offsets)
     total = total + more
-    local size, prefix = encode_pair(tag, total)
+    local size, prefix = encode_pair(ARRAY, total)
     return size + total, { prefix, index, body }
 end
 
@@ -277,7 +274,29 @@ end
 ---@return integer
 ---@return any
 function encode_scope(scope)
-    return encode_array(scope, SCOPE)
+    local total = 0
+
+    -- First encode the wrapped value
+    local valueSize, valueEntry = encode_any(scope[1])
+
+    -- Then encode the refs and record their relative offsets
+    local body = {}
+    local offsets = {}
+    for i = 2, #scope do
+        local v = scope[i]
+        local size, entry = encode_any(v)
+        body[i - 1] = entry
+        offsets[i - 1] = total
+        total = total + size
+    end
+
+    -- Generate index header and value header
+    local more, index = generate_array_index(offsets)
+    total = total + more + valueSize
+
+    -- combine everything
+    local size, prefix = encode_pair(SCOPE, total)
+    return size + total, { prefix, valueEntry, index, body }
 end
 
 ---@param map table<Value,Value>
@@ -382,12 +401,13 @@ local function decode_pair(read, offset)
     end
 end
 
----Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag encoding
+---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
 ---@param num integer
 ---@return integer
 local function decode_zigzag(num)
     local i = I64(num)
-    return tonumberMaybe(bxor(rshift(i, 1), -band(i, 1)))
+    local o = bxor(rshift(i, 1), -band(i, 1))
+    return tonumberMaybe(o)
 end
 
 --- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
@@ -752,11 +772,16 @@ end
 ---@field width number
 ---@field count number
 
+---@param read ByteProvider
+---@param offset number
+---@param big number
+---@param scope DecodeScope?
+---@return any
+---@return number
 local function decode_scope(read, offset, big, scope)
-    local alpha, width, count = decode_pair(read, offset)
-    -- nested Value is the last ref
-    local ptr = decode_pointer(read, alpha + width * (count - 1), width)
-    return get(read, alpha + width * count + ptr, {
+    p({ read(offset, big) })
+    local alpha, width, count = decode_pair(read, skip(read, offset))
+    return get(read, offset, {
         parent = scope,
         alpha = alpha,
         omega = offset + big,
@@ -884,8 +909,16 @@ end
 function Nibs.addRefs(value, refs)
     if #refs == 0 then return value end
     ---@param o Value
+    ---@param skipCheck boolean?
     ---@return Value
-    local function walk(o)
+    local function walk(o, skipCheck)
+        if not skipCheck then
+            for i, r in ipairs(refs) do
+                if r == o then
+                    return Ref.new(i - 1)
+                end
+            end
+        end
         if type(o) == "table" then
             if getmetatable(o) == Scope then return o end
             if NibLib.isArrayLike(o) then
@@ -901,16 +934,18 @@ function Nibs.addRefs(value, refs)
             end
             return m
         end
-        for i, r in ipairs(refs) do
-            if r == o then
-                return Ref.new(i - 1)
-            end
-        end
         return o
     end
 
-    refs[#refs + 1] = walk(value)
-    return Scope.new(refs)
+    local scope = {}
+
+    insert(scope, walk(value))
+
+    for i = 1, #refs do
+        insert(scope, walk(refs[i], true))
+    end
+
+    return Scope.new(scope)
 end
 
 ---Walk through a value and find duplicate values (sorted by frequency)

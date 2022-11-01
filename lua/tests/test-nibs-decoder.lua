@@ -15,7 +15,9 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
     for section, tests in pairs(allTests) do
         print("\n" .. colorize("highlight", section) .. "\n")
-        for input, expected in pairs(tests) do
+        for i = 1, #tests, 2 do
+            local input = tests[i]
+            local expected = tests[i + 1]
             collectgarbage("collect")
 
             -- Actual decoded value
