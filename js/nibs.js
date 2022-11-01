@@ -733,9 +733,29 @@ function decodeMap(data, alpha, omega, scope) {
                 map.set(key, value)
                 if (left === 0) {
                     delete map.get
+                    delete map.entries
+                    delete map.values
                 }
             }
             return value
+        }
+    })
+    Object.defineProperty(map, 'entries', {
+        writable: true, configurable: true, value: () => {
+            return function* () {
+                for (const key of map.keys()) {
+                    yield [key, map.get(key)]
+                }
+            }()
+        }
+    })
+    Object.defineProperty(map, 'values', {
+        writable: true, configurable: true, value: () => {
+            return function* () {
+                for (const key of map.keys()) {
+                    yield map.get(key)
+                }
+            }()
         }
     })
 

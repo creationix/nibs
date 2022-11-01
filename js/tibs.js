@@ -1,10 +1,12 @@
 import { isRef, isScope, isIndexed } from "./symbols.js"
+
 /**
  * Decode a tibs value to native JS values.
  * @param {string} str input tibs encoded string (JSON superset)
  * @param {string} filename optional filename for error messages
  */
 export function decode(str, filename = '(string)') {
+    if (typeof str !== 'string') throw new Error("String expected to Tibs.decode")
     let offset = 0
     return decodeAny()
 
@@ -136,30 +138,38 @@ export function decode(str, filename = '(string)') {
 
     /** @returns {string} */
     function decodeString() {
-        offset++
         const start = offset
+        offset++
         for (; ;) {
-            let code = str.codePointAt(offset)
-            if (!code) syntaxError()
+            const s = str[offset]
+            if (!s) syntaxError()
 
             // Break on closing double quote
-            if (code === 34) break
+            if (s === '"') {
+                offset++
+                break
+            }
 
             // Reject newlines
-            if (code === 10 || code === 13) { // `\n` `\r`
-                syntaxError()
-            }
+            if (s === '\n' || s === '\r') syntaxError()
 
-            // Switch to advanced parser if escape is found
-            if (code === 92) { // `\\`
-                offset = start
-                return decodeEscapedString()
-            }
+            // Consume a character
+            offset++
 
-            // Skip the whole code point (may be multibyte)
-            offset += String.fromCodePoint(code).length
+            // Skip the rest of escapes if found
+            if (s === '\\') {
+                const e = str[offset]
+                if (!e) syntaxError()
+                if (e === 'u') {
+                    offset += 4
+                } else {
+                    offset++
+                }
+            }
         }
-        return str.substring(start, offset++)
+
+        // Let JSON.parse to the hard work for us :D
+        return JSON.parse(str.substring(start, offset))
     }
 
     /** @returns {Uint8Array} */
@@ -215,11 +225,6 @@ export function decode(str, filename = '(string)') {
         }
         offset = end
         return buf
-    }
-
-    /** @returns {string} */
-    function decodeEscapedString() {
-        throw new Error("TODO: decodeEscapedString")
     }
 
     function decodeRef() {
@@ -382,6 +387,9 @@ export function decode(str, filename = '(string)') {
  * @returns {string}
  */
 export function encode(val) {
+    if (val === Infinity) return 'inf'
+    if (val === -Infinity) return '-inf'
+    if (val !== val) return 'nan'
     const t = typeof (val)
     if (t === 'bigint') return val.toString(10)
     if (t !== 'object' || !val) return JSON.stringify(val)
