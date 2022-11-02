@@ -14,6 +14,7 @@ jobs:
       - name: Run tests
         run: |
           cd js && npm i
+          node tests/test-docs.js
           node tests/test-text-format.js
           node tests/test-nibs-encoder.js
           node tests/test-nibs-decoder.js

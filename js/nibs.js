@@ -510,7 +510,7 @@ function encodeAny(val) {
             }
             return encodeMap(val)
         }
-        if (typeof (val[isRef] === 'number')) {
+        if (typeof (val[isRef]) === 'number') {
             return encodePair(REF, val[isRef])
         }
         if (val[isIndexed]) {
