@@ -39,6 +39,11 @@ Decoding turns any memory buffer into a nibs object.
 
 ```js
 const decoded = decode(encoded)
+
+// All nibs maps decode to JavaScript maps.
+// It doesn't matter of you used a map or an object when encoding.
+// I'm considering a variant of this library that decodes to JS objects instead.
+const hello = decoded.get('hello')
 ```
 
 ### Lazy Reading
