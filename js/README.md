@@ -14,20 +14,25 @@ npm i nibs
 
 ## Usage
 
+Nibs is packaged as an ES module.  You can import the exports individually:
+
 ```js
 import { 
-    encode, // Converts a JS value into a Nibs encoded Uint8Array
-    decode, // Converts a Nibs encoded Uint8Array into a lazy JS value
-    optimize, // Converts a JS value into one optimized with refs and indices
-    fromTibs, // Parses a Tibs string to JS value.
-    toTibs // Encodes a JS value to a Tibs string.
+    encode, // JS Value -> Nibs Uint8Array
+    decode, // Nibs Uint8Array -> Lazy JS Value
 } from 'nibs'
+```
+
+Or you can grab the entire namespace:
+
+```js
+import * as Nibs from 'nibs'
 ```
 
 Encoding turns any supported JS value into a memory buffer.
 
 ```js
-const encoded = encode({ hello: "world" })
+const encoded = Nibs.encode({ hello: "world" })
 ```
 
 Decoding turns any memory buffer into a nibs object.
