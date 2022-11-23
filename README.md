@@ -87,12 +87,11 @@ enum Type {
     Bytes     = 8, // big = len (raw octets)
     Utf8      = 9, // big = len (utf-8 encoded unicode string)
     HexString = a, // big = len (lowercase hex string stored as binary)
-    List      = b, // big = len (list of nibs values)
-    Map       = c, // big = len (list of alternating nibs keys and values)
-    Array     = d, // big = len (array index then list)
+    List      = b, // big = len (value offsets then list of nibs values)
                    // small2 = width, big2 = count
-    Trie      = e, // big = len (trie index then list)
+    Map       = c, // big = len (sorted key offsets then list of alternating nibs keys and values)
                    // small2 = width, big2 = count
+    // slots d-e reserved
     Scope     = f, // big = len (wrapped value, then array of refs)
                    // small2 = width, big2 = count
 };
@@ -242,34 +241,82 @@ a4 --> HexString(4)
 
 ### List
 
-The `list` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
+The `list` type is a ordered list of values.  A secondary nibs pair is used to encode the pointer width and count of entries.  If width is zero, the optional index is omitted.
+
+If the pointer width is non-zero then an array of fixed width pointers is inserted before the payload.  The payload is simply a list of encoded nibs values concatenated back to back.
+
+The pointers in the index are offset distances from the end of the index (the start of the list of values).  When the index isn't used, width is zero.
 
 ```lua
-b0 --> List(0)
+b1 00 --> List(len=1,width=0,count=0)
 --> []
 
-b3 --> List(3)
+b4 03 --> List(len=4,width=0,count=3)
   02 --> ZigZag(2)
   04 --> ZigZag(4)
   06 --> ZigZag(6)
 --> [1,2,3]
 
-b6 --> List(6)
-  b1 --> List(1)
+ba --> List(10)
+  03 --> Index(width=0,count=3)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
     02 --> ZigZag(2)
-  b1 --> List(1)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
     04 --> ZigZag(4)
-  b1 --> List(1)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
     06 --> ZigZag(6)
 --> [[1],[2],[3]]
+
+b7 --> List(7)
+  13 --> Index(width=1,count=3)
+    00 --> Pointer(0)
+    01 --> Pointer(1)
+    02 --> Pointer(2)
+  02 --> ZigZag(2)
+  04 --> ZigZag(4)
+  06 --> ZigZag(6)
+--> [1,2,3]
+
+bc 0d --> List-8(13)
+  13 --> Index(width=1,count=3)
+    00 --> Pointer(0)
+    03 --> Pointer(3)
+    06 --> Pointer(6)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
+    02 --> ZigZag(2)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
+    04 --> ZigZag(4)
+  b2 --> List(2)
+    01 --> Index(width=0,count=1)
+    06 --> ZigZag(6)
+--> [[1],[2],[3]]
+
 ```
 
 ### Map
 
-Map is the same, except the items are considered alternatinv keys and values.  Lookup by key is O(2n).
+Map is just like list, except the items are considered alternating keys and values.  Lookup by key is O(2n) when no index is used and O(log n) when the index is used.  The index is the offsets of the keys sorted lexigraphically by nibs encoded binary value.  This way a reader can quickly jump to a certain key using a binary search.
 
 ```lua
-cb --> Map(11)
+cc--> Map(12)
+  02 --> Index(width=0,count=2)
+  94 --> Utf8(4)
+    6e 61 6d 65 --> `n` `a` `m` `e`
+  93 --> Utf8(3)
+    54 69 6d --> `T` `i` `m`
+  21 --> Simple(1)
+  20 --> Simple(0)
+--> {"name":"Tim",true:false}
+
+cd 0e --> Map-8(14)
+  12 --> Index(width=1,count=2)
+    05 --> Pointer(5)
+    00 --> Pointer(0)
   94 --> Utf8(4)
     6e 61 6d 65 --> `n` `a` `m` `e`
   93 --> Utf8(3)
@@ -279,121 +326,8 @@ cb --> Map(11)
 --> {"name":"Tim",true:false}
 ```
 
-### Array
+Note that while the keys are sorted in the index pointers, the order of the keys in the payload are preserved as arbitrary order as defined by the encoder.
 
-The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
-
-This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the end of the index (the start of the list of values).
-
-```lua
-d7 --> Array(7)
-  13 --> ArrayIndex(width=1,count=3)
-    00 --> Pointer(0)
-    01 --> Pointer(1)
-    02 --> Pointer(2)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
---> [1,2,3]
-```
-
-### Trie
-
-A trie is an indexed map, this is done by creating a HAMT prefix trie from the nibs binary encoded map key hashed.
-
-This index is a HAMT ([Hash Array Mapped Trie](https://en.wikipedia.org/wiki/Hash_array_mapped_trie)). The keys need to be mapped to uniformly distributed hashes.  By default nibs uses the [xxhash64](https://github.com/Cyan4973/xxHash) algorithm.
-
-The secondary nibs pair is pointer width and size of trie in entries.
-
-Example key hashing.
-
-```c++
-key = "name"                   // "name"
-encoded = nibs.encode(key)     // <946e616d65>
-seed = 0                       // 0
-hash = xxhash64(encoded, seed) // 0xff0dd0ea8d956135ULL
-```
-
-```lua
-ec 11 --> Trie-8(17)
-  14 --> TrieIndex(width=4,count=4)
-    00 --> HashSeed(0)
-    21 --> Bitmask([0,5])
-    8a --> Leaf(10)
-    80 --> Leaf(0)
-  94 --> Utf8(4)
-    6e --> 'n'
-    61 --> 'a'
-    6d --> 'm'
-    65 --> 'e'
-  94 --> Utf8(4)
-    4e --> 'N'
-    69 --> 'i'
-    62 --> 'b'
-    73 --> 's'
-  21 --> Simple(1)
-  20 --> Simple(0)
---> {"name":"Nibs",true:false}
-```
-
-The same value with a worse seed chosen can show an internal node:
-
-```lua
-ec 13 --> Trie-8(19)
-  16 --> IndexHeader(width=1,count=6)
-    03 --> HashSeed(3)
-    04 --> Bitmask([2])
-    00 --> Pointer(0)
-    22 --> Bitmask([1,5])
-    80 --> Leaf(0)
-    8a --> Leaf(10)
-  94 --> Utf8(4)
-    6e --> 'n'
-    61 --> 'a'
-    6d --> 'm'
-    65 --> 'e'
-  94 --> Utf8(4)
-    4e --> 'N'
-    69 --> 'i'
-    62 --> 'b'
-    73 --> 's'
-  21 --> Simple(1)
-  20 --> Simple(0)
---> {"name":"Nibs",true:false}
-```
-
-### HAMT Encoding
-
-Each node in the trie index has a bitfield so that only used pointers need to be stored.
-
-For example, consider a simplified 4-bit wide trie node with 4 hashes pointing to values at offsets 0,1,2,3:
-
-- `0101` -> 0
-- `0011` -> 1
-- `1010` -> 2
-- `1011` -> 3
-
-Since the width is 4 bits, we can only consume the hash 2 bits at a time (starting with least-significant).
-
-This means the root node has 3 entries for `01`, `10`, and `11`.  Since two keys share the `11` prefix a second node is needed.
-
-```c++
-// Hash config
- 0000 // (seed 0)
-// Root Node (xxxx)
- 1110 // Bitfield [1,2,3]
-1 000 // xx01 -> leaf 0
-1 010 // xx10 -> leaf 2
-0 000 // xx11 -> node 0
-// Second Node (xx11)
- 0101 // Bitfield [0,2]
-1 001 // 0011 -> leaf 1
-1 000 // 1011 -> leaf 3
-```
-
-For each 1 in the bitfield, a pointer follows in the node.  The least significant bit is 0, most significant is 3.
-
-The pointers have a 1 prefix in the most significant position when pointing to a leaf node.  The value is offset from the start of the map (after the index).  Internal pointers start with a 0 in the most significant position followed by an offset from the end of the pointer.
 
 ### References
 
@@ -458,72 +392,77 @@ In this example, the refs table overhead is:
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
 ```lua
-fc 0f --> Ref-8(15)
-  14 --> ArrayIndex(width=1,count=4)
-    00 --> Pointer(0) -> 1
-    01 --> Pointer(1) -> 2
-    02 --> Pointer(2) -> 3
-    03 --> Pointer(3) -> 4
-    04 --> Pointer(4) -> value
-  02 --> ZigZag(2) = 1
-  04 --> ZigZag(4) = 2
-  06 --> ZigZag(6) = 3
-  08 --> ZigZag(8) = 4
-  b4 --> List(4)
+fc0f --> Ref-8(15)
+  b5 --> List(5)
+    04 --> Index(width=0,count=4)
     33 --> Ref(3) -> Pointer(8) -> 4
     31 --> Ref(1) -> Pointer(6) -> 2
     32 --> Ref(2) -> Pointer(7) -> 3
     30 --> Ref(0) -> Pointer(5) -> 1
---> RefScope(1,2,3,4,[&3,&1,&2,&0])
+  14 --> Index(width=1,count=4)
+    00 --> Pointer(0) -> 1
+    01 --> Pointer(1) -> 2
+    02 --> Pointer(2) -> 3
+    03 --> Pointer(3) -> 4
+  02 --> ZigZag(2) = 1
+  04 --> ZigZag(4) = 2
+  06 --> ZigZag(6) = 3
+  08 --> ZigZag(8) = 4
+--> RefScope([&3,&1,&2,&0],1,2,3,4)
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
 
 ```lua
-fb --> Ref(11)
-  13 --> ArrayIndex(width=1,count=2)
+fa --> Ref(10)
+  31 --> Ref(1) -> "beef"
+  13 --> Index(width=1,count=2)
     00 --> Pointer(0) -> "dead"
-    03 --> Pointer(6) -> "beef"
-    06 --> Pointer(6) -> value
+    03 --> Pointer(3) -> "beef"
   a2 --> HexString(2)
     dead
   a2 --> HexString(2)
     beef
-  31 --> Ref(1) -> "beef"
---> RefScope("dead","beef",&1)
+--> RefScope(&1,"dead","beef")
 ```
 
 The larger ref example from above would be encoded like this:
 
 ```lua
-fc 4f --> Ref-8(79)
-  14 --> ArrayIndex(width=1,count=3)
+fc 51 --> Ref-8(81)
+  bc 38 --> List-8(56)
+    03 --> Index(count=3)
+    cc 14 --> Map-8(20)
+      02 --> Index(count=2)
+      30 --> Ref(0)
+      93 726564 --> "red"
+      31 --> Ref(1)
+      bc 0c --> List-8(13)
+        02 --> Index(count=2)
+        32 --> Ref(2)
+        9a 73747261776265727279 --> "strawberry"
+    cc 0c --> Map-8(12)
+      02 --> Index(count=3)
+      30 --> Ref(0)
+      95 677265656e --> "green"
+      31 --> Ref(1)
+      b2 --> List(2)
+        01 --> Index(count=1)
+        32 --> Ref(2)
+    cc 14 --> Map-8(20)
+      02 --> Index(count=2)
+      30 --> Ref(0)
+      96 79656c6c6f77 --> "yellow"
+      31 --> Ref(1)
+      b9 --> List(9)
+        02 --> Index(count=2)
+        32 --> Ref(2)
+        96 62616e616e61 --> "banana"
+  14 --> Index(width=1,count=3)
     00 --> Ptr(0)
     06 --> Ptr(6)
     0d --> Ptr(13)
-    13 --> Ptr(19)
-  95636f6c6f72 --> "color"
-  96667275697473 --> "fruits"
-  956170706c65 --> "apple"
-  bc 35 --> List-8(53)
-    cc 14 --> Map-8(20)
-      30 --> Ref(0)
-      93726564 --> "red"
-      31 --> Ref(1)
-      bc 0c --> List-8(12)
-        32 --> Ref(2)
-        9a73747261776265727279 --> "strawberry"
-    ca --> Map(10)
-      30 --> Ref(0)
-      95677265656e --> "green"
-      31 --> Ref(1)
-      b1 --> List(1)
-        32 --> Ref(2)
-    cc 12 --> Map-8(18)
-      30 --> Ref(0)
-      9679656c6c6f77 --> "yellow"
-      31 --> Ref(1)
-      b8 --> List(8)
-        32 --> Ref(2)
-        9662616e616e61 --> "banana"
+  95 636f6c6f72 --> "color"
+  96 667275697473 --> "fruits"
+  95 6170706c65 --> "apple"
 ```
