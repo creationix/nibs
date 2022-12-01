@@ -6,7 +6,7 @@
         "email": "tim@creationix.com"
     },
     "scripts": {
-        "test": "node tests/test-*.js"
+        "test": "ls tests/test-*.js | xargs -n1 node"
     },
     "type": "module",
     "main": "index.js",
