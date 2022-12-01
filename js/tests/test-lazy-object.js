@@ -16,12 +16,12 @@ assert(!Object.getOwnPropertyDescriptor(v1, '0')?.get)
 assert(!Object.getOwnPropertyDescriptor(v1, '1')?.get)
 assert(!Object.getOwnPropertyDescriptor(v1, '2')?.get)
 
-const v2 = Nibs.decode(Nibs.encode(Tibs.decode('{0:1,1:2,2:3}')))
-console.log("\nOriginal lazy map:")
+const v2 = Nibs.decode(Nibs.encode(Tibs.decode('{"one":1,"two":2,"three":3}')))
+console.log("\nOriginal lazy object:")
 console.log(inspect(v2, true, 3, true))
 assert(Object.getOwnPropertyDescriptor(v2, 'get') !== undefined)
 expand(v2)
-console.log("\nLazy map after expansion:")
+console.log("\nLazy object after expansion:")
 console.log(inspect(v2, true, 3, true))
 assert(Object.getOwnPropertyDescriptor(v2, 'get') === undefined)
 
@@ -39,7 +39,7 @@ function expand(doc) {
             if (Array.isArray(doc)) {
                 doc.forEach(walk)
             } else {
-                for (const [k, v] of doc.entries()) {
+                for (const [k, v] of Object.entries(doc)) {
                     walk(k)
                     walk(v)
                 }
