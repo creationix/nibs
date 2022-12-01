@@ -107,7 +107,7 @@ const matchers = [
     ],
 ]
 
-for (const [name, value] of inputs.entries()) {
+for (const [name, value] of Object.entries(inputs)) {
 
     for (const [test, actions] of Object.entries(tests)) {
         let result = value

@@ -240,7 +240,7 @@ function encodeArray(val) {
 function encodeMap(val) {
     let totalLen = 0
     const parts = []
-    for (const [key, value] of val) {
+    for (let [key, value] of val) {
         const [keyLen, ...keyparts] = encodeAny(key)
         const encodedKey = flatten(keyLen, keyparts)
         parts.push(encodedKey)
@@ -722,11 +722,14 @@ function decodeMap(data, alpha, omega, scope) {
         Object.defineProperty(map, key, {
             get() {
                 const [value] = decodeAny(data, index, scope)
-                return map[key] = value
+                Object.defineProperty(map, key, {
+                    value,
+                    enumerable: true,
+                })
+                return value
             },
             enumerable: true,
             configurable: true,
-            writable: true,
         })
 
         alpha = skip(data, index)
@@ -741,7 +744,7 @@ function decodeMap(data, alpha, omega, scope) {
  * @param {number} alpha
  * @param {number} omega
  * @param {RefScope} scope
- * @returns {[Map<any,any>, number]}
+ * @returns {[Object<string,any>, number]}
  */
 function decodeTrie(data, alpha, omega, scope) {
     const { little, big, newoffset } = decodePair(data, alpha)

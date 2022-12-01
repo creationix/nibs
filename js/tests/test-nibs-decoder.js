@@ -25,8 +25,16 @@ function same(a, b) {
     if (t !== typeof (b)) return false
     if (a !== a && b !== b) return true // Treat two NaN values as equal
     if (t === 'object') {
-        const ca = Object.prototype.toString.call(a)
-        const cb = Object.prototype.toString.call(b)
+        let ca = Object.prototype.toString.call(a)
+        if (ca == "[object Object]") {
+            a = new Map(Object.entries(a))
+            ca = "[object Map]"
+        }
+        let cb = Object.prototype.toString.call(b)
+        if (cb == "[object Object]") {
+            b = new Map(Object.entries(b))
+            cb = "[object Map]"
+        }
         if (ca === cb) {
             if (ca === '[object Uint8Array]' || ca === '[object Array]') {
                 if (a[isScope] !== b[isScope] ||
