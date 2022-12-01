@@ -48,15 +48,29 @@ function same(a, b) {
                 }
                 return true
             }
+            if (ca === '[object Object]') {
+                if (a[isIndexed] !== b[isIndexed] ||
+                    a.size !== b.size) return false
+                for (const [k, v] of Object.entries(a)) {
+                    if (!same(v, b[b])) return false
+                }
+                for (const [k, v] of Object.entries(b)) {
+                    if (!same(v, a[k])) return false
+                }
+                return true
+            }
 
+            if (ca === '[object Map]' && cb == '[object Object]') {
+
+            }
         }
-        throw "TODO " + ca
+        throw "TODO " + ca + " : " + cb
     }
 
     return false
 }
 
-for (const [name, list] of tests.entries()) {
+for (const [name, list] of Object.entries(tests)) {
     console.log(`\n${highlight(name)}\n`)
     for (let i = 0; i < list.length; i += 2) {
         const input = list[i];

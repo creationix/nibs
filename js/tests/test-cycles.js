@@ -14,7 +14,7 @@ const decoded = Nibs.decode(encoded)
 console.log(decoded)
 decoded[4]
 console.log(decoded)
-decoded[4].get('cycle')
+decoded[4].cycle
 console.log(decoded)
 decoded[3]
 console.log(decoded)

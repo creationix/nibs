@@ -35,7 +35,7 @@ function expand(doc) {
             if (Array.isArray(doc)) {
                 doc.forEach(walk)
             } else {
-                for (const [k, v] of doc.entries()) {
+                for (const [k, v] of Object.entries(doc)) {
                     walk(k)
                     walk(v)
                 }
