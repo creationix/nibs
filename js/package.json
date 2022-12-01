@@ -5,6 +5,9 @@
         "name": "Tim Caswell",
         "email": "tim@creationix.com"
     },
+    "scripts": {
+        "test": "node tests/test-*.js"
+    },
     "type": "module",
     "main": "index.js",
     "dependencies": {
