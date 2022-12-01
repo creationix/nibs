@@ -14,6 +14,7 @@ function highlight(str) {
     return `\x1b[38;5;45;48;5;236m${str}\x1b[0m`
 }
 
+
 /**
  * @param {any} a 
  * @param {any} b 
@@ -26,14 +27,16 @@ function same(a, b) {
     if (a !== a && b !== b) return true // Treat two NaN values as equal
     if (t === 'object') {
         let ca = Object.prototype.toString.call(a)
-        if (ca == "[object Object]") {
-            a = new Map(Object.entries(a))
-            ca = "[object Map]"
-        }
         let cb = Object.prototype.toString.call(b)
-        if (cb == "[object Object]") {
-            b = new Map(Object.entries(b))
-            cb = "[object Map]"
+        if (ca !== cb) {
+            if (ca == "[object Object]") {
+                a = Nibs.toMap(a)
+                ca = "[object Map]"
+            }
+            if (cb == "[object Object]") {
+                b = Nibs.toMap(b)
+                cb = "[object Map]"
+            }
         }
         if (ca === cb) {
             if (ca === '[object Uint8Array]' || ca === '[object Array]') {
@@ -59,10 +62,10 @@ function same(a, b) {
             if (ca === '[object Object]') {
                 if (a[isIndexed] !== b[isIndexed] ||
                     a.size !== b.size) return false
-                for (const [k, v] of Object.entries(a)) {
-                    if (!same(v, b[b])) return false
+                for (let [k, v] of Object.entries(a)) {
+                    if (!same(v, b[k])) return false
                 }
-                for (const [k, v] of Object.entries(b)) {
+                for (let [k, v] of Object.entries(b)) {
                     if (!same(v, a[k])) return false
                 }
                 return true
