@@ -1,0 +1,9 @@
+{
+    "Lua.runtime.version": "LuaJIT",
+    "Lua.diagnostics.globals": [
+        "p"
+    ],
+    "editor.semanticHighlighting.enabled": true,
+    "Lua.hint.enable": false,
+    "Lua.hint.setType": true
+}
