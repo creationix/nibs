@@ -914,49 +914,156 @@ function findRefs(doc) {
     )
 }
 
+/** @typedef {{indexLimit?:number,refs?:(Map<any,number>|any[])}} OptimizeOptions */
+
 /**
  * @param {any} doc
- * @param {number} indexLimit Use indexes if count is at least this number
- * @param {Map<any,number>|undefined} refs Optional list of values to use as references.
+ * @param {OptimizeOptions} options Use indexes if count is at least this number
  * @returns {any} but with optimizations
  */
-export function optimize(doc, indexLimit = 12, refs = undefined, skipRefCheck = false) {
-    if (!refs) {
-        const found = findRefs(doc)
-        doc = optimize(doc, indexLimit, found)
-        if (found.size === 0) return doc
-        const scope = [doc]
-        for (const ref of found.keys()) {
-            scope.push(optimize(ref, indexLimit, found, true))
-        }
-        Object.defineProperty(scope, isScope, { value: true })
-        return scope
+export function optimize(doc, options = {}) {
+
+    let { refs, indexLimit = 1024 } = options
+    if (Array.isArray(refs)) {
+        refs = new Map(Array.from(refs.values()).map((v, i) => [v, i]))
+    } else if (!refs) {
+        refs = findRefs(doc)
     }
-    if (!skipRefCheck && refs.get(doc) !== undefined) {
+
+    doc = process(doc, indexLimit, refs)
+
+    // If there were no refs, we don't need a scope
+    if (refs.size === 0) return doc
+
+    // Otherwise we wrap it in a scope that includes the refs
+    const scope = [doc]
+    for (const ref of refs.keys()) {
+        scope.push(process(ref, indexLimit, refs, true))
+    }
+    Object.defineProperty(scope, isScope, { value: true })
+    return scope
+}
+
+/** @param {number|bigint} big */
+function primitiveCost(big) {
+    return (big < 12) ? 1
+        : (big < 0x100) ? 2
+            : (big < 0x10000) ? 3
+                : (big < 0x100000000) ? 5
+                    : 9
+}
+
+/** @param {number} ptr */
+function iPointerCost(ptr) {
+    return (ptr < 0x80) ? 1
+        : (ptr < 0x8000) ? 2
+            : (ptr < 0x800000000) ? 4
+                : 8
+}
+
+/** @param {number} ptr */
+function uPointerCost(ptr) {
+    return (ptr < 0x100) ? 1
+        : (ptr < 0x10000) ? 2
+            : (ptr < 0x1000000000) ? 4
+                : 8
+}
+
+/** @param {number|bigint} big */
+function containerCost(big) {
+    big = Number(big)
+    return (big < 12) ? 1 + big
+        : (big < 0x100) ? 2 + big
+            : (big < 0x10000) ? 3 + big
+                : (big < 0x100000000) ? 5 + big
+                    : 9 + big
+}
+
+/** Estimate cost of a nibs value to encode
+ * @param {any} val 
+ * @returns {number}
+ */
+export function estimateCost(val) {
+    const t = typeof (val)
+    // ZigZag and Float
+    if (t === 'number' || t === 'bigint') {
+        return (Math.floor(val) !== val || val == 1 / 0 || val == -1 / 0) ? 9 :
+            (val < 6 && val >= -6) ? 1 :
+                (val < 0x80 && val >= -0x80) ? 2 :
+                    (val < 0x8000 && val >= -0x8000) ? 3 :
+                        (val < 0x80000000 && val >= -0x80000000) ? 5 : 9
+    }
+    // Simple
+    if (val === null || t === 'boolean') return 1
+    // Ref
+    if (typeof val[isRef] === 'number') return primitiveCost(val[isRef])
+
+    // Bytes
+    if (ArrayBuffer.isView(val)) {
+        return containerCost(val.byteLength)
+    }
+    // Utf8 and HexString
+    if (t === 'string') {
+        return /^([0-9a-f][0-9a-f])+$/.test(val)
+            ? containerCost(t.length)
+            : containerCost(t.length >>> 1)
+    }
+    // List, Array, and estimate for Scope
+    if (Array.isArray(val)) {
+        // payload
+        let cost = val.reduce((prev, curr) => prev + estimateCost(curr), 0)
+        // optional index
+        if (val[isIndexed] || val[isScope]) {
+            cost += 1 + uPointerCost(cost) * val.length
+        }
+        return containerCost(cost)
+    }
+    // Map and estimate for Trie
+    const iter = val instanceof Map
+        ? val.entries() : Object.entries(val)
+    let cost = 0
+    let count = 0
+    for (const [k, v] of iter) {
+        cost += estimateCost(k) + estimateCost(v)
+        count++
+    }
+    // optional index
+    if (val[isIndexed]) cost += 1 + uPointerCost(cost) * count
+    return containerCost(cost)
+}
+
+/**
+ * @param {any} val 
+ * @param {number} indexLimit 
+ * @param {Map<any,number>} refs 
+ * @param {boolean} skipRefCheck 
+ * @returns 
+ */
+function process(val, indexLimit, refs, skipRefCheck = false) {
+    if (!skipRefCheck && refs.get(val) !== undefined) {
         const ref = {}
-        Object.defineProperty(ref, isRef, { value: refs.get(doc) })
+        Object.defineProperty(ref, isRef, { value: refs.get(val) })
         return ref
     }
-    const t = typeof (doc)
-    if (t !== "object" || !doc) return doc
+    const t = typeof (val)
+    if (t !== "object" || !val) return val
     let count
-    if (Array.isArray(doc)) {
-        count = doc.length
-        doc = doc.map(v => optimize(v, indexLimit, refs))
+    if (Array.isArray(val)) {
+        val = val.map(v => process(v, indexLimit, refs))
     } else {
-        if (!(doc instanceof Map)) {
-            doc = new Map(Object.entries(doc))
-        }
-        count = 0
         const copy = new Map()
-        for (const [k, v] of doc.entries()) {
-            copy.set(optimize(k, indexLimit, refs), optimize(v, indexLimit, refs))
-            count++
+        const iter = val instanceof Map
+            ? val.entries()
+            : Object.entries(val)
+        for (const [k, v] of iter) {
+            copy.set(process(k, indexLimit, refs), process(v, indexLimit, refs))
         }
-        doc = copy
+        val = copy
     }
-    if (count >= indexLimit) {
-        Object.defineProperty(doc, isIndexed, { value: true })
+    const cost = estimateCost(val)
+    console.log({ cost })
+    if (cost >= indexLimit) {
+        Object.defineProperty(val, isIndexed, { value: true })
     }
-    return doc
+    return val
 }
