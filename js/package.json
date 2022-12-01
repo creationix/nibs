@@ -1,13 +1,10 @@
 {
+    "version": "3.0.0",
     "name": "nibs",
-    "version": "2.0.4",
     "author": {
         "name": "Tim Caswell",
         "email": "tim@creationix.com"
     },
     "type": "module",
-    "main": "index.js",
-    "dependencies": {
-        "xxhash": "^0.3.0"
-    }
+    "main": "index.js"
 }
