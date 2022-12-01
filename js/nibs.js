@@ -927,3 +927,16 @@ export function optimize(doc, indexLimit = 12, refs = undefined, skipRefCheck = 
     }
     return doc
 }
+
+// Convert Objects back to maps and assume integers are integers and boolean is boolean.
+export function toMap(obj) {
+    const map = new Map(Object.entries(obj).map(([k, v]) => [
+        /^[0-9]+$/.test(k) ? parseInt(k, 10) :
+            k === 'true' ? true :
+                k === 'false' ? false : k, v
+    ]))
+    for (const sym of Object.getOwnPropertySymbols(obj)) {
+        map[sym] = obj[sym]
+    }
+    return map
+}
