@@ -712,60 +712,24 @@ const lazy = Symbol('lazy')
  * @param {number} alpha
  * @param {number} omega
  * @param {RefScope} scope
- * @returns {[Map<any,any>, number]}
+ * @returns {[Object<string,any>, number]}
  */
 function decodeMap(data, alpha, omega, scope) {
-    const map = new Map()
-    const indices = new Map()
-    /**
-     * @param {any} key 
-     * @returns {any}
-     */
-    let left = 0
-    Object.defineProperty(map, 'get', {
-        writable: true, configurable: true, value: key => {
-            let value = Map.prototype.get.call(map, key)
-            if (value === lazy) {
-                left--
-                const offset = indices.get(key)
-                if (typeof offset !== 'number') return
-                value = decodeAny(data, offset, scope)[0]
-                map.set(key, value)
-                if (left === 0) {
-                    delete map.get
-                    delete map.entries
-                    delete map.values
-                }
-            }
-            return value
-        }
-    })
-    Object.defineProperty(map, 'entries', {
-        writable: true, configurable: true, value: () => {
-            return function* () {
-                for (const key of map.keys()) {
-                    yield [key, map.get(key)]
-                }
-            }()
-        }
-    })
-    Object.defineProperty(map, 'values', {
-        writable: true, configurable: true, value: () => {
-            return function* () {
-                for (const key of map.keys()) {
-                    yield map.get(key)
-                }
-            }()
-        }
-    })
+    const map = {}
 
     while (alpha < omega) {
-        const [key, newoffset] = decodeAny(data, alpha, scope)
-        alpha = newoffset
-        indices.set(key, alpha)
-        alpha = skip(data, alpha)
-        map.set(key, lazy)
-        left++
+        const [key, index] = decodeAny(data, alpha, scope)
+        Object.defineProperty(map, key, {
+            get() {
+                const [value] = decodeAny(data, index, scope)
+                return map[key] = value
+            },
+            enumerable: true,
+            configurable: true,
+            writable: true,
+        })
+
+        alpha = skip(data, index)
     }
     if (alpha !== omega) throw new Error("Extra data in map/trie")
 
