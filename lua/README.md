@@ -18,17 +18,25 @@ lit install creationix/nibs
 local Nibs = require 'nibs'
 ```
 
+### Encode
+
 Encoding turns any lua value into a memory buffer.
 
 ```lua
 local encoded = Nibs.encode { hello = "world" }
 ```
 
+### Decode
+
 Decoding turns any memory buffer into a nibs object.
 
 ```lua
 local decoded = Nibs.decode(encoded)
 ```
+
+### Get
+
+The `Nibs.get(reader,offset)` interface is an advanced interface where instead of providing the entire nibs value as a string, you instead provide a byte provider function and an offset and it will lazily fetch the bytes as needed.  This enabled mounting remote nibs values and only downloading the bytes needed.
 
 ### Lazy Reading
 

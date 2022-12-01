@@ -13,5 +13,13 @@ jobs:
       - run: echo "🖥️ The workflow is now ready to test your code on the runner."
       - name: Run tests
         run: |
-          node js/test-nibs.js
+          cd js && npm i
+          node tests/test-docs.js
+          node tests/test-text-format.js
+          node tests/test-nibs-encoder.js
+          node tests/test-nibs-decoder.js
+          node tests/test-nibs-utils.js
+          node tests/test-cycles.js
+          node tests/test-lazy-map.js
+          node tests/test-xxhash.js
       - run: echo "🍏 This job's status is ${{ job.status }}."

@@ -14,20 +14,36 @@ npm i nibs
 
 ## Usage
 
+Nibs is packaged as an ES module.  You can import the exports individually:
+
 ```js
-import { encode, decode } from 'nibs'
+import { 
+    encode, // JS Value -> Nibs Uint8Array
+    decode, // Nibs Uint8Array -> Lazy JS Value
+} from 'nibs'
+```
+
+Or you can grab the entire namespace:
+
+```js
+import * as Nibs from 'nibs'
 ```
 
 Encoding turns any supported JS value into a memory buffer.
 
 ```js
-const encoded = encode { hello: "world" }
+const encoded = Nibs.encode({ hello: "world" })
 ```
 
 Decoding turns any memory buffer into a nibs object.
 
 ```js
 const decoded = decode(encoded)
+
+// All nibs maps decode to JavaScript maps.
+// It doesn't matter of you used a map or an object when encoding.
+// I'm considering a variant of this library that decodes to JS objects instead.
+const hello = decoded.get('hello')
 ```
 
 ### Lazy Reading

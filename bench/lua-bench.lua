@@ -15,26 +15,26 @@ local function bench(name, action, fn)
         fn(count)
         count = count + 1
     end
-    local delta = (uv.hrtime() - start)/1000000000
-    p{count=count,delta=delta}
+    local delta = (uv.hrtime() - start) / 1000000000
+    p { count = count, delta = delta }
     local rps = count / delta
     print(name .. " " .. action .. "s per second: " .. tostring(rps))
     return rps
 end
 
-function walk(data, i)
+local function walk(data, i)
     return {
-        City = data.weather[i+1].Station.City,
-        State = data.weather[i+1].Station.State,
+        City = data.weather[i + 1].Station.City,
+        State = data.weather[i + 1].Station.State,
     }
 end
 
 for i = 1, 5 do
-    bench("nibs", "decode", function () Nibs.decode(nibs) end)
+    bench("nibs", "decode", function() Nibs.decode(nibs) end)
     local nibsData = Nibs.decode(nibs)
-    bench("nibs", "walk", function (i) walk(nibsData, i % 100) end)
-    bench("json", "parse", function () JSON.parse(json) end)
+    bench("nibs", "walk", function(i) walk(nibsData, i % 100) end)
+    bench("json", "parse", function() JSON.parse(json) end)
     local data = JSON.parse(json)
-    bench("json", "encode", function () return JSON.stringify(data) end)
-    bench("nibs", "encode", function () return Nibs.encode(data) end)
+    bench("json", "encode", function() return JSON.stringify(data) end)
+    bench("nibs", "encode", function() return Nibs.encode(data) end)
 end
