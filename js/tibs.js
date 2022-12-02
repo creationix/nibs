@@ -290,14 +290,16 @@ export function decode(str, filename = '(string)') {
 
     /** @returns {object} */
     function decodeMapOrTrie() {
-        const obj = new Map()
+        let obj = new Map()
+        let allStrings = true
+        let hasIndex = false
 
         // Skip leading curly brace
         offset++
 
         // If the object is annotated with `#` mark it as indexed for nibs.
         if (str[offset] === '#') {
-            Object.defineProperty(obj, isIndexed, { value: true })
+            hasIndex = true
             offset++
         }
 
@@ -335,8 +337,16 @@ export function decode(str, filename = '(string)') {
             // Parse a single value
             const value = decodeAny()
 
+            if (typeof key !== 'string') allStrings = false
+
             // Store it in the object
             obj.set(key, value)
+        }
+        if (allStrings) {
+            obj = Object.fromEntries(obj.entries())
+        }
+        if (hasIndex) {
+            Object.defineProperty(obj, isIndexed, { value: true })
         }
         return obj
     }

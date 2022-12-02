@@ -240,7 +240,7 @@ function encodeArray(val) {
 function encodeMap(val) {
     let totalLen = 0
     const parts = []
-    for (const [key, value] of val) {
+    for (let [key, value] of val) {
         const [keyLen, ...keyparts] = encodeAny(key)
         const encodedKey = flatten(keyLen, keyparts)
         parts.push(encodedKey)
@@ -712,60 +712,27 @@ const lazy = Symbol('lazy')
  * @param {number} alpha
  * @param {number} omega
  * @param {RefScope} scope
- * @returns {[Map<any,any>, number]}
+ * @returns {[Object<string,any>, number]}
  */
 function decodeMap(data, alpha, omega, scope) {
-    const map = new Map()
-    const indices = new Map()
-    /**
-     * @param {any} key 
-     * @returns {any}
-     */
-    let left = 0
-    Object.defineProperty(map, 'get', {
-        writable: true, configurable: true, value: key => {
-            let value = Map.prototype.get.call(map, key)
-            if (value === lazy) {
-                left--
-                const offset = indices.get(key)
-                if (typeof offset !== 'number') return
-                value = decodeAny(data, offset, scope)[0]
-                map.set(key, value)
-                if (left === 0) {
-                    delete map.get
-                    delete map.entries
-                    delete map.values
-                }
-            }
-            return value
-        }
-    })
-    Object.defineProperty(map, 'entries', {
-        writable: true, configurable: true, value: () => {
-            return function* () {
-                for (const key of map.keys()) {
-                    yield [key, map.get(key)]
-                }
-            }()
-        }
-    })
-    Object.defineProperty(map, 'values', {
-        writable: true, configurable: true, value: () => {
-            return function* () {
-                for (const key of map.keys()) {
-                    yield map.get(key)
-                }
-            }()
-        }
-    })
+    const map = {}
 
     while (alpha < omega) {
-        const [key, newoffset] = decodeAny(data, alpha, scope)
-        alpha = newoffset
-        indices.set(key, alpha)
-        alpha = skip(data, alpha)
-        map.set(key, lazy)
-        left++
+        const [key, index] = decodeAny(data, alpha, scope)
+        Object.defineProperty(map, key, {
+            get() {
+                const [value] = decodeAny(data, index, scope)
+                Object.defineProperty(map, key, {
+                    value,
+                    enumerable: true,
+                })
+                return value
+            },
+            enumerable: true,
+            configurable: true,
+        })
+
+        alpha = skip(data, index)
     }
     if (alpha !== omega) throw new Error("Extra data in map/trie")
 
@@ -777,7 +744,7 @@ function decodeMap(data, alpha, omega, scope) {
  * @param {number} alpha
  * @param {number} omega
  * @param {RefScope} scope
- * @returns {[Map<any,any>, number]}
+ * @returns {[Object<string,any>, number]}
  */
 function decodeTrie(data, alpha, omega, scope) {
     const { little, big, newoffset } = decodePair(data, alpha)
@@ -959,4 +926,17 @@ export function optimize(doc, indexLimit = 12, refs = undefined, skipRefCheck = 
         Object.defineProperty(doc, isIndexed, { value: true })
     }
     return doc
+}
+
+// Convert Objects back to maps and assume integers are integers and boolean is boolean.
+export function toMap(obj) {
+    const map = new Map(Object.entries(obj).map(([k, v]) => [
+        /^[0-9]+$/.test(k) ? parseInt(k, 10) :
+            k === 'true' ? true :
+                k === 'false' ? false : k, v
+    ]))
+    for (const sym of Object.getOwnPropertySymbols(obj)) {
+        map[sym] = obj[sym]
+    }
+    return map
 }
