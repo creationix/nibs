@@ -28,7 +28,7 @@ function same(a, b) {
     return true
 }
 
-for (const [name, list] of tests.entries()) {
+for (const [name, list] of Object.entries(tests)) {
     console.log(`\n${highlight(name)}`)
     for (let i = 0; i < list.length; i += 2) {
         const input = list[i];

@@ -14,6 +14,7 @@ function highlight(str) {
     return `\x1b[38;5;45;48;5;236m${str}\x1b[0m`
 }
 
+
 /**
  * @param {any} a 
  * @param {any} b 
@@ -25,8 +26,18 @@ function same(a, b) {
     if (t !== typeof (b)) return false
     if (a !== a && b !== b) return true // Treat two NaN values as equal
     if (t === 'object') {
-        const ca = Object.prototype.toString.call(a)
-        const cb = Object.prototype.toString.call(b)
+        let ca = Object.prototype.toString.call(a)
+        let cb = Object.prototype.toString.call(b)
+        if (ca !== cb) {
+            if (ca == "[object Object]") {
+                a = Nibs.toMap(a)
+                ca = "[object Map]"
+            }
+            if (cb == "[object Object]") {
+                b = Nibs.toMap(b)
+                cb = "[object Map]"
+            }
+        }
         if (ca === cb) {
             if (ca === '[object Uint8Array]' || ca === '[object Array]') {
                 if (a[isScope] !== b[isScope] ||
@@ -48,15 +59,29 @@ function same(a, b) {
                 }
                 return true
             }
+            if (ca === '[object Object]') {
+                if (a[isIndexed] !== b[isIndexed] ||
+                    a.size !== b.size) return false
+                for (let [k, v] of Object.entries(a)) {
+                    if (!same(v, b[k])) return false
+                }
+                for (let [k, v] of Object.entries(b)) {
+                    if (!same(v, a[k])) return false
+                }
+                return true
+            }
 
+            if (ca === '[object Map]' && cb == '[object Object]') {
+
+            }
         }
-        throw "TODO " + ca
+        throw "TODO " + ca + " : " + cb
     }
 
     return false
 }
 
-for (const [name, list] of tests.entries()) {
+for (const [name, list] of Object.entries(tests)) {
     console.log(`\n${highlight(name)}\n`)
     for (let i = 0; i < list.length; i += 2) {
         const input = list[i];

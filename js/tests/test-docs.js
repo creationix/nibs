@@ -11,4 +11,4 @@ console.assert(encoded.length === 14, "sample should be 14 bytes")
 
 const decoded = decode(encoded)
 console.log({ decoded })
-console.assert(decoded.get('hello') === 'world', "decoded value has expected behavior")
+console.assert(decoded.hello === 'world', "decoded value has expected behavior")
