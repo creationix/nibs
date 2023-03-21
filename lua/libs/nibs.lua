@@ -62,24 +62,65 @@ local Slice32 = NibLib.U32Arr
 local Slice64 = NibLib.U64Arr
 
 local converter = ffi.new 'union {double f;uint64_t i;}'
+ffi.cdef [[
+    #pragma pack(1)
+    struct nibs4 { // for big under 12
+        unsigned int big:4; // lower 4 bits are first
+        unsigned int small:4;
+    };
+    #pragma pack(1)
+    struct nibs8 { // for big under 256
+        unsigned int prefix:4;
+        unsigned int small:4;
+        uint8_t big;
+    };
+    #pragma pack(1)
+    struct nibs16 { // for big under 256
+        unsigned int prefix:4;
+        unsigned int small:4;
+        uint16_t big;
+    };
+    #pragma pack(1)
+    struct nibs32 { // for big under 256
+        unsigned int prefix:4;
+        unsigned int small:4;
+        uint32_t big;
+    };
+    #pragma pack(1)
+    struct nibs64 { // for big under 256
+        unsigned int prefix:4;
+        unsigned int small:4;
+        uint64_t big;
+    };
+]]
+
+local nibs4 = ffi.typeof 'struct nibs4'
+local nibs8 = ffi.typeof 'struct nibs8'
+local nibs16 = ffi.typeof 'struct nibs16'
+local nibs32 = ffi.typeof 'struct nibs32'
+local nibs64 = ffi.typeof 'struct nibs64'
+local nibs4ptr = ffi.typeof 'struct nibs4*'
+local nibs8ptr = ffi.typeof 'struct nibs8*'
+local nibs16ptr = ffi.typeof 'struct nibs16*'
+local nibs32ptr = ffi.typeof 'struct nibs32*'
+local nibs64ptr = ffi.typeof 'struct nibs64*'
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
 ---@param big integer and 64-bit unsigned integer
 ---@return integer size of encoded bytes
----@return any bytes as parts
+---@return ffi.cdata* bytes as nibs struct
 local function encode_pair(small, big)
-    local pair = lshift(small, 4)
     if big < 0xc then
-        return 1, tonumber(bor(pair, big))
+        return 1, nibs4(big, small)
     elseif big < 0x100 then
-        return 2, Slice8(2, { bor(pair, 12), big })
+        return 2, nibs8(12, small, big)
     elseif big < 0x10000 then
-        return 3, { bor(pair, 13), Slice16(1, { big }) }
+        return 3, nibs16(13, small, big)
     elseif big < 0x100000000 then
-        return 5, { bor(pair, 14), Slice32(1, { big }) }
+        return 5, nibs32(14, small, big)
     else
-        return 9, { bor(pair, 15), Slice64(1, { big }) }
+        return 9, nibs64(15, small, big)
     end
 end
 
@@ -224,7 +265,6 @@ function encode_any(val)
     else
         return encode_any(tostring(val))
     end
-
 end
 
 ---@param list Value[]
@@ -375,20 +415,26 @@ end
 ---@return number
 local function decode_pair(read, offset)
     local data = read(assert(tonumber(offset)), 9)
-    local ptr = cast(U8Ptr, data)
-    local head = ptr[0]
-    local little = rshift(head, 4)
-    local big = band(head, 0xf)
-    if big == 0xc then
-        return offset + 2, little, ptr[1]
-    elseif big == 0xd then
-        return offset + 3, little, cast(U16Ptr, ptr + 1)[0]
-    elseif big == 0xe then
-        return offset + 5, little, cast(U32Ptr, ptr + 1)[0]
-    elseif big == 0xf then
-        return offset + 9, little, cast(U64Ptr, ptr + 1)[0]
+    local pair = cast(nibs4ptr, data)
+    ---@cast pair {big:integer,small:integer}
+    if pair.big == 12 then
+        pair = cast(nibs8ptr, data)
+        ---@cast pair {prefix:integer,small:integer,big:integer}
+        return offset + 2, pair.small, pair.big
+    elseif pair.big == 13 then
+        pair = cast(nibs16ptr, data)
+        ---@cast pair {prefix:integer,small:integer,big:integer}
+        return offset + 3, pair.small, pair.big
+    elseif pair.big == 14 then
+        pair = cast(nibs32ptr, data)
+        ---@cast pair {prefix:integer,small:integer,big:integer}
+        return offset + 5, pair.small, pair.big
+    elseif pair.big == 15 then
+        pair = cast(nibs64ptr, data)
+        ---@cast pair {prefix:integer,small:integer,big:integer}
+        return offset + 9, pair.small, pair.big
     else
-        return offset + 1, little, big
+        return offset + 1, pair.small, pair.big
     end
 end
 
@@ -493,7 +539,7 @@ function NibsList.new(read, offset, length, scope)
     NibsMeta[self] = {
         read = read,
         scope = scope,
-        alpha = offset, -- Start of list values
+        alpha = offset,          -- Start of list values
         omega = offset + length, -- End of list values
     }
     return self
@@ -572,7 +618,7 @@ function NibsMap.new(read, offset, length, scope)
     NibsMeta[self] = {
         read = read,
         scope = scope,
-        alpha = offset, -- Start of map values
+        alpha = offset,          -- Start of map values
         omega = offset + length, -- End of map values
     }
     return self
@@ -702,7 +748,7 @@ function NibsTrie.new(read, offset, length, scope)
         scope = scope,
         alpha = alpha, -- Start of trie index
         omega = omega, -- End of trie values
-        seed = seed, -- Seed for HAMT
+        seed = seed,   -- Seed for HAMT
         width = width, -- Width of index entries
         count = count, -- Count of index entries
     }
