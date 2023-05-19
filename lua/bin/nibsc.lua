@@ -21,9 +21,8 @@ local dups = Nibs.findDuplicates(input)
 print("Turning " .. #dups .. " duplicates into refs and scopes...")
 input = Nibs.addRefs(input, dups)
 
-print(Tibs.encode(input))
 -- print("Encoding to nibs text format...")
--- local text = assert(Json.encode(input))
+-- local text = assert(Tibs.encode(input))
 -- print(text)
 
 print("Encoding to nibs binary format...")
