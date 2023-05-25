@@ -100,6 +100,15 @@ fn encode_float(allocator: *const Allocator, n: f64) ![]u8 {
     return encode_pair(allocator, @enumToInt(Types.float), float_encode(n));
 }
 
+fn encode_boolean(allocator: *const Allocator, v: bool) ![]u8 {
+    const e = if (v) SubTypes.true else SubTypes.false;
+    return encode_pair(allocator, @enumToInt(Types.simple), @enumToInt(e));
+}
+
+fn encode_null(allocator: *const Allocator) ![]u8 {
+    return encode_pair(allocator, @enumToInt(Types.simple), @enumToInt(SubTypes.null));
+}
+
 test "zigzag encode" {
     try expect(zigzag_encode(0) == 0);
     try expect(zigzag_encode(-1) == 1);
@@ -178,4 +187,14 @@ test "encode float" {
     try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf0\x7f", try encode_float(&allocator, std.math.inf(f64)));
     try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf0\xff", try encode_float(&allocator, -std.math.inf(f64)));
     try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf8\x7f", try encode_float(&allocator, std.math.nan(f64)));
+}
+
+test "encode simple" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    try expectEqualSlices(u8, "\x20", try encode_boolean(&allocator, false));
+    try expectEqualSlices(u8, "\x21", try encode_boolean(&allocator, true));
+    try expectEqualSlices(u8, "\x22", try encode_null(&allocator));
 }
