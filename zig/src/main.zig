@@ -128,6 +128,7 @@ test "encode pair" {
     try expectEqualSlices(u8, "\xf1", try encode_pair(&allocator, 15, 1));
     try expectEqualSlices(u8, "\xfa", try encode_pair(&allocator, 15, 10));
     try expectEqualSlices(u8, "\x0c\x13", try encode_pair(&allocator, 0, 0x13));
-    std.debug.print("[[{.}]]", .{std.fmt.fmtSliceHexLower(try encode_pair(&allocator, 0, 0x07cf))});
-    try expectEqualSlices(u8, "\x0d\xcf\x07", try encode_pair(&allocator, 0, 0x07cf));
+    try expectEqualSlices(u8, "\x0d\xcf\x07", try encode_pair(&allocator, 0, 0x7cf));
+    try expectEqualSlices(u8, "\x0e\x3f\x0d\x03\x00", try encode_pair(&allocator, 0, 0x30d3f));
+    try expectEqualSlices(u8, "\x0f\xff\xc7\x17\xa8\x04\x00\x00\x00", try encode_pair(&allocator, 0, 0x4a817c7ff));
 }
