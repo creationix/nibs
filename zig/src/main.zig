@@ -38,6 +38,10 @@ fn zigzag_decode(num: u64) i64 {
 }
 
 fn float_encode(num: f64) u64 {
+    // Hard code all NaNs to match V8 JavaScript
+    if (std.math.isNan(num)) {
+        return 0x7ff8000000000000;
+    }
     return @bitCast(u64, num);
 }
 
@@ -88,6 +92,14 @@ fn encode_pair(allocator: *const Allocator, small: u4, big: u64) ![]u8 {
     return @ptrCast(*[9]u8, encoded);
 }
 
+fn encode_integer(allocator: *const Allocator, n: i64) ![]u8 {
+    return encode_pair(allocator, @enumToInt(Types.zigzag), zigzag_encode(n));
+}
+
+fn encode_float(allocator: *const Allocator, n: f64) ![]u8 {
+    return encode_pair(allocator, @enumToInt(Types.float), float_encode(n));
+}
+
 test "zigzag encode" {
     try expect(zigzag_encode(0) == 0);
     try expect(zigzag_encode(-1) == 1);
@@ -127,8 +139,43 @@ test "encode pair" {
     try expectEqualSlices(u8, "\x1b", try encode_pair(&allocator, 1, 11));
     try expectEqualSlices(u8, "\xf1", try encode_pair(&allocator, 15, 1));
     try expectEqualSlices(u8, "\xfa", try encode_pair(&allocator, 15, 10));
-    try expectEqualSlices(u8, "\x0c\x13", try encode_pair(&allocator, 0, 0x13));
-    try expectEqualSlices(u8, "\x0d\xcf\x07", try encode_pair(&allocator, 0, 0x7cf));
-    try expectEqualSlices(u8, "\x0e\x3f\x0d\x03\x00", try encode_pair(&allocator, 0, 0x30d3f));
-    try expectEqualSlices(u8, "\x0f\xff\xc7\x17\xa8\x04\x00\x00\x00", try encode_pair(&allocator, 0, 0x4a817c7ff));
+    try expectEqualSlices(u8, "\x5c\x13", try encode_pair(&allocator, 5, 0x13));
+    try expectEqualSlices(u8, "\x4d\xcf\x07", try encode_pair(&allocator, 4, 0x7cf));
+    try expectEqualSlices(u8, "\x3e\x3f\x0d\x03\x00", try encode_pair(&allocator, 3, 0x30d3f));
+    try expectEqualSlices(u8, "\x2f\xff\xc7\x17\xa8\x04\x00\x00\x00", try encode_pair(&allocator, 2, 0x4a817c7ff));
+}
+
+test "encode integer" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    try expectEqualSlices(u8, "\x00", try encode_integer(&allocator, 0));
+    try expectEqualSlices(u8, "\x01", try encode_integer(&allocator, -1));
+    try expectEqualSlices(u8, "\x02", try encode_integer(&allocator, 1));
+    try expectEqualSlices(u8, "\x0c\x13", try encode_integer(&allocator, -10));
+    try expectEqualSlices(u8, "\x0c\x14", try encode_integer(&allocator, 10));
+    try expectEqualSlices(u8, "\x0d\xcf\x07", try encode_integer(&allocator, -1000));
+    try expectEqualSlices(u8, "\x0d\xd0\x07", try encode_integer(&allocator, 1000));
+    try expectEqualSlices(u8, "\x0e\xff\x93\x35\x77", try encode_integer(&allocator, -1000000000));
+    try expectEqualSlices(u8, "\x0e\x00\x94\x35\x77", try encode_integer(&allocator, 1000000000));
+    try expectEqualSlices(u8, "\x0f\xff\xff\xc7\x4e\x67\x6d\xc1\x1b", try encode_integer(&allocator, -1000000000000000000));
+    try expectEqualSlices(u8, "\x0f\x00\x00\xc8\x4e\x67\x6d\xc1\x1b", try encode_integer(&allocator, 1000000000000000000));
+    try expectEqualSlices(u8, "\x0f\xfd\xff\xff\xff\xff\xff\xff\xff", try encode_integer(&allocator, -9223372036854775807));
+    try expectEqualSlices(u8, "\x0f\xfe\xff\xff\xff\xff\xff\xff\xff", try encode_integer(&allocator, 9223372036854775807));
+    try expectEqualSlices(u8, "\x0f\xff\xff\xff\xff\xff\xff\xff\xff", try encode_integer(&allocator, -9223372036854775808));
+}
+
+test "encode float" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    try expectEqualSlices(u8, "\x1f\x9a\x99\x99\x99\x99\x99\xb9\xbf", try encode_float(&allocator, -0.1));
+    try expectEqualSlices(u8, "\x1f\x9a\x99\x99\x99\x99\x99\xb9\x3f", try encode_float(&allocator, 0.1));
+    try expectEqualSlices(u8, "\x1f\x9a\x99\x99\x99\x99\x99\xf1\xbf", try encode_float(&allocator, -1.1));
+    try expectEqualSlices(u8, "\x1f\x9a\x99\x99\x99\x99\x99\xf1\x3f", try encode_float(&allocator, 1.1));
+    try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf0\x7f", try encode_float(&allocator, std.math.inf(f64)));
+    try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf0\xff", try encode_float(&allocator, -std.math.inf(f64)));
+    try expectEqualSlices(u8, "\x1f\x00\x00\x00\x00\x00\x00\xf8\x7f", try encode_float(&allocator, std.math.nan(f64)));
 }
