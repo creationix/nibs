@@ -1,5 +1,7 @@
 const std = @import("std");
 const testing = std.testing;
+const Allocator = std.mem.Allocator;
+const SinglyLinkedList = std.SinglyLinkedList;
 
 const Types = enum(u4) {
     zigzag,
@@ -44,30 +46,45 @@ fn float_decode(num: u64) f64 {
 
 const write_fn = *const fn (pow: u2, val: u64) void;
 
-fn encode_pair(small: u4, big: u64, write: write_fn) u64 {
-    const high = @intCast(u64, small) << 4;
+const nib_5 = packed struct { tag: u4, small: u4 };
+const nib_8 = packed struct { tag: u4, small: u4, big: u8 };
+const nib_16 = packed struct { tag: u4, small: u4, big: u16 };
+const nib_32 = packed struct { tag: u4, small: u4, big: u32 };
+const nib_64 = packed struct { tag: u4, small: u4, big: u64 };
+
+fn encode_pair(allocator: *const Allocator, small: u4, big: u64) ![]u8 {
     if (big < 12) {
-        write(0, high | big);
-        return 1;
+        const encoded: *nib_5 = try allocator.create(nib_5);
+        encoded.tag = @intCast(u4, big);
+        encoded.small = small;
+        return std.mem.asBytes(encoded);
     }
     if (big < 0x100) {
-        write(0, high | 12);
-        write(0, big);
-        return 2;
+        const encoded: *nib_8 = try allocator.create(nib_8);
+        encoded.tag = 12;
+        encoded.small = small;
+        encoded.big = @intCast(u8, big);
+        return std.mem.asBytes(encoded);
     }
     if (big < 0x10000) {
-        write(0, high | 13);
-        write(1, big);
-        return 3;
+        const encoded: *nib_16 = try allocator.create(nib_16);
+        encoded.tag = 13;
+        encoded.small = small;
+        encoded.big = @intCast(u16, big);
+        return std.mem.asBytes(encoded);
     }
     if (big < 0x100000000) {
-        write(0, high | 14);
-        write(2, big);
-        return 5;
+        const encoded: *nib_32 = try allocator.create(nib_32);
+        encoded.tag = 14;
+        encoded.small = small;
+        encoded.big = @intCast(u32, big);
+        return std.mem.asBytes(encoded);
     }
-    write(0, high | 15);
-    write(3, big);
-    return 9;
+    const encoded: *nib_64 = try allocator.create(nib_64);
+    encoded.tag = 15;
+    encoded.small = small;
+    encoded.big = big;
+    return std.mem.asBytes(encoded);
 }
 
 test "zigzag encode" {
@@ -98,4 +115,13 @@ test "float decode" {
     try testing.expect(float_decode(0x3fb999999999999a) == 0.1);
     try testing.expect(float_decode(0xbff199999999999a) == -1.1);
     try testing.expect(float_decode(0x3ff199999999999a) == 1.1);
+}
+
+test "encode pair" {
+    var arena = std.heap.ArenaAllocator.init(std.testing.allocator);
+    defer arena.deinit();
+    const allocator = arena.allocator();
+
+    const encoded = try encode_pair(&allocator, 1, 0);
+    try testing.expectEqualSlices(u8, "\x10", encoded);
 }
