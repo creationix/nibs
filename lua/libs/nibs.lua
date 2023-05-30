@@ -1,5 +1,7 @@
 local import = _G.import or require
 
+local HamtIndex = import "hamt-index"
+
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
