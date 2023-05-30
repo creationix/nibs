@@ -75,12 +75,14 @@ do
     end
 
     function List:__ipairs()
+        local i = 0
         local length = getLength(self)
-        return coroutine.wrap(function()
-            for i = 1, length do
-                coroutine.yield(i, rawget(self, i))
+        return function()
+            if i < length then
+                i = i + 1
+                 return i, rawget(self, i)
             end
-        end)
+        end
     end
 
     function List.setLength(self, length)
@@ -121,12 +123,15 @@ do
 
     function Map:__pairs()
         local order = getOrder(self)
-        return coroutine.wrap(function()
-            for i = 1, #order do
+        local length = #order
+        local i = 0
+        return function()
+            if i < length then
+                i = i + 1
                 local k = order[i]
-                coroutine.yield(k, rawget(self, k))
+                return k, rawget(self, k)
             end
-        end)
+        end
     end
 
     function Map.__len() return 0 end
