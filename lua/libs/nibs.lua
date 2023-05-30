@@ -1,4 +1,4 @@
-local HamtIndex = require 'hamt-index'
+local import = _G.import or require
 
 -- Main types
 local ZIGZAG = 0
@@ -44,7 +44,7 @@ local Trie = Tibs.Trie
 local Ref = Tibs.Ref
 local Scope = Tibs.Scope
 
-local NibLib = require "nib-lib"
+local NibLib = import "nib-lib"
 
 local NibsList, NibsMap, NibsArray, NibsTrie
 

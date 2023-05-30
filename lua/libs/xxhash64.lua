@@ -1,3 +1,5 @@
+local import = _G.import or require
+
 --- xxHash
 --- https://github.com/Cyan4973/xxHash/blob/dev/doc/xxhash_spec.md#xxh64-algorithm-description
 
@@ -9,7 +11,7 @@ local bxor = bit.bxor
 local ffi = require 'ffi'
 local cast = ffi.cast
 
-local NibLib = require 'nib-lib'
+local NibLib = import 'nib-lib'
 local U8Ptr = NibLib.U8Ptr
 local U32Ptr = NibLib.U32Ptr
 local U64Ptr = NibLib.U64Ptr

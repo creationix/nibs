@@ -1,3 +1,5 @@
+local import = _G.import or require
+
 local ffi = require 'ffi'
 local cast = ffi.cast
 local copy = ffi.copy
@@ -6,7 +8,7 @@ local ffi_string = ffi.string
 local min = math.min
 local max = math.max
 
-local NibLib = require 'nib-lib'
+local NibLib = import 'nib-lib'
 local Slice8 = NibLib.U8Arr
 local U8Ptr = NibLib.U8Ptr
 
