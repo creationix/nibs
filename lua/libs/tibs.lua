@@ -1,4 +1,6 @@
-local NibLib = require 'nib-lib'
+local import = _G.import or require
+
+local NibLib = import 'nib-lib'
 
 local bit = require 'bit'
 local bor = bit.bor

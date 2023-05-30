@@ -1,3 +1,5 @@
+local import = _G.import or require
+
 local bit = require 'bit'
 local lshift = bit.lshift
 local rshift = bit.rshift
@@ -7,13 +9,13 @@ local bor = bit.bor
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 
-local NibLib = require 'nib-lib'
+local NibLib = import 'nib-lib'
 local Slice8 = NibLib.U8Arr
 local Slice16 = NibLib.U16Arr
 local Slice32 = NibLib.U32Arr
 local Slice64 = NibLib.U64Arr
 
-local xxhash64 = require 'xxhash64'
+local xxhash64 = import 'xxhash64'
 
 --- The internal trie index used by nibs' HAMTrie type
 local HamtIndex = {}

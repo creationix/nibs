@@ -1,7 +1,9 @@
-local Http    = require 'coro-http'
-local Bytes   = require 'bytes'
-local PureLru = require 'lrucache-pureffi'
-local Nibs    = require 'nibs'
+local import = _G.import or require
+
+local Http    = import 'coro-http'
+local Bytes   = import 'bytes'
+local PureLru = import 'lrucache-pureffi'
+local Nibs    = import 'nibs'
 
 -- local chunkSize = 1024 * 64 -- 64KiB
 local chunkSize = 1024
