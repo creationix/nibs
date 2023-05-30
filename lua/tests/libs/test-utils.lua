@@ -1,3 +1,5 @@
+local import = _G.import or require
+
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
 local ffi_string = ffi.string
@@ -10,7 +12,7 @@ local colorize = PrettyPrint.colorize
 
 _G.p = PrettyPrint.prettyPrint
 
-local NibLib = require 'nib-lib'
+local NibLib = import 'nib-lib'
 local U8Ptr = NibLib.U8Ptr
 
 local TestUtils = {}
