@@ -38,7 +38,7 @@ local cast = ffi.cast
 
 local insert = table.insert
 
-local Tibs = require 'tibs'
+local Tibs = import 'tibs'
 local List = Tibs.List
 local Map = Tibs.Map
 local Array = Tibs.Array
