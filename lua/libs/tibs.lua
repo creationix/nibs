@@ -21,6 +21,7 @@ local concat = table.concat
 --- It's a superset of JSON so that any data that matches JSON's model
 --- will have the same syntax.  Also it means that any JSON document can
 --- be parsed as Tibs for easy importing of legacy data.
+---@class Tibs
 local Tibs = {}
 
 --- Ordered list of values (same as JSON Array)
