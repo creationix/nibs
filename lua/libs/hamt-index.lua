@@ -164,38 +164,38 @@ function HamtIndex.encode(map, optimize)
             -- Create a new Trie and insert the data
             local trie = Node.new(power)
             -- Count number of rows in the index
-            local count = 1
+            local row_count = 1
             for k, v in pairs(map) do
                 local hash = hashes[k]
-                count = count + trie:insert(Pointer.new(hash, v), 0)
+                row_count = row_count + trie:insert(Pointer.new(hash, v), 0)
             end
 
             -- Reserve a slot for the seed
-            count = count + 1
+            row_count = row_count + 1
 
             -- Width of pointers in bytes
             local width = lshift(1, power - 3)
             -- Total byte size of index if generated
-            local size = count * width
+            local size = row_count * width
 
             -- If it looks like this will be a new winner, do the full encoding.
             if size < min then
                 local index
                 if power == 3 then
-                    index = Slice8(count)
+                    index = Slice8(row_count)
                 elseif power == 4 then
-                    index = Slice16(count)
+                    index = Slice16(row_count)
                 elseif power == 5 then
-                    index = Slice32(count)
+                    index = Slice32(row_count)
                 elseif power == 6 then
-                    index = Slice64(count)
+                    index = Slice64(row_count)
                 end
 
                 local i = 0
                 local function write(word)
                     if word then
                         i = i + 1
-                        index[count - i] = word
+                        index[row_count - i] = word
                     end
                     return (i - 1) * width
                 end
@@ -204,7 +204,7 @@ function HamtIndex.encode(map, optimize)
                 write(seed)
                 if not err then
                     min = size
-                    win = { count, width, index }
+                    win = { row_count, width, index }
                     break
                 end
             end
