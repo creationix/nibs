@@ -1,6 +1,6 @@
 return {
     name = "creationix/nibs",
-    version = "2.1.5",
+    version = "2.1.6",
     dependencies = {},
     description = "Nibs and Tibs serialization formats.",
     tags = { "lua", "lit", "luvit", "tibs", "nibs", "serialization" },

@@ -27,7 +27,6 @@ local rshift = bit.rshift
 local arshift = bit.arshift
 local band = bit.band
 local lshift = bit.lshift
-local bor = bit.bor
 local bxor = bit.bxor
 
 local ffi = require 'ffi'
@@ -796,7 +795,6 @@ function NibsTrie:__pairs()
             -- TODO: remove this sanity check once we're confident in __index
             local check = self[key]
             if not (type(value) == "table" or type(value) == "cdata" or check == value) then
-                p("MISMATCH", key, value, check)
                 error "Mismatch"
             end
             return key, value
