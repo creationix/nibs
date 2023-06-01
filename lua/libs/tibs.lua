@@ -921,7 +921,8 @@ do
             local str = '<' .. NibLib.bufToHexStr(val) .. '>'
             return str
         else
-            error("Cannot serialize " .. typ)
+            print("Cannot serialize " .. typ .. ' ' .. tostring(val))
+            return "null"
         end
     end
 
