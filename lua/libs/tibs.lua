@@ -1,5 +1,23 @@
 local import = _G.import or require
 
+local ngx_null = _G['ngx'] and _G['ngx'].null
+local cjson_null, cjson_empty_array
+do
+    local ok, cjson = pcall(require, 'cjson')
+    if ok and cjson then
+        cjson_null = cjson.null
+        cjson_empty_array = cjson.empty_array
+    end
+end
+local dkjson_null
+do
+    local ok, dkjson = pcall(require, 'dkjson')
+    if ok and dkjson then
+        dkjson_null = dkjson.null
+    end
+end
+
+
 local NibLib = import 'nib-lib'
 
 local bit = require 'bit'
@@ -898,7 +916,7 @@ do
     function Tibs.encode(val)
 
         local typ = type(val)
-        if typ == 'nil' then
+        if typ == 'nil' or val == ngx_null or val == cjson_null or val == dkjson_null then
             return "null"
         elseif typ == 'boolean' then
             return val and 'true' or 'false'
@@ -907,7 +925,7 @@ do
         elseif typ == 'number' then
             return encodeNumber(val)
         elseif typ == 'table' then
-
+            if val == cjson_empty_array then return "[]" end
             local mt = getmetatable(val)
             if mt and reentered ~= val and mt.__tojson then
                 reentered = val

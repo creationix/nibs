@@ -66,6 +66,10 @@ end
 ---@return boolean is_array_like
 function NibLib.isArrayLike(val)
     local mt = getmetatable(val)
+    if mt and mt.__jsontype then -- dkjson has a __jsontype field
+        if mt.__jsontype == "array" then return true end
+        if mt.__jsontype == "object" then return false end
+    end
     if mt and mt.__is_array_like ~= nil then
         return mt.__is_array_like
     end
