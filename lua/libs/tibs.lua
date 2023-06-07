@@ -872,7 +872,9 @@ do
     local function encodeArray(arr, tag)
         local parts = {}
         for i, v in ipairs(arr) do
-            parts[i] = encode(v)
+            local part, err = encode(v)
+            if not part then return nil, err end
+            parts[i] = part
         end
         return "[" .. tag .. concat(parts, ",") .. "]"
     end
@@ -881,7 +883,12 @@ do
         local parts = {}
         local i = 1
         for k, v in pairs(obj) do
-            parts[i] = encode(k) .. ':' .. encode(v)
+            local key, err = encode(k)
+            if not key then return nil, err end
+            local value
+            value, err = encode(v)
+            if not value then return nil, err end
+            parts[i] = key .. ':' .. value
             i = i + 1
         end
         return "{" .. tag .. concat(parts, ",") .. "}"
