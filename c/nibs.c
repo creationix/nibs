@@ -262,11 +262,11 @@ slice_t flatten(arena_t* arena, node_t* node) {
 }
 
 bool slice_equal(slice_t actual, slice_t expected) {
-  printf("expected=");
+  printf("expected: ");
   for (int i = 0; i < expected.len; i++) {
     printf("%02x", expected.ptr[i]);
   }
-  printf(" actual=");
+  printf("\nactual:   ");
   for (int i = 0; i < actual.len; i++) {
     if (i < expected.len && actual.ptr[i] != expected.ptr[i]) {
       printf("\033[31m%02x\033[0m", actual.ptr[i]);
@@ -356,10 +356,8 @@ int main() {
       flatten(&arena, encode_double(&arena, -6.2831853071795860)),
       (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\x19\xc0",
                 .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 0.0)),
-      (slice_t){.ptr = (const uint8_t*)"\x10",
-                .len = 1}));
+  assert(slice_equal(flatten(&arena, encode_double(&arena, 0.0)),
+                     (slice_t){.ptr = (const uint8_t*)"\x10", .len = 1}));
   assert(slice_equal(
       flatten(&arena, encode_double(&arena, 1.5707963267948966)),
       (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\xf9\x3f",
@@ -388,6 +386,14 @@ int main() {
       flatten(&arena, encode_double(&arena, 2.0)),
       (slice_t){.ptr = (const uint8_t*)"\x1f\x00\x00\x00\x00\x00\x00\x00\x40",
                 .len = 9}));
+
+  assert(slice_equal(flatten(&arena, encode_boolean(&arena, false)),
+                     (slice_t){.ptr = (const uint8_t*)"\x20", .len = 1}));
+  assert(slice_equal(flatten(&arena, encode_boolean(&arena, true)),
+                     (slice_t){.ptr = (const uint8_t*)"\x21", .len = 1}));
+  assert(slice_equal(flatten(&arena, encode_null(&arena)),
+                     (slice_t){.ptr = (const uint8_t*)"\x22", .len = 1}));
+
   assert(slice_equal(flatten(&arena, encode_const_string(&arena, "")),
                      (slice_t){.ptr = (const uint8_t*)"\x90", .len = 1}));
   assert(slice_equal(
@@ -415,6 +421,12 @@ int main() {
   assert(slice_equal(
       flatten(&arena, encode_const_string(&arena, "deadbeef")),
       (slice_t){.ptr = (const uint8_t*)"\xa4\xde\xad\xbe\xef", .len = 5}));
-
+  assert(slice_equal(
+      flatten(&arena, encode_const_string(
+                          &arena, "59d27967b4d859491ed95d8a7eceeaf8d4644ce4")),
+      (slice_t){
+          .ptr = (const uint8_t*)"\xac\x14\x59\xd2\x79\x67\xb4\xd8\x59\x49\x1e"
+                                 "\xd9\x5d\x8a\x7e\xce\xea\xf8\xd4\x64\x4c\xe4",
+          .len = 22}));
   arena_deinit(&arena);
 }
