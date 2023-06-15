@@ -18,8 +18,9 @@ struct arena {
   void* current;
   void* end;
 };
+typedef struct arena arena_t;
 
-void arena_init(struct arena* arena) {
+static void arena_init(arena_t* arena) {
   arena->start = mmap(NULL, ARENA_SIZE, PROT_READ | PROT_WRITE,
                       MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
   assert(arena->start);
@@ -27,19 +28,67 @@ void arena_init(struct arena* arena) {
   arena->end = arena->start + ARENA_SIZE;
 }
 
-void arena_deinit(struct arena* arena) {
+static void arena_deinit(arena_t* arena) {
   assert(arena->start);
   munmap(arena->start, ARENA_SIZE);
   arena->start = NULL;
   arena->current = NULL;
 }
 
-void* arena_alloc(struct arena* arena, size_t len) {
+static void* arena_alloc(arena_t* arena, size_t len) {
   assert(arena->current);
   void* ptr = arena->current;
   arena->current += len;
   assert(arena->current < arena->end);
   return ptr;
+}
+
+struct slice_node {
+  struct slice_node* next;
+  size_t len;
+  uint8_t data[];
+};
+
+typedef struct slice_node node_t;
+
+static node_t* alloc_slice(arena_t* arena, size_t len, node_t* next) {
+  node_t* node = arena_alloc(arena, sizeof(*node) + len);
+  node->next = next;
+  node->len = len;
+  return node;
+}
+
+static node_t* alloc_pair(arena_t* arena,
+                          unsigned int small,
+                          uint64_t big,
+                          node_t* next) {
+  if (big < 12) {
+    node_t* node = alloc_slice(arena, 1, next);
+    node->data[0] = (small << 4) | big;
+    return node;
+  }
+  if (big < 0x100) {
+    node_t* node = alloc_slice(arena, 2, next);
+    node->data[0] = (small << 4) | 0xc;
+    node->data[1] = big;
+    return node;
+  }
+  if (big < 0x10000) {
+    node_t* node = alloc_slice(arena, 3, next);
+    node->data[0] = (small << 4) | 0xd;
+    *(uint16_t*)(&node->data[1]) = big;
+    return node;
+  }
+  if (big < 0x100000000) {
+    node_t* node = alloc_slice(arena, 5, next);
+    node->data[0] = (small << 4) | 0xe;
+    *(uint32_t*)(&node->data[1]) = big;
+    return node;
+  }
+  node_t* node = alloc_slice(arena, 9, next);
+  node->data[0] = (small << 4) | 0xf;
+  *(uint64_t*)(&node->data[1]) = big;
+  return node;
 }
 
 static uint64_t zigzag_encode(int64_t num) {
@@ -67,146 +116,77 @@ static double float_decode(uint64_t num) {
   return ((union float_converter){.i = num}).f;
 }
 
-struct nibs_pair {
-  uint64_t big;
-  unsigned int small : 4;
-};
-
-struct nibs_slice {
-  const uint8_t* ptr;
-  size_t len;
-};
-
-enum nibs_node_type {
-  NIBS_PAIR,  // The union contains a nibs pair (big/small)
-  NIBS_BUF,   // The union contains a slice to be used as-is
-  NIBS_HEX,   // The union contains hex string to be used as raw binary
-};
-
-union nibs_node_value {
-  struct nibs_pair pair;
-  struct nibs_slice slice;
-};
-
-struct nibs_encode_node {
-  enum nibs_node_type type;
-  union nibs_node_value value;
-  struct nibs_encode_node* next;
-};
-
-typedef struct arena arena_t;
-typedef struct nibs_pair pair_t;
-typedef struct nibs_slice slice_t;
-typedef struct nibs_encode_node node_t;
-
-node_t* alloc_pair(arena_t* arena,
-                   unsigned int small,
-                   uint64_t big,
-                   node_t* next) {
-  node_t* node = arena_alloc(arena, sizeof(*node));
-  node->type = NIBS_PAIR;
-  node->value.pair.small = small;
-  node->value.pair.big = big;
-  node->next = next;
-  return node;
+node_t* encode_integer(arena_t* arena, int64_t num, node_t* next) {
+  return alloc_pair(arena, NIBS_ZIGZAG, zigzag_encode(num), next);
 }
 
-node_t* alloc_slice(arena_t* arena, const uint8_t* ptr, size_t len) {
-  node_t* node = arena_alloc(arena, sizeof(*node));
-  node->type = NIBS_BUF;
-  node->value.slice.ptr = ptr;
-  node->value.slice.len = len;
-  node->next = NULL;
-  return node;
+node_t* encode_double(arena_t* arena, double num, node_t* next) {
+  return alloc_pair(arena, NIBS_FLOAT, float_encode(num), next);
 }
 
-node_t* encode_integer(arena_t* arena, int64_t num) {
-  return alloc_pair(arena, NIBS_ZIGZAG, zigzag_encode(num), NULL);
+node_t* encode_boolean(arena_t* arena, bool val, node_t* next) {
+  return alloc_pair(arena, NIBS_SIMPLE, val ? NIBS_TRUE : NIBS_FALSE, next);
 }
 
-node_t* encode_double(arena_t* arena, double num) {
-  return alloc_pair(arena, NIBS_FLOAT, float_encode(num), NULL);
+node_t* encode_null(arena_t* arena, node_t* next) {
+  return alloc_pair(arena, NIBS_SIMPLE, NIBS_NULL, next);
 }
 
-node_t* encode_boolean(arena_t* arena, bool val) {
-  return alloc_pair(arena, NIBS_SIMPLE, val ? NIBS_TRUE : NIBS_FALSE, NULL);
-}
-
-node_t* encode_null(arena_t* arena) {
-  return alloc_pair(arena, NIBS_SIMPLE, NIBS_NULL, NULL);
-}
-
-// Encode a null terminated c-string that's already UTF-8 encoded
-node_t* encode_const_string(arena_t* arena, const char* str) {
-  size_t len = strlen(str);
-  bool hex;
-  node_t* body;
-  if (len) {
-    // Check for even number of lowercase hex inputs.
-    hex = (len % 2) == 0;
-    if (hex) {
-      for (int i = 0; i < len; i++) {
-        uint8_t b = str[i];
-        if (b < 0x30 || (b > 0x39 && b < 0x61) || b > 0x66) {
-          hex = false;
-          break;
-        }
-      }
-    }
-
-    body = alloc_slice(arena, (const uint8_t*)str, len);
-    if (hex) {
-      body->type = NIBS_HEX;
-    }
-  } else {
-    body = NULL;
-    hex = false;
+// Check for even number of lowercase hex inputs.
+static bool is_hex(const char* str, size_t len) {
+  if (len == 0 || len % 2 != 0) {
+    return false;
   }
-  return alloc_pair(arena, hex ? NIBS_HEXSTRING : NIBS_UTF8,
-                    hex ? len >> 1 : len, body);
-}
-
-static size_t sizeof_node(node_t* node) {
-  switch (node->type) {
-    case NIBS_PAIR:
-      if (node->value.pair.big < 12)
-        return 1;
-      if (node->value.pair.big < 0x100)
-        return 2;
-      if (node->value.pair.big < 0x10000)
-        return 3;
-      if (node->value.pair.big < 0x100000000)
-        return 5;
-      return 9;
-    case NIBS_BUF:
-      return node->value.slice.len;
-    case NIBS_HEX:
-      return node->value.slice.len >> 1;
-    default:
-      return 0;
+  for (int i = 0; i < len; i++) {
+    uint8_t b = str[i];
+    if (b < 0x30 || (b > 0x39 && b < 0x61) || b > 0x66) {
+      return false;
+    }
   }
+  return true;
 }
 
 static int fromhex(uint8_t c) {
   return c < 0x40 ? c - 0x30 : c - 0x61 + 10;
 }
 
+static void hexcpy(uint8_t* dest, const uint8_t* source, size_t len) {
+  for (int i = 0; i < len; i++) {
+    dest[i] = (fromhex(source[i * 2]) << 4) | fromhex(source[i * 2 + 1]);
+  }
+}
+
+// Encode a null terminated c-string that's already UTF-8 encoded
+node_t* encode_const_string(arena_t* arena, const char* str, node_t* next) {
+  size_t len = strlen(str);
+  node_t* body;
+  if (len) {
+    if (is_hex(str, len)) {
+      len >>= 1;
+      body = alloc_slice(arena, len, next);
+      hexcpy(body->data, (uint8_t*)str, len);
+      return alloc_pair(arena, NIBS_HEXSTRING, len, body);
+    }
+    body = alloc_slice(arena, len, next);
+    memcpy(body->data, str, len);
+    return alloc_pair(arena, NIBS_UTF8, len, body);
+  }
+  return alloc_pair(arena, NIBS_UTF8, 0, next);
+}
+
+// Encode a null terminated c-string that's already UTF-8 encoded
+node_t* encode_hex_bytes(arena_t* arena, const char* str, node_t* next) {
+  size_t len = strlen(str);
+  assert(len % 2 == 0);
+  len >>= 1;
+  node_t* body = alloc_slice(arena, len, next);
+  hexcpy(body->data, (uint8_t*)str, len);
+  return alloc_pair(arena, NIBS_BYTES, len, body);
+}
+
 void dump_chain(node_t* node) {
   while (node) {
-    switch (node->type) {
-      case NIBS_PAIR:
-        printf("pair(small = %d, big = %lu) ", node->value.pair.small,
-               node->value.pair.big);
-        break;
-      case NIBS_BUF:
-        printf("buf(ptr = %p, len = %zu) ", node->value.slice.ptr,
-               node->value.slice.len);
-        break;
-      case NIBS_HEX:
-        printf("hex(ptr = %p, len = %zu) ", node->value.slice.ptr,
-               node->value.slice.len);
-        break;
-    }
+    printf("(ptr = %p, len = %zu) ", node->data, node->len);
     node = node->next;
     if (node) {
       printf("-> ");
@@ -215,85 +195,92 @@ void dump_chain(node_t* node) {
   printf("\n");
 }
 
-slice_t flatten(arena_t* arena, node_t* node) {
+static node_t* hex_str(arena_t* arena, const char* str) {
+  size_t len = strlen(str);
+  assert(len % 2 == 0);
+  len >>= 1;
+  node_t* buf = alloc_slice(arena, len, NULL);
+  hexcpy(buf->data, (const uint8_t*)str, len);
+  return buf;
+}
+
+node_t* flatten(arena_t* arena, node_t* node) {
   dump_chain(node);
   // Calculate total size needed to encode
   size_t len = 0;
   node_t* current = node;
+  node_t* tail = NULL;
   while (current) {
-    len += sizeof_node(current);
+    len += current->len;
+    tail = current->next;
     current = current->next;
   }
 
-  uint8_t* ptr = arena_alloc(arena, len);
-  slice_t slice = {.ptr = ptr, .len = len};
+  node_t* combined = alloc_slice(arena, len, tail);
+  uint8_t* ptr = combined->data;
 
   current = node;
   while (current) {
-    switch (current->type) {
-      case NIBS_PAIR:
-        if (current->value.pair.big < 12) {
-          *ptr++ = (current->value.pair.small << 4) | current->value.pair.big;
-        } else if (current->value.pair.big < 0x100) {
-          *ptr++ = (current->value.pair.small << 4) | 12;
-          *ptr++ = current->value.pair.big;
-        } else if (current->value.pair.big < 0x10000) {
-          *ptr++ = (current->value.pair.small << 4) | 13;
-          *(uint16_t*)ptr = current->value.pair.big;
-          ptr += 2;
-        } else if (current->value.pair.big < 0x100000000) {
-          *ptr++ = (current->value.pair.small << 4) | 14;
-          *(uint32_t*)ptr = current->value.pair.big;
-          ptr += 4;
-        } else {
-          *ptr++ = (current->value.pair.small << 4) | 15;
-          *(uint64_t*)ptr = current->value.pair.big;
-          ptr += 8;
-        }
-        break;
-      case NIBS_BUF:
-        memcpy(ptr, current->value.slice.ptr, current->value.slice.len);
-        ptr += current->value.slice.len;
-        break;
-      case NIBS_HEX:
-        for (int i = 0; i < current->value.slice.len; i += 2) {
-          *ptr++ = (fromhex(current->value.slice.ptr[i]) << 4) |
-                   (fromhex(current->value.slice.ptr[i + 1]));
-        }
-        break;
-    }
-    len += sizeof_node(current);
+    memcpy(ptr, current->data, current->len);
+    ptr += current->len;
     current = current->next;
   }
 
-  return slice;
+  return combined;
 }
 
-bool slice_equal(slice_t actual, slice_t expected) {
+bool slice_equal(arena_t* arena, node_t* actual, node_t* expected) {
+  if (actual->next)
+    actual = flatten(arena, actual);
+  if (expected->next)
+    expected = flatten(arena, expected);
   printf("expected: ");
-  for (int i = 0; i < expected.len; i++) {
-    printf("%02x", expected.ptr[i]);
+  for (int i = 0; i < expected->len; i++) {
+    printf("%02x", expected->data[i]);
   }
   printf("\nactual:   ");
-  for (int i = 0; i < actual.len; i++) {
-    if (i < expected.len && actual.ptr[i] != expected.ptr[i]) {
-      printf("\033[31m%02x\033[0m", actual.ptr[i]);
+  for (int i = 0; i < actual->len; i++) {
+    if (i < expected->len && actual->data[i] != expected->data[i]) {
+      printf("\033[31m%02x\033[0m", actual->data[i]);
     } else {
-      printf("%02x", actual.ptr[i]);
+      printf("%02x", actual->data[i]);
     }
   }
   printf("\n");
 
-  if (expected.len != actual.len) {
-    printf("Expected length %ld, but got %ld\n", expected.len, actual.len);
+  if (expected->len != actual->len) {
+    printf("Expected length %ld, but got %ld\n", expected->len, actual->len);
     return false;
   }
-  for (int i = 0; i < actual.len; i++) {
-    if (expected.ptr[i] != actual.ptr[i])
+  for (int i = 0; i < actual->len; i++) {
+    if (expected->data[i] != actual->data[i])
       return false;
   }
   return true;
 }
+
+#define assert_equal_integer(arena, actual, expected)            \
+  assert(slice_equal(arena, encode_integer(arena, actual, NULL), \
+                     hex_str(arena, expected)))
+
+#define assert_equal_double(arena, actual, expected)            \
+  assert(slice_equal(arena, encode_double(arena, actual, NULL), \
+                     hex_str(arena, expected)))
+
+#define assert_equal_boolean(arena, actual, expected)            \
+  assert(slice_equal(arena, encode_boolean(arena, actual, NULL), \
+                     hex_str(arena, expected)))
+
+#define assert_equal_null(arena, expected) \
+  assert(slice_equal(arena, encode_null(arena, NULL), hex_str(arena, expected)))
+
+#define assert_equal_string(arena, actual, expected)                  \
+  assert(slice_equal(arena, encode_const_string(arena, actual, NULL), \
+                     hex_str(arena, expected)))
+
+#define assert_equal_bytes(arena, actual, expected)                  \
+  assert(slice_equal(arena, encode_hex_bytes(arena, actual, NULL), \
+                     hex_str(arena, expected)))
 
 int main() {
   assert(zigzag_encode(0) == 0);
@@ -321,121 +308,53 @@ int main() {
   arena_t arena;
   arena_init(&arena);
 
-  assert(slice_equal(flatten(&arena, encode_integer(&arena, 0)),
-                     (slice_t){.ptr = (const uint8_t*)"\x00", .len = 1}));
-  assert(slice_equal(flatten(&arena, encode_integer(&arena, -10)),
-                     (slice_t){.ptr = (const uint8_t*)"\x0c\x13", .len = 2}));
-  assert(
-      slice_equal(flatten(&arena, encode_integer(&arena, -1000)),
-                  (slice_t){.ptr = (const uint8_t*)"\x0d\xcf\x07", .len = 3}));
-  assert(slice_equal(
-      flatten(&arena, encode_integer(&arena, -100000)),
-      (slice_t){.ptr = (const uint8_t*)"\x0e\x3f\x0d\x03\x00", .len = 5}));
-  assert(slice_equal(
-      flatten(&arena, encode_integer(&arena, -10000000000)),
-      (slice_t){.ptr = (const uint8_t*)"\x0f\xff\xc7\x17\xa8\x04\x00\x00\x00",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_integer(&arena, -9223372036854775807LL)),
-      (slice_t){.ptr = (const uint8_t*)"\x0f\xfd\xff\xff\xff\xff\xff\xff\xff",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_integer(&arena, 9223372036854775807LL)),
-      (slice_t){.ptr = (const uint8_t*)"\x0f\xfe\xff\xff\xff\xff\xff\xff\xff",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_integer(&arena, -9223372036854775807LL - 1LL)),
-      (slice_t){.ptr = (const uint8_t*)"\x0f\xff\xff\xff\xff\xff\xff\xff\xff",
-                .len = 9}));
+  assert_equal_integer(&arena, 0, "00");
+  assert_equal_integer(&arena, -10, "0c13");
+  assert_equal_integer(&arena, -1000, "0dcf07");
+  assert_equal_integer(&arena, -100000, "0e3f0d0300");
+  assert_equal_integer(&arena, -10000000000, "0fffc717a804000000");
+  assert_equal_integer(&arena, -9223372036854775807LL, "0ffdffffffffffffff");
+  assert_equal_integer(&arena, 9223372036854775807LL, "0ffeffffffffffffff");
+  assert_equal_integer(&arena, -9223372036854775807LL - 1LL,
+                       "0fffffffffffffffff");
 
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, -1.5707963267948966)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\xf9\xbf",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, -3.1415926535897930)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\x09\xc0",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, -4.7123889803846900)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\xd2\x21\x33\x7f\x7c\xd9\x12\xc0",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, -6.2831853071795860)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\x19\xc0",
-                .len = 9}));
-  assert(slice_equal(flatten(&arena, encode_double(&arena, 0.0)),
-                     (slice_t){.ptr = (const uint8_t*)"\x10", .len = 1}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 1.5707963267948966)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\xf9\x3f",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 3.1415926535897930)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\x09\x40",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 4.7123889803846900)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\xd2\x21\x33\x7f\x7c\xd9\x12\x40",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 6.2831853071795860)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x18\x2d\x44\x54\xfb\x21\x19\x40",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 1.0)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x00\x00\x00\x00\x00\x00\xf0\x3f",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 1.5)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x00\x00\x00\x00\x00\x00\xf8\x3f",
-                .len = 9}));
-  assert(slice_equal(
-      flatten(&arena, encode_double(&arena, 2.0)),
-      (slice_t){.ptr = (const uint8_t*)"\x1f\x00\x00\x00\x00\x00\x00\x00\x40",
-                .len = 9}));
+  assert_equal_double(&arena, -0.1, "1f9a9999999999b9bf");
+  assert_equal_double(&arena, 0.1, "1f9a9999999999b93f");
+  assert_equal_double(&arena, -1.1, "1f9a9999999999f1bf");
+  assert_equal_double(&arena, 1.1, "1f9a9999999999f13f");
+  assert_equal_double(&arena, -1.5707963267948966, "1f182d4454fb21f9bf");
+  assert_equal_double(&arena, -3.1415926535897930, "1f182d4454fb2109c0");
+  assert_equal_double(&arena, -4.7123889803846900, "1fd221337f7cd912c0");
+  assert_equal_double(&arena, -6.2831853071795860, "1f182d4454fb2119c0");
+  assert_equal_double(&arena, 1.5707963267948966, "1f182d4454fb21f93f");
+  assert_equal_double(&arena, 3.1415926535897930, "1f182d4454fb210940");
+  assert_equal_double(&arena, 4.7123889803846900, "1fd221337f7cd91240");
+  assert_equal_double(&arena, 6.2831853071795860, "1f182d4454fb211940");
+  assert_equal_double(&arena, 0.0, "10");
+  assert_equal_double(&arena, 1.0, "1f000000000000f03f");
+  assert_equal_double(&arena, 1.5, "1f000000000000f83f");
+  assert_equal_double(&arena, 2.0, "1f0000000000000040");
 
-  assert(slice_equal(flatten(&arena, encode_boolean(&arena, false)),
-                     (slice_t){.ptr = (const uint8_t*)"\x20", .len = 1}));
-  assert(slice_equal(flatten(&arena, encode_boolean(&arena, true)),
-                     (slice_t){.ptr = (const uint8_t*)"\x21", .len = 1}));
-  assert(slice_equal(flatten(&arena, encode_null(&arena)),
-                     (slice_t){.ptr = (const uint8_t*)"\x22", .len = 1}));
+  assert_equal_boolean(&arena, false, "20");
+  assert_equal_boolean(&arena, true, "21");
+  assert_equal_null(&arena, "22");
 
-  assert(slice_equal(flatten(&arena, encode_const_string(&arena, "")),
-                     (slice_t){.ptr = (const uint8_t*)"\x90", .len = 1}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(&arena, "Hello")),
-      (slice_t){.ptr = (const uint8_t*)"\x95\x48\x65\x6c\x6c\x6f", .len = 6}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(&arena, "World")),
-      (slice_t){.ptr = (const uint8_t*)"\x95\x57\x6f\x72\x6c\x64", .len = 6}));
-  assert(
-      slice_equal(flatten(&arena, encode_const_string(&arena, "🏵ROSETTE")),
-                  (slice_t){.ptr = (const uint8_t*)"\x9b\xf0\x9f\x8f\xb5\x52"
-                                                   "\x4f\x53\x45\x54\x54\x45",
-                            .len = 12}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(&arena, "🟥🟧🟨🟩🟦🟪")),
-      (slice_t){.ptr = (const uint8_t*)"\x9c\x18\xf0\x9f\x9f\xa5\xf0\x9f\x9f"
-                                       "\xa7\xf0\x9f\x9f"
-                                       "\xa8\xf0\x9f\x9f\xa9\xf0\x9f\x9f\xa6"
-                                       "\xf0\x9f\x9f\xaa",
-                .len = 26}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(&arena, "👶WH")),
-      (slice_t){.ptr = (const uint8_t*)"\x96\xf0\x9f\x91\xb6\x57\x48",
-                .len = 7}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(&arena, "deadbeef")),
-      (slice_t){.ptr = (const uint8_t*)"\xa4\xde\xad\xbe\xef", .len = 5}));
-  assert(slice_equal(
-      flatten(&arena, encode_const_string(
-                          &arena, "59d27967b4d859491ed95d8a7eceeaf8d4644ce4")),
-      (slice_t){
-          .ptr = (const uint8_t*)"\xac\x14\x59\xd2\x79\x67\xb4\xd8\x59\x49\x1e"
-                                 "\xd9\x5d\x8a\x7e\xce\xea\xf8\xd4\x64\x4c\xe4",
-          .len = 22}));
+  assert_equal_bytes(&arena, "", "80");
+  assert_equal_bytes(&arena, "00", "8100");
+  assert_equal_bytes(&arena, "deadbeef", "84deadbeef");
+  assert_equal_bytes(&arena, "74656e742d74797065", "8974656e742d74797065");
+  assert_equal_bytes(&arena, "746e2d7965", "85746e2d7965");
+
+  assert_equal_string(&arena, "", "90");
+  assert_equal_string(&arena, "Hello", "9548656c6c6f");
+  assert_equal_string(&arena, "World", "95576f726c64");
+  assert_equal_string(&arena, "🏵ROSETTE", "9bf09f8fb5524f5345545445");
+  assert_equal_string(&arena, "🟥🟧🟨🟩🟦🟪", "9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa");
+  assert_equal_string(&arena, "👶WH", "96f09f91b65748");
+
+  assert_equal_string(&arena, "deadbeef", "a4deadbeef");
+  assert_equal_string(&arena, "59d27967b4d859491ed95d8a7eceeaf8d4644ce4",
+                      "ac1459d27967b4d859491ed95d8a7eceeaf8d4644ce4");
 
   arena_deinit(&arena);
 }
