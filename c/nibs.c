@@ -205,16 +205,22 @@ static node_t* hex_str(arena_t* arena, const char* str) {
 }
 
 node_t* flatten(arena_t* arena, node_t* node) {
-  dump_chain(node);
   // Calculate total size needed to encode
   size_t len = 0;
   node_t* current = node;
   node_t* tail = NULL;
+  int count = 0;
   while (current) {
     len += current->len;
     tail = current->next;
     current = current->next;
+    count++;
   }
+  if (count == 1) {
+    return node;
+  }
+  dump_chain(node);
+  printf("flatten: %zu\n", len);
 
   node_t* combined = alloc_slice(arena, len, tail);
   uint8_t* ptr = combined->data;
