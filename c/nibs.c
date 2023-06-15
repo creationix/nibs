@@ -128,6 +128,14 @@ node_t* encode_double(arena_t* arena, double num) {
   return alloc_pair(arena, NIBS_FLOAT, float_encode(num), NULL);
 }
 
+node_t* encode_boolean(arena_t* arena, bool val) {
+  return alloc_pair(arena, NIBS_SIMPLE, val ? NIBS_TRUE : NIBS_FALSE, NULL);
+}
+
+node_t* encode_null(arena_t* arena) {
+  return alloc_pair(arena, NIBS_SIMPLE, NIBS_NULL, NULL);
+}
+
 // Encode a null terminated c-string that's already UTF-8 encoded
 node_t* encode_const_string(arena_t* arena, const char* str) {
   size_t len = strlen(str);
@@ -428,5 +436,6 @@ int main() {
           .ptr = (const uint8_t*)"\xac\x14\x59\xd2\x79\x67\xb4\xd8\x59\x49\x1e"
                                  "\xd9\x5d\x8a\x7e\xce\xea\xf8\xd4\x64\x4c\xe4",
           .len = 22}));
+
   arena_deinit(&arena);
 }
