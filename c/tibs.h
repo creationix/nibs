@@ -36,6 +36,6 @@ struct tibs_token {
 // `offset` is an offset into that string to start parsing
 // Return struct contains the type of token, the offset into the string, and the length of the token
 // Call in a loop till the returned type is TIBS_EOS
-struct tibs_token tibs_parse(const char* tibs, int offset);
+struct tibs_token tibs_parse(const char* tibs, int offset, int len);
 
 #endif // TIBS_H
