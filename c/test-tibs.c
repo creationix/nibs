@@ -14,6 +14,98 @@ static const char* tibs_type_names[] = {
     "ref",         "map_begin", "map_end", "list_begin", "list_end",
     "scope_begin", "scope_end", "eos"};
 
+int parse_list(const char* tibs, int offset, int len, int indexed);
+int parse_map(const char* tibs, int offset, int len, int indexed);
+int parse_scope(const char* tibs, int offset, int len);
+
+int process_token(const char* tibs, int offset, int len, struct tibs_token token) {
+  switch (token.type) {
+    case TIBS_NULL:
+      printf("null");
+      return token.offset + token.len;
+    case TIBS_BOOLEAN:
+      printf("%.*s", token.len, tibs + token.offset);
+      return token.offset + token.len;
+    case TIBS_NUMBER:
+      printf("%.*s", token.len, tibs + token.offset);
+      return token.offset + token.len;
+    case TIBS_BYTES:
+      printf("%.*s", token.len, tibs + token.offset);
+      return token.offset + token.len;
+    case TIBS_STRING:
+      printf("%.*s", token.len, tibs + token.offset);
+      return token.offset + token.len;
+    case TIBS_REF:
+      printf("%.*s", token.len, tibs + token.offset);
+      return token.offset + token.len;
+    case TIBS_LIST_BEGIN:
+      return parse_list(tibs, token.offset + token.len, len, token.len > 1);
+    case TIBS_MAP_BEGIN:
+      return parse_map(tibs, token.offset + token.len, len, token.len > 1);
+    case TIBS_SCOPE_BEGIN:
+      return parse_scope(tibs, token.offset + token.len, len);
+    case TIBS_EOS: case TIBS_LIST_END: case TIBS_MAP_END: case TIBS_SCOPE_END:
+      assert(0);
+  }
+}
+
+int parse_list(const char* tibs, int offset, int len, int indexed) {
+  if (indexed) {
+    printf("[#");
+  } else {
+    printf("[");
+  }
+  for (int i = 0; 1; i++) {
+    struct tibs_token token = tibs_parse(tibs, offset, len);
+    if (token.type == TIBS_LIST_END) {
+      printf("]");
+      return token.offset + token.len;
+    }
+    if (i > 0) {
+      printf(",");
+    }
+    offset = process_token(tibs, offset, len, token);
+  }
+}
+
+int parse_map(const char* tibs, int offset, int len, int indexed) {
+  if (indexed) {
+    printf("{#");
+  } else {
+    printf("{");
+  }
+  for (int i = 0; 1; i++) {
+    struct tibs_token token = tibs_parse(tibs, offset, len);
+    if (token.type == TIBS_MAP_END) {
+      printf("}");
+      return token.offset + token.len;
+    }
+    if (i > 0) {
+      if (i % 2) {
+        printf(":");
+      } else {
+        printf(",");
+      }
+    }
+    offset = process_token(tibs, offset, len, token);
+  }
+}
+
+int parse_scope(const char* tibs, int offset, int len) {
+  printf("(");
+  for (int i = 0; 1; i++) {
+    struct tibs_token token = tibs_parse(tibs, offset, len);
+    if (token.type == TIBS_SCOPE_END) {
+      printf(")");
+      return token.offset + token.len;
+    }
+    if (i > 0) {
+      printf(",");
+    }
+    offset = process_token(tibs, offset, len, token);
+  }
+}
+
 int main(int argc, const char** argv) {
   // Open the file
   assert(argc > 1);
@@ -34,11 +126,10 @@ int main(int argc, const char** argv) {
   int offset = 0;
   while (1) {
     struct tibs_token token = tibs_parse(data, offset, filestat.st_size);
-    if (token.type == TIBS_EOS)
+    if (token.type == TIBS_EOS) {
       break;
-    printf("  %s %.*s\n", tibs_type_names[token.type], token.len,
-           data + token.offset);
-    offset = token.offset + token.len;
+    }
+    offset = process_token(data, offset, filestat.st_size, token);
   }
 
   // Let it go

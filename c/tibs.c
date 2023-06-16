@@ -19,6 +19,12 @@ static int starts_with(const char* prefix,
 // Parse a single token from the given tibs string and offset.
 struct tibs_token tibs_parse(const char* tibs, int offset, int len) {
   for (; offset < len; offset++) {
+    char c = tibs[offset];
+    // Fast skip common whitespace and separators
+    if (c == ' ' || c == '\t' || c == '\r' ||
+        c == '\n' || c == ',' || c == ':') {
+      continue;
+    }
     if (starts_with("null", tibs, offset, len)) {
       return (struct tibs_token){TIBS_NULL, offset, 4};
     }
@@ -37,70 +43,68 @@ struct tibs_token tibs_parse(const char* tibs, int offset, int len) {
     if (starts_with("nan", tibs, offset, len)) {
       return (struct tibs_token){TIBS_NUMBER, offset, 3};
     }
-    if (tibs[offset] == '-' || (tibs[offset] >= '0' && tibs[offset] <= '9')) {
-      int len = 1;
-      while (tibs[offset + len] >= '0' && tibs[offset + len] <= '9') {
-        len++;
+    if (c == '-' || (c >= '0' && c <= '9')) {
+      int i = offset + 1;
+      while (i < len && tibs[i] >= '0' && tibs[i] <= '9') {
+        i++;
       }
-      if (tibs[offset + len] == '.') {
-        len++;
-        while (tibs[offset + len] >= '0' && tibs[offset + len] <= '9') {
-          len++;
+      if (i < len && tibs[i] == '.') {
+        i++;
+        while (i < len && tibs[i] >= '0' && tibs[i] <= '9') {
+          i++;
         }
       }
-      if (tibs[offset + len] == 'e' || tibs[offset + len] == 'E') {
-        len++;
-        if (tibs[offset + len] == '-' || tibs[offset + len] == '+') {
-          len++;
+      if (i < len && tibs[i] == 'e' || tibs[i] == 'E') {
+        i++;
+        if (i < len && tibs[i] == '-' || tibs[i] == '+') {
+          i++;
         }
-        while (tibs[offset + len] >= '0' && tibs[offset + len] <= '9') {
-          len++;
+        while (i < len && tibs[i] >= '0' && tibs[i] <= '9') {
+          i++;
         }
       }
-      return (struct tibs_token){TIBS_NUMBER, offset, len};
+      return (struct tibs_token){TIBS_NUMBER, offset, i - offset};
     }
-    if (tibs[offset] == '"') {
-      int len = 1;
-      while (tibs[offset + len] != '"') {
-        if (tibs[offset + len] == '\\') {
-          len++;
+    if (c == '"') {
+      int i = offset + 1;
+      while (i < len && tibs[i] != '"') {
+        if (tibs[i] == '\\') {
+          i++;
         }
-        len++;
+        i++;
       }
-      return (struct tibs_token){TIBS_STRING, offset, len + 1};
+      return (struct tibs_token){TIBS_STRING, offset, i - offset + 1};
     }
-    if (tibs[offset] == '<') {
-      int len = 1;
-      while (tibs[offset + len] != '>') {
-        len++;
-      }
-      return (struct tibs_token){TIBS_BYTES, offset, len + 1};
+    if (c == '[') {
+      return (struct tibs_token){TIBS_LIST_BEGIN, offset, tibs[offset + 1] == '#' ? 2 : 1};
     }
-    if (tibs[offset] == '&') {
-      int len = 1;
-      while (tibs[offset + len] >= '0' && tibs[offset + len] <= '9') {
-        len++;
-      }
-      return (struct tibs_token){TIBS_REF, offset, len};
-    }
-    if (tibs[offset] == '[') {
-      int len = tibs[offset + 1] == '#' ? 2 : 1;
-      return (struct tibs_token){TIBS_LIST_BEGIN, offset, len};
-    }
-    if (tibs[offset] == ']') {
+    if (c == ']') {
       return (struct tibs_token){TIBS_LIST_END, offset, 1};
     }
-    if (tibs[offset] == '{') {
-      int len = tibs[offset + 1] == '#' ? 2 : 1;
-      return (struct tibs_token){TIBS_MAP_BEGIN, offset, len};
+    if (c == '{') {
+      return (struct tibs_token){TIBS_MAP_BEGIN, offset, tibs[offset + 1] == '#' ? 2 : 1};
     }
-    if (tibs[offset] == '}') {
+    if (c == '}') {
       return (struct tibs_token){TIBS_MAP_END, offset, 1};
     }
-    if (tibs[offset] == '(') {
+    if (c == '<') {
+      int i = offset + 1;
+      while (i < len && tibs[i] != '>') {
+        i++;
+      }
+      return (struct tibs_token){TIBS_BYTES, offset, i - offset + 1};
+    }
+    if (c == '&') {
+      int i = offset + 1;
+      while (i < len && tibs[i] >= '0' && tibs[offset + i] <= '9') {
+        i++;
+      }
+      return (struct tibs_token){TIBS_REF, offset, i - offset};
+    }
+    if (c == '(') {
       return (struct tibs_token){TIBS_SCOPE_BEGIN, offset, 1};
     }
-    if (tibs[offset] == ')') {
+    if (c == ')') {
       return (struct tibs_token){TIBS_SCOPE_END, offset, 1};
     }
   }
