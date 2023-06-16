@@ -18,7 +18,10 @@ int parse_list(const char* tibs, int offset, int len, int indexed);
 int parse_map(const char* tibs, int offset, int len, int indexed);
 int parse_scope(const char* tibs, int offset, int len);
 
-int process_token(const char* tibs, int offset, int len, struct tibs_token token) {
+int process_token(const char* tibs,
+                  int offset,
+                  int len,
+                  struct tibs_token token) {
   switch (token.type) {
     case TIBS_NULL:
       printf("null");
@@ -44,7 +47,10 @@ int process_token(const char* tibs, int offset, int len, struct tibs_token token
       return parse_map(tibs, token.offset + token.len, len, token.len > 1);
     case TIBS_SCOPE_BEGIN:
       return parse_scope(tibs, token.offset + token.len, len);
-    case TIBS_EOS: case TIBS_LIST_END: case TIBS_MAP_END: case TIBS_SCOPE_END:
+    case TIBS_EOS:
+    case TIBS_LIST_END:
+    case TIBS_MAP_END:
+    case TIBS_SCOPE_END:
       assert(0);
   }
 }
@@ -124,12 +130,13 @@ int main(int argc, const char** argv) {
 
   // Parse the mapped file
   int offset = 0;
-  while (1) {
+  for (int i = 0; 1; i++) {
     struct tibs_token token = tibs_parse(data, offset, filestat.st_size);
     if (token.type == TIBS_EOS) {
       break;
     }
     offset = process_token(data, offset, filestat.st_size, token);
+    printf("\n");
   }
 
   // Let it go
