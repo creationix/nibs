@@ -12,6 +12,7 @@ static int starts_with(const char* prefix,
     if (*prefix != tibs[offset]) {
       return 0;
     }
+    prefix++;
   }
   return 0;
 }
