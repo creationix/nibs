@@ -55,9 +55,9 @@ struct tibs_token tibs_parse(const char* tibs, int offset, int len) {
           i++;
         }
       }
-      if (i < len && tibs[i] == 'e' || tibs[i] == 'E') {
+      if (i < len && (tibs[i] == 'e' || tibs[i] == 'E')) {
         i++;
-        if (i < len && tibs[i] == '-' || tibs[i] == '+') {
+        if (i < len && (tibs[i] == '-' || tibs[i] == '+')) {
           i++;
         }
         while (i < len && tibs[i] >= '0' && tibs[i] <= '9') {
@@ -97,7 +97,7 @@ struct tibs_token tibs_parse(const char* tibs, int offset, int len) {
     }
     if (c == '&') {
       int i = offset + 1;
-      while (i < len && tibs[i] >= '0' && tibs[offset + i] <= '9') {
+      while (i < len && tibs[i] >= '0' && tibs[i] <= '9') {
         i++;
       }
       return (struct tibs_token){TIBS_REF, offset, i - offset};

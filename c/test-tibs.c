@@ -1,4 +1,5 @@
 #include "tibs.h"
+#include "nibs.h"
 #define _GNU_SOURCE
 #include <assert.h>
 #include <fcntl.h>
@@ -9,17 +10,11 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-static const char* tibs_type_names[] = {
-    "null",        "boolean",   "number",  "bytes",      "string",
-    "ref",         "map_begin", "map_end", "list_begin", "list_end",
-    "scope_begin", "scope_end", "eos"};
-
 int parse_list(const char* tibs, int offset, int len, int indexed);
 int parse_map(const char* tibs, int offset, int len, int indexed);
 int parse_scope(const char* tibs, int offset, int len);
 
 int process_token(const char* tibs,
-                  int offset,
                   int len,
                   struct tibs_token token) {
   switch (token.type) {
@@ -32,9 +27,25 @@ int process_token(const char* tibs,
     case TIBS_NUMBER:
       printf("%.*s", token.len, tibs + token.offset);
       return token.offset + token.len;
-    case TIBS_BYTES:
-      printf("%.*s", token.len, tibs + token.offset);
+    case TIBS_BYTES: {
+      int i = token.offset + 1;
+      printf("<");
+      while (i < token.offset + token.len - 1) {
+        while (tibs[i] < '0' || (tibs[i] > '9' && tibs[i] < 'a') || tibs[i] > 'f') {
+          i++;
+        }
+        int high = tibs[i] < 'a' ? tibs[i] - '0' : tibs[i] - 'a' + 10;
+        i++;
+        while (tibs[i] < '0' || (tibs[i] > '9' && tibs[i] < 'a') || tibs[i] > 'f') {
+          i++;
+        }
+        int low = tibs[i] < 'a' ? tibs[i] - '0' : tibs[i] - 'a' + 10;
+        i++;
+        printf("%02x", high << 4 | low);
+      }
+      printf(">");
       return token.offset + token.len;
+    }
     case TIBS_STRING:
       printf("%.*s", token.len, tibs + token.offset);
       return token.offset + token.len;
@@ -51,8 +62,11 @@ int process_token(const char* tibs,
     case TIBS_LIST_END:
     case TIBS_MAP_END:
     case TIBS_SCOPE_END:
-      assert(0);
+      break;
   }
+  printf("**%.*s**", token.len, tibs + token.offset);
+  assert(token.len);
+  return token.offset + token.len;
 }
 
 int parse_list(const char* tibs, int offset, int len, int indexed) {
@@ -70,7 +84,7 @@ int parse_list(const char* tibs, int offset, int len, int indexed) {
     if (i > 0) {
       printf(",");
     }
-    offset = process_token(tibs, offset, len, token);
+    offset = process_token(tibs, len, token);
   }
 }
 
@@ -93,7 +107,7 @@ int parse_map(const char* tibs, int offset, int len, int indexed) {
         printf(",");
       }
     }
-    offset = process_token(tibs, offset, len, token);
+    offset = process_token(tibs, len, token);
   }
 }
 
@@ -108,7 +122,7 @@ int parse_scope(const char* tibs, int offset, int len) {
     if (i > 0) {
       printf(",");
     }
-    offset = process_token(tibs, offset, len, token);
+    offset = process_token(tibs, len, token);
   }
 }
 
@@ -135,7 +149,7 @@ int main(int argc, const char** argv) {
     if (token.type == TIBS_EOS) {
       break;
     }
-    offset = process_token(data, offset, filestat.st_size, token);
+    offset = process_token(data, filestat.st_size, token);
     printf("\n");
   }
 
