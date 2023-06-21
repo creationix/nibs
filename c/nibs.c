@@ -195,15 +195,6 @@ void dump_chain(node_t* node) {
   printf("\n");
 }
 
-static node_t* hex_str(arena_t* arena, const char* str) {
-  size_t len = strlen(str);
-  assert(len % 2 == 0);
-  len >>= 1;
-  node_t* buf = alloc_slice(arena, len, NULL);
-  hexcpy(buf->data, (const uint8_t*)str, len);
-  return buf;
-}
-
 node_t* flatten(arena_t* arena, node_t* node) {
   // Calculate total size needed to encode
   size_t len = 0;
@@ -233,6 +224,44 @@ node_t* flatten(arena_t* arena, node_t* node) {
   }
 
   return combined;
+}
+
+static node_t* encode_list(arena_t* arena,
+                           int count,
+                           node_t** items,
+                           node_t* next) {
+  size_t total = 0;
+  node_t* first = NULL;
+  node_t* last = NULL;
+  for (int i = 0; i < count; i++) {
+    node_t* item = items[i];
+    if (item) {
+      if (!first) {
+        first = item;
+      }
+      if (last) {
+        last->next = item;
+      }
+      while (item) {
+        total += item->len;
+        last = item;
+        item = item->next;
+      }
+    }
+  }
+  if (last) {
+    last->next = next;
+  }
+  return alloc_pair(arena, NIBS_LIST, total, first);
+}
+
+static node_t* hex_str(arena_t* arena, const char* str) {
+  size_t len = strlen(str);
+  assert(len % 2 == 0);
+  len >>= 1;
+  node_t* buf = alloc_slice(arena, len, NULL);
+  hexcpy(buf->data, (const uint8_t*)str, len);
+  return buf;
 }
 
 bool slice_equal(arena_t* arena, node_t* actual, node_t* expected) {
@@ -284,9 +313,15 @@ bool slice_equal(arena_t* arena, node_t* actual, node_t* expected) {
   assert(slice_equal(arena, encode_const_string(arena, actual, NULL), \
                      hex_str(arena, expected)))
 
-#define assert_equal_bytes(arena, actual, expected)                  \
+#define assert_equal_bytes(arena, actual, expected)                \
   assert(slice_equal(arena, encode_hex_bytes(arena, actual, NULL), \
                      hex_str(arena, expected)))
+
+static void assert_equal_node(arena_t* arena,
+                              node_t* node,
+                              const char* expected) {
+  assert(slice_equal(arena, node, hex_str(arena, expected)));
+}
 
 int main() {
   assert(zigzag_encode(0) == 0);
@@ -355,12 +390,40 @@ int main() {
   assert_equal_string(&arena, "Hello", "9548656c6c6f");
   assert_equal_string(&arena, "World", "95576f726c64");
   assert_equal_string(&arena, "🏵ROSETTE", "9bf09f8fb5524f5345545445");
-  assert_equal_string(&arena, "🟥🟧🟨🟩🟦🟪", "9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa");
+  assert_equal_string(&arena, "🟥🟧🟨🟩🟦🟪",
+                      "9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa");
   assert_equal_string(&arena, "👶WH", "96f09f91b65748");
 
   assert_equal_string(&arena, "deadbeef", "a4deadbeef");
   assert_equal_string(&arena, "59d27967b4d859491ed95d8a7eceeaf8d4644ce4",
                       "ac1459d27967b4d859491ed95d8a7eceeaf8d4644ce4");
+
+  assert_equal_node(&arena, encode_list(&arena, 3, (node_t*[]){}, NULL), "b0");
+
+  assert_equal_node(&arena,
+                    encode_list(&arena, 3,
+                                (node_t*[]){
+                                    encode_integer(&arena, 1, NULL),
+                                    encode_integer(&arena, 2, NULL),
+                                    encode_integer(&arena, 3, NULL),
+                                },
+                                NULL),
+                    "b3020406");
+
+  assert_equal_node(
+      &arena,
+      encode_list(
+          &arena, 3,
+          (node_t*[]){
+              encode_list(&arena, 1,
+                          (node_t*[]){encode_integer(&arena, 1, NULL)}, NULL),
+              encode_list(&arena, 1,
+                          (node_t*[]){encode_integer(&arena, 2, NULL)}, NULL),
+              encode_list(&arena, 1,
+                          (node_t*[]){encode_integer(&arena, 3, NULL)}, NULL),
+          },
+          NULL),
+      "b6b102b104b106");
 
   arena_deinit(&arena);
 }
