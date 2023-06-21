@@ -5,5 +5,8 @@
     ],
     "editor.semanticHighlighting.enabled": true,
     "Lua.hint.enable": false,
-    "Lua.hint.setType": true
+    "Lua.hint.setType": true,
+    "Lua.workspace.library": [
+        "${3rd}/luv/library"
+    ]
 }
