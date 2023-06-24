@@ -1,183 +1,232 @@
-#include "nibs.h"
+#include "arena.c"
+#include "nibs.c"
+#include "slice.h"
+#include "tibs.c"
 #define _GNU_SOURCE
 #include <assert.h>
+#include <fcntl.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stddef.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
+#include <sys/types.h>
+#include <unistd.h>
 
-static node_t* hex_str(arena_t* arena, const char* str) {
-  size_t len = strlen(str);
-  assert(len % 2 == 0);
-  len >>= 1;
-  node_t* buf = alloc_slice(arena, len, NULL);
-  hexcpy(buf->data, (const uint8_t*)str, len);
-  return buf;
+static slice_node_t* nibs_parse_list(arena_t* arena, const char* tibs, int* offset, int len, int indexed);
+// static int parse_map(const char* tibs, int offset, int len, int indexed);
+// static int parse_scope(const char* tibs, int offset, int len);
+
+static int is_hex(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
 }
 
-bool slice_equal(arena_t* arena, node_t* actual, node_t* expected) {
-  if (actual->next)
-    actual = flatten(arena, actual);
-  if (expected->next)
-    expected = flatten(arena, expected);
-  printf("expected: ");
-  for (int i = 0; i < expected->len; i++) {
-    printf("%02x", expected->data[i]);
-  }
-  printf("\nactual:   ");
-  for (int i = 0; i < actual->len; i++) {
-    if (i < expected->len && actual->data[i] != expected->data[i]) {
-      printf("\033[31m%02x\033[0m", actual->data[i]);
-    } else {
-      printf("%02x", actual->data[i]);
+static int from_hex(char c) {
+  return c < 'a' ? c - '0' : c - 'a' + 10;
+}
+
+static slice_node_t* nibs_process_token(arena_t* arena, const char* tibs, int len, int* offset, struct tibs_token token) {
+  switch (token.type) {
+    case TIBS_NULL:
+      *offset = token.offset + token.len;
+      return nibs_encode_null(arena);
+    case TIBS_BOOLEAN:
+      *offset = token.offset + token.len;
+      return nibs_encode_boolean(arena, tibs[token.offset] == 't');
+    case TIBS_NUMBER: {
+      double num = strtod(tibs + token.offset, NULL);
+      // TODO: encode integers
+      // TODO: encode nil/inf
+      *offset = token.offset + token.len;
+      return nibs_encode_double(arena, num);
     }
+    case TIBS_BYTES: {
+      int i = token.offset + 1;
+      int e = token.offset + token.len - 1;
+      int count = 0;
+      while (i < e) {
+        while (!is_hex(tibs[i]))
+          i++;
+        i++;
+        while (!is_hex(tibs[i]))
+          i++;
+        i++;
+        count++;
+      }
+      slice_node_t* node = nibs_alloc_pair(arena, NIBS_BYTES, count, true);
+      size_t o = node->len - count;
+      count = 0;
+      i = token.offset + 1;
+      while (i < e) {
+        while (!is_hex(tibs[i]))
+          i++;
+        int high = from_hex(tibs[i++]);
+        while (!is_hex(tibs[i]))
+          i++;
+        int low = from_hex(tibs[i++]);
+        node->data[o + count++] = (high << 4) | low;
+      }
+      *offset = token.offset + token.len;
+      return node;
+    }
+    case TIBS_STRING:
+      // TODO: process escapes
+      // TODO: use hexstring when possible
+      int count = token.len - 2; // Assume just quotes are removed
+      slice_node_t* node = nibs_alloc_pair(arena, NIBS_BYTES, count, true);
+      size_t o = node->len - count;
+      memcpy(node->data + o, tibs + token.offset + 1, count);
+      *offset = token.offset + token.len;
+      return node;
+    case TIBS_REF: {
+      long num = atol(tibs + token.offset + 1);
+      *offset = token.offset + token.len;
+      return nibs_alloc_pair(arena, NIBS_REF, num, false);
+    }
+    case TIBS_LIST_BEGIN: {
+    case TIBS_MAP_BEGIN:
+    case TIBS_SCOPE_BEGIN:
+      *offset = token.offset + token.len;
+      return nibs_parse_list(arena, tibs, offset, len, token.len > 1);
+    }
+      // return parse_map(tibs, token.offset + token.len, len, token.len > 1);
+      // return parse_scope(tibs, token.offset + token.len, len);
+    case TIBS_EOS:
+    case TIBS_LIST_END:
+    case TIBS_MAP_END:
+    case TIBS_SCOPE_END:
+      break;
   }
-  printf("\n");
-
-  if (expected->len != actual->len) {
-    printf("Expected length %ld, but got %ld\n", expected->len, actual->len);
-    return false;
-  }
-  for (int i = 0; i < actual->len; i++) {
-    if (expected->data[i] != actual->data[i])
-      return false;
-  }
-  return true;
+  return NULL;
 }
 
-#define assert_equal_integer(arena, actual, expected)            \
-  assert(slice_equal(arena, encode_integer(arena, actual, NULL), \
-                     hex_str(arena, expected)))
-
-#define assert_equal_double(arena, actual, expected)            \
-  assert(slice_equal(arena, encode_double(arena, actual, NULL), \
-                     hex_str(arena, expected)))
-
-#define assert_equal_boolean(arena, actual, expected)            \
-  assert(slice_equal(arena, encode_boolean(arena, actual, NULL), \
-                     hex_str(arena, expected)))
-
-#define assert_equal_null(arena, expected) \
-  assert(slice_equal(arena, encode_null(arena, NULL), hex_str(arena, expected)))
-
-#define assert_equal_string(arena, actual, expected)                  \
-  assert(slice_equal(arena, encode_const_string(arena, actual, NULL), \
-                     hex_str(arena, expected)))
-
-#define assert_equal_bytes(arena, actual, expected)                \
-  assert(slice_equal(arena, encode_hex_bytes(arena, actual, NULL), \
-                     hex_str(arena, expected)))
-
-static void assert_equal_node(arena_t* arena,
-                              node_t* node,
-                              const char* expected) {
-  assert(slice_equal(arena, node, hex_str(arena, expected)));
+static slice_node_t* nibs_parse_list(arena_t* arena, const char* tibs, int* offset, int len, int indexed) {
+  if (indexed) {
+    // TODO: generate index
+  }
+  int total_bytes = 0;
+  slice_node_t* tail = NULL;
+  slice_node_t* head = NULL;
+  while (1) {
+    struct tibs_token token = tibs_parse(tibs, *offset, len);
+    if (token.type == TIBS_EOS || token.type == TIBS_LIST_END || token.type == TIBS_SCOPE_END || token.type == TIBS_MAP_END) {
+      *offset = token.offset + token.len;
+      break;
+    }
+    slice_node_t* child = nibs_process_token(arena, tibs, len, offset, token);
+    total_bytes += child->len;
+    if (!head) {
+      head = child;
+    } else {
+      tail->next = child;
+    }
+    tail = child;
+  }
+  slice_node_t* node = nibs_alloc_pair(arena, NIBS_LIST, total_bytes, false);
+  node->next = head;
+  return node;
 }
 
-int main() {
-  assert(zigzag_encode(0) == 0);
-  assert(zigzag_encode(-1) == 1);
-  assert(zigzag_encode(1) == 2);
-  assert(zigzag_encode(0x7fffffffffffffff) == 0xfffffffffffffffe);
-  assert(zigzag_encode(-0x8000000000000000) == 0xffffffffffffffff);
-
-  assert(zigzag_decode(0) == 0);
-  assert(zigzag_decode(1) == -1);
-  assert(zigzag_decode(2) == 1);
-  assert(zigzag_decode(0xfffffffffffffffe) == 0x7fffffffffffffff);
-  assert(zigzag_decode(0xffffffffffffffff) == -0x8000000000000000);
-
-  assert(float_encode(-0.1) == 0xbfb999999999999a);
-  assert(float_encode(0.1) == 0x3fb999999999999a);
-  assert(float_encode(-1.1) == 0xbff199999999999a);
-  assert(float_encode(1.1) == 0x3ff199999999999a);
-
-  assert(float_decode(0xbfb999999999999a) == -0.1);
-  assert(float_decode(0x3fb999999999999a) == 0.1);
-  assert(float_decode(0xbff199999999999a) == -1.1);
-  assert(float_decode(0x3ff199999999999a) == 1.1);
-
+int main(int argc, char** argv) {
   arena_t arena;
   arena_init(&arena);
 
-  assert_equal_integer(&arena, 0, "00");
-  assert_equal_integer(&arena, -10, "0c13");
-  assert_equal_integer(&arena, -1000, "0dcf07");
-  assert_equal_integer(&arena, -100000, "0e3f0d0300");
-  assert_equal_integer(&arena, -10000000000, "0fffc717a804000000");
-  assert_equal_integer(&arena, -9223372036854775807LL, "0ffdffffffffffffff");
-  assert_equal_integer(&arena, 9223372036854775807LL, "0ffeffffffffffffff");
-  assert_equal_integer(&arena, -9223372036854775807LL - 1LL,
-                       "0fffffffffffffffff");
+  // Open the file
+  const char* filename = argc > 1 ? argv[1] : "../fixtures/tibs-fixtures.txt";
+  int fd = open(filename, O_RDONLY);
+  assert(fd);
 
-  assert_equal_double(&arena, -0.1, "1f9a9999999999b9bf");
-  assert_equal_double(&arena, 0.1, "1f9a9999999999b93f");
-  assert_equal_double(&arena, -1.1, "1f9a9999999999f1bf");
-  assert_equal_double(&arena, 1.1, "1f9a9999999999f13f");
-  assert_equal_double(&arena, -1.5707963267948966, "1f182d4454fb21f9bf");
-  assert_equal_double(&arena, -3.1415926535897930, "1f182d4454fb2109c0");
-  assert_equal_double(&arena, -4.7123889803846900, "1fd221337f7cd912c0");
-  assert_equal_double(&arena, -6.2831853071795860, "1f182d4454fb2119c0");
-  assert_equal_double(&arena, 1.5707963267948966, "1f182d4454fb21f93f");
-  assert_equal_double(&arena, 3.1415926535897930, "1f182d4454fb210940");
-  assert_equal_double(&arena, 4.7123889803846900, "1fd221337f7cd91240");
-  assert_equal_double(&arena, 6.2831853071795860, "1f182d4454fb211940");
-  assert_equal_double(&arena, 0.0, "10");
-  assert_equal_double(&arena, 1.0, "1f000000000000f03f");
-  assert_equal_double(&arena, 1.5, "1f000000000000f83f");
-  assert_equal_double(&arena, 2.0, "1f0000000000000040");
+  // Get it's size
+  struct stat filestat;
+  int status = fstat(fd, &filestat);
+  assert(!status);
 
-  assert_equal_boolean(&arena, false, "20");
-  assert_equal_boolean(&arena, true, "21");
-  assert_equal_null(&arena, "22");
+  // Map the file
+  char* data = mmap(NULL, filestat.st_size, PROT_READ, MAP_SHARED, fd, 0);
+  assert(data != MAP_FAILED);
 
-  assert_equal_bytes(&arena, "", "80");
-  assert_equal_bytes(&arena, "00", "8100");
-  assert_equal_bytes(&arena, "deadbeef", "84deadbeef");
-  assert_equal_bytes(&arena, "74656e742d74797065", "8974656e742d74797065");
-  assert_equal_bytes(&arena, "746e2d7965", "85746e2d7965");
+  // Parse the mapped file
+  int offset = 0;
+  while (1) {
+    struct tibs_token token = tibs_parse(data, offset, filestat.st_size);
+    if (token.type == TIBS_EOS) {
+      break;
+    }
+    slice_node_t* node = nibs_process_token(&arena, data, filestat.st_size, &offset, token);
 
-  assert_equal_string(&arena, "", "90");
-  assert_equal_string(&arena, "Hello", "9548656c6c6f");
-  assert_equal_string(&arena, "World", "95576f726c64");
-  assert_equal_string(&arena, "🏵ROSETTE", "9bf09f8fb5524f5345545445");
-  assert_equal_string(&arena, "🟥🟧🟨🟩🟦🟪",
-                      "9c18f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa");
-  assert_equal_string(&arena, "👶WH", "96f09f91b65748");
+    // Dump chain to stdout
+    while (node) {
+      fprintf(stderr, "<");
+      for (int i = 0; i < node->len; i++) {
+        fprintf(stderr, "%02x", node->data[i]);
+      }
+      fprintf(stderr, ">");
+      printf("%.*s", node->len, node->data);
+      node = node->next;
+    }
+    fprintf(stderr, "\n");
+  }
 
-  assert_equal_string(&arena, "deadbeef", "a4deadbeef");
-  assert_equal_string(&arena, "59d27967b4d859491ed95d8a7eceeaf8d4644ce4",
-                      "ac1459d27967b4d859491ed95d8a7eceeaf8d4644ce4");
-
-  assert_equal_node(&arena, encode_list(&arena, 3, (node_t*[]){}, NULL), "b0");
-
-  assert_equal_node(&arena,
-                    encode_list(&arena, 3,
-                                (node_t*[]){
-                                    encode_integer(&arena, 1, NULL),
-                                    encode_integer(&arena, 2, NULL),
-                                    encode_integer(&arena, 3, NULL),
-                                },
-                                NULL),
-                    "b3020406");
-
-  assert_equal_node(
-      &arena,
-      encode_list(
-          &arena, 3,
-          (node_t*[]){
-              encode_list(&arena, 1,
-                          (node_t*[]){encode_integer(&arena, 1, NULL)}, NULL),
-              encode_list(&arena, 1,
-                          (node_t*[]){encode_integer(&arena, 2, NULL)}, NULL),
-              encode_list(&arena, 1,
-                          (node_t*[]){encode_integer(&arena, 3, NULL)}, NULL),
-          },
-          NULL),
-      "b6b102b104b106");
+  // Let it go
+  munmap(data, filestat.st_size);
+  close(fd);
 
   arena_deinit(&arena);
 }
+
+// static int fromhex(uint8_t c) {
+//   return c < 'a' ? c - '0' : c - 'a' + 10;
+// }
+
+// static void hexcpy(uint8_t* dest, const uint8_t* source, int len) {
+//   for (int i = 0; i < len; i++) {
+//     dest[i] = (fromhex(source[i * 2]) << 4) | fromhex(source[i * 2 + 1]);
+//   }
+// }
+
+// // Encode a null terminated c-string that's already UTF-8 encoded
+// slice_node_t* encode_string(arena_t* arena,
+//                             const char* str,
+//                             slice_node_t* next) {
+//   size_t len = strlen(str);
+//   slice_node_t* body;
+//   if (len) {
+//     if (is_hex(str, len)) {
+//       len >>= 1;
+//       body = alloc_slice(arena, len, next);
+//       hexcpy(body->data, (uint8_t*)str, len);
+//       return alloc_pair(arena, NIBS_HEXSTRING, len, body);
+//     }
+//     body = alloc_slice(arena, len, next);
+//     memcpy(body->data, str, len);
+//     return alloc_pair(arena, NIBS_UTF8, len, body);
+//   }
+//   return alloc_pair(arena, NIBS_UTF8, 0, next);
+// }
+
+// // Encode a null terminated c-string that's already UTF-8 encoded
+// slice_node_t* encode_hex_bytes(arena_t* arena,
+//                                const char* str,
+//                                slice_node_t* next) {
+//   size_t len = strlen(str);
+//   assert(len % 2 == 0);
+//   len >>= 1;
+//   slice_node_t* body = alloc_slice(arena, len, next);
+//   hexcpy(body->data, (uint8_t*)str, len);
+//   return alloc_pair(arena, NIBS_BYTES, len, body);
+// }
+
+// void dump_chain(slice_node_t* node) {
+//   while (node) {
+//     printf("(ptr = %p, len = %zu) ", node->data, node->len);
+//     node = node->next;
+//     if (node) {
+//       printf("-> ");
+//     }
+//   }
+//   printf("\n");
+// }

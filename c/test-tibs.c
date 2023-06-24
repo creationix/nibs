@@ -1,5 +1,5 @@
-#include "tibs.h"
 #include "nibs.h"
+#include "tibs.h"
 #define _GNU_SOURCE
 #include <assert.h>
 #include <fcntl.h>
@@ -10,13 +10,19 @@
 #include <sys/types.h>
 #include <unistd.h>
 
-int parse_list(const char* tibs, int offset, int len, int indexed);
-int parse_map(const char* tibs, int offset, int len, int indexed);
-int parse_scope(const char* tibs, int offset, int len);
+static int parse_list(const char* tibs, int offset, int len, int indexed);
+static int parse_map(const char* tibs, int offset, int len, int indexed);
+static int parse_scope(const char* tibs, int offset, int len);
 
-int process_token(const char* tibs,
-                  int len,
-                  struct tibs_token token) {
+static int is_hex(char c) {
+  return (c >= '0' && c <= '9') || (c >= 'a' && c <= 'f');
+}
+
+static int from_hex(char c) {
+  return c < 'a' ? c - '0' : c - 'a' + 10;
+}
+
+static int process_token(const char* tibs, int len, struct tibs_token token) {
   switch (token.type) {
     case TIBS_NULL:
       printf("null");
@@ -29,18 +35,19 @@ int process_token(const char* tibs,
       return token.offset + token.len;
     case TIBS_BYTES: {
       int i = token.offset + 1;
+      int e = token.offset + token.len - 1;
       printf("<");
-      while (i < token.offset + token.len - 1) {
-        while (tibs[i] < '0' || (tibs[i] > '9' && tibs[i] < 'a') || tibs[i] > 'f') {
+      while (i < e) {
+        while (i < len && !is_hex(tibs[i]))
           i++;
-        }
-        int high = tibs[i] < 'a' ? tibs[i] - '0' : tibs[i] - 'a' + 10;
-        i++;
-        while (tibs[i] < '0' || (tibs[i] > '9' && tibs[i] < 'a') || tibs[i] > 'f') {
+        int high = from_hex(tibs[i++]);
+        if (i >= len)
+          break;
+        while (i < len && !is_hex(tibs[i]))
           i++;
-        }
-        int low = tibs[i] < 'a' ? tibs[i] - '0' : tibs[i] - 'a' + 10;
-        i++;
+        int low = from_hex(tibs[i++]);
+        if (i >= len)
+          break;
         printf("%02x", high << 4 | low);
       }
       printf(">");
@@ -69,7 +76,7 @@ int process_token(const char* tibs,
   return token.offset + token.len;
 }
 
-int parse_list(const char* tibs, int offset, int len, int indexed) {
+static int parse_list(const char* tibs, int offset, int len, int indexed) {
   if (indexed) {
     printf("[#");
   } else {
@@ -88,7 +95,7 @@ int parse_list(const char* tibs, int offset, int len, int indexed) {
   }
 }
 
-int parse_map(const char* tibs, int offset, int len, int indexed) {
+static int parse_map(const char* tibs, int offset, int len, int indexed) {
   if (indexed) {
     printf("{#");
   } else {
@@ -111,7 +118,7 @@ int parse_map(const char* tibs, int offset, int len, int indexed) {
   }
 }
 
-int parse_scope(const char* tibs, int offset, int len) {
+static int parse_scope(const char* tibs, int offset, int len) {
   printf("(");
   for (int i = 0; 1; i++) {
     struct tibs_token token = tibs_parse(tibs, offset, len);
