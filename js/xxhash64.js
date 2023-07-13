@@ -1,16 +1,5 @@
-// Install this with `npm i xxhash`
-import { hash64 } from 'xxhash'
-
-/**
- * xxhash64
- * @param {ArrayBufferView} data
- * @param {bigint} seed
- * @returns {bigint}
- */
-export function xxh64(data, seed) {
-    const h = new Uint8Array(hash64(data, Number(seed)))
-    return new DataView(h.buffer, h.byteOffset, h.byteLength).getBigUint64(0, true)
-}
+import * as XXHash from "@node-rs/xxhash"
+export const xxh64 = XXHash.xxh64
 
 // The JS IMPLEMENTATION works, but is much slower.
 
