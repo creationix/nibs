@@ -14,4 +14,5 @@ declare module "nibs" {
     export function fromTibs(tibs: string, filename?: string): any
     // Encode a JS value to a Tibs string
     export function toTibs(val: any): string
+    export function xxh64(input: string | Buffer, seed?: bigint | null | undefined): bigint
 }
