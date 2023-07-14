@@ -28,6 +28,9 @@ local arshift = bit.arshift
 local band = bit.band
 local lshift = bit.lshift
 local bxor = bit.bxor
+local bor = bit.bor
+
+local byte = string.byte
 
 local ffi = require 'ffi'
 local sizeof = ffi.sizeof
@@ -103,7 +106,7 @@ local function parse_string(json)
     if string.find(json, "^\"[^\\]*\"$") then
         return string.sub(json, 2, #json - 1)
     else
-        error "TODO: parse string"
+        error "TODO: parse escaped strings"
     end
 end
 
@@ -145,8 +148,9 @@ local function encode_float(val)
 end
 
 --- Emit a reverse nibs number
---- @param emit fun(chunk:string)
+--- @param emit fun(chunk:string):integer
 --- @param num number
+--- @return integer number of bytes emitted
 local function emit_number(emit, num)
     if math.floor(num) == num then
         return emit(encode_pair(ZIGZAG, encode_zigzag(num)))
@@ -155,13 +159,34 @@ local function emit_number(emit, num)
     end
 end
 
+--- Convert ascii hex digit to integer
+--- Assumes input is valid character [0-9a-f]
+---@param code integer ascii code for hex digit
+---@return integer num value of hex digit (0-15)
+local function fromhex(code)
+    return code - (code >= 0x61 and 0x57 or 0x30)
+end
+
 --- Emit a reverse nibs string
---- @param emit fun(chunk:string)
+--- @param emit fun(chunk:string):integer
 --- @param str string
+--- @return integer count of bytes emitted
 local function emit_string(emit, str)
-    -- TODO: hexstring optimization
+    if #str % 2 == 0 and string.find(str, "^[0-9a-f]+$") then
+        local len = #str / 2
+        local buf = U8Arr(len)
+        for i = 0, len - 1 do
+            buf[i] = bor(
+                lshift(fromhex(byte(str, i * 2 + 1)), 4),
+                fromhex(byte(str, i * 2 + 2))
+            )
+        end
+        emit(ffi_string(buf, len))
+        return len + emit(encode_pair(HEXSTRING, len))
+    end
+    local len = #str
     emit(str)
-    return emit(encode_pair(UTF8, #str))
+    return len + emit(encode_pair(UTF8, len))
 end
 
 --- A specially optimized version of nibs used for fast serilization
@@ -212,21 +237,24 @@ end
 --- @field filter? string[] optional list of top-level properties to keep
 --- @field indexLimit? number optional limit for when to generate indices.
 ---                           Lists and Maps need at least this many entries.
---- @field emit? fun(chunk:string) optional function for streaming output
+--- @field emit? fun(chunk:string):integer optional function for streaming output
 
 --- Convert a JSON string into a stream of reverse nibs chunks
 ---@param json string input json string to process
 ---@param options? ReverseNibsConvertOptions
----@return number|string result (count of chunks when streaming or buffered result)
+---@return string|nil result buffered result when no custom emit is set
 function ReverseNibs.convert(json, options)
     options = options or {}
     local dups = options.dups
     local emit = options.emit
+    local indexLimit = options.indexLimit or 12
     local chunks
-    local count = 0
     if not emit then
         chunks = {}
-        function emit(chunk) chunks[#chunks + 1] = chunk end
+        function emit(chunk)
+            chunks[#chunks + 1] = chunk
+            return #chunk
+        end
     end
 
     local index = 1
@@ -234,15 +262,18 @@ function ReverseNibs.convert(json, options)
 
     local process_value
 
+    --- Process an object
+    --- @return integer total bytes emitted
     local function process_object()
         local needs
         local even = true
+        local count = 0
+        local offset = 0
+        local offsets = {}
         while true do
             local token, first, last = StreamingJsonParse.next(json, index)
             index = last + 1
-            if even and token == "}" then
-                error "TODO: end object"
-            end
+            if even and token == "}" then break end
             if needs then
                 if token ~= needs then
                     error(string.format("Missing expected %q at %d", needs, first))
@@ -250,7 +281,9 @@ function ReverseNibs.convert(json, options)
                 token, first, last = StreamingJsonParse.next(json, index)
                 index = last + 1
             end
-            process_value(token, first, last)
+            offset = offset + process_value(token, first, last)
+            count = count + 1
+            offsets[count] = offset
             if even then
                 needs = ":"
                 even = false
@@ -259,16 +292,24 @@ function ReverseNibs.convert(json, options)
                 even = true
             end
         end
+        if count >= indexLimit * 2 then
+            p { offsets = offsets, count = count, offset = offset }
+            error "TODO: generate Trie index"
+        end
+        return offset + emit(encode_pair(MAP, offset))
     end
 
+    --- Process an array
+    --- @return integer total bytes emitted
     local function process_array()
         local needs
+        local count = 0
+        local offset = 0
+        local offsets = {}
         while true do
             local token, first, last = StreamingJsonParse.next(json, index)
             index = last + 1
-            if token == "]" then
-                error "TODO: end array"
-            end
+            if token == "]" then break end
             if needs then
                 if token ~= needs then
                     error(string.format("Missing expected %q at %d", needs, first))
@@ -276,28 +317,40 @@ function ReverseNibs.convert(json, options)
                 token, first, last = StreamingJsonParse.next(json, index)
                 index = last + 1
             end
-            process_value(token, first, last)
+            offset = offset + process_value(token, first, last)
+            count = count + 1
+            offsets[count] = offset
             needs = ","
         end
+        if count >= indexLimit then
+            p { offsets = offsets, count = count, offset = offset }
+            error "TODO: generate array index"
+        end
+        return offset + emit(encode_pair(LIST, offset))
     end
 
+    --- Process a json value
+    --- @param token string
+    --- @param first integer
+    --- @param last integer
+    --- @return integer
     function process_value(token, first, last)
         if token == "{" then
             return process_object()
         elseif token == "[" then
             return process_array()
         elseif token == "false" then
-            emit "\x20"
+            return emit "\x20"
         elseif token == "true" then
-            emit "\x21"
+            return emit "\x21"
         elseif token == "null" then
-            emit "\x22"
+            return emit "\x22"
         elseif token == "number" then
             local value = assert(tonumber(string.sub(json, first, last)))
-            emit_number(emit, value)
+            return emit_number(emit, value)
         elseif token == "string" then
             local value = parse_string(string.sub(json, first, last))
-            emit_string(emit, value)
+            return emit_string(emit, value)
         else
             error(string.format("Unexpcted %s at %d", token, first))
         end
@@ -306,6 +359,7 @@ function ReverseNibs.convert(json, options)
     while index <= len do
         local token, first, last = StreamingJsonParse.next(json, index)
         if not token then break end
+        assert(first and last)
         index = last + 1
         process_value(token, first, last)
     end
@@ -316,8 +370,6 @@ function ReverseNibs.convert(json, options)
 
     if chunks then
         return table.concat(chunks)
-    else
-        return count
     end
 end
 

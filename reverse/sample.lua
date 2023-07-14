@@ -1,9 +1,9 @@
 local p = require('pretty-print').prettyPrint
 local ReverseNibs = require 'rnibs'
-local StreamingJsonParse = require './json-parse'
 
 local fruit_json = [[
   [
+    "deadbeef", 1, 100, -100, 0.1,
     { "color": "red",    "fruit": [ "apple", "strawberry" ] },
     { "color": "green",  "fruit": [ "apple" ] },
     { "color": "yellow", "fruit": [ "apple", "banana" ] },
@@ -12,6 +12,7 @@ local fruit_json = [[
   ]
 ]]
 
+-- local StreamingJsonParse = require './json-parse'
 -- local index = 1
 -- local len = #fruit_json
 -- while index <= len do
@@ -29,6 +30,7 @@ assert(ReverseNibs.convert(fruit_json, {
     indexLimit = 3,
     emit = function (chunk)
         p("chunk", chunk)
+        return #chunk
     end
 }))
 p("end")
