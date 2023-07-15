@@ -1,7 +1,109 @@
---- Parse a single JSON token
+-- Main types
+local ZIGZAG = 0
+local FLOAT = 1
+local SIMPLE = 2
+local REF = 3
+
+local BYTES = 8
+local UTF8 = 9
+local HEXSTRING = 10
+local LIST = 11
+local MAP = 12
+local ARRAY = 13
+local TRIE = 14
+local SCOPE = 15
+
+-- Simple subtypes
+local FALSE = 0
+local TRUE = 1
+local NULL = 2
+
+local bit = require 'bit'
+local rshift = bit.rshift
+local arshift = bit.arshift
+local band = bit.band
+local lshift = bit.lshift
+local bxor = bit.bxor
+local bor = bit.bor
+
+local byte = string.byte
+
+local ffi = require 'ffi'
+local sizeof = ffi.sizeof
+local copy = ffi.copy
+local ffi_string = ffi.string
+local cast = ffi.cast
+
+local insert = table.insert
+
+local U8Arr = ffi.typeof 'uint8_t[?]'
+local U16Arr = ffi.typeof 'uint16_t[?]'
+local U32Arr = ffi.typeof 'uint32_t[?]'
+local U64Arr = ffi.typeof 'uint64_t[?]'
+local U8Ptr = ffi.typeof 'uint8_t*'
+local U16Ptr = ffi.typeof 'uint16_t*'
+local U32Ptr = ffi.typeof 'uint32_t*'
+local U64Ptr = ffi.typeof 'uint64_t*'
+local U8 = ffi.typeof 'uint8_t'
+local U16 = ffi.typeof 'uint16_t'
+local U32 = ffi.typeof 'uint32_t'
+local U64 = ffi.typeof 'uint64_t'
+local I8 = ffi.typeof 'int8_t'
+local I16 = ffi.typeof 'int16_t'
+local I32 = ffi.typeof 'int32_t'
+local I64 = ffi.typeof 'int64_t'
+local F32 = ffi.typeof 'float'
+local F64 = ffi.typeof 'double'
+
+--- A specially optimized version of nibs used for fast serilization
+--- It's especially optimized for converting existing JSON data to nibs
+--- The reverse variant is used to reduce CPU and Memory overhead of the encoder.
+--- @class ReverseNibs
+local ReverseNibs = {}
+
+local converter = ffi.new 'union {double f;uint64_t i;}'
+ffi.cdef [[
+    #pragma pack(1)
+    struct rnibs4 { // for big under 12
+        unsigned int big:4; // lower 4 bits are first
+        unsigned int small:4;
+    };
+    #pragma pack(1)
+    struct rnibs8 { // for big under 256
+        uint8_t big;
+        unsigned int prefix:4;
+        unsigned int small:4;
+    };
+    #pragma pack(1)
+    struct rnibs16 { // for big under 256
+        uint16_t big;
+        unsigned int prefix:4;
+        unsigned int small:4;
+    };
+    #pragma pack(1)
+    struct rnibs32 { // for big under 256
+        uint32_t big;
+        unsigned int prefix:4;
+        unsigned int small:4;
+    };
+    #pragma pack(1)
+    struct rnibs64 { // for big under 256
+        uint64_t big;
+        unsigned int prefix:4;
+        unsigned int small:4;
+    };
+]]
+
+local rnibs4 = ffi.typeof 'struct rnibs4'
+local rnibs8 = ffi.typeof 'struct rnibs8'
+local rnibs16 = ffi.typeof 'struct rnibs16'
+local rnibs32 = ffi.typeof 'struct rnibs32'
+local rnibs64 = ffi.typeof 'struct rnibs64'
+
+--- Parse a single JSON token, call in a loop for a streaming parser.
 --- @param json string
---- @param index integer
---- @return "string"|"bytes"|"number"|"true"|"false"|"null"|":"|","|"{"|"}"|"["|"]"|nil token name
+--- @param index integer index of where to start parsing
+--- @return "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"|nil token name
 --- @return integer|nil start index of first character
 --- @return integer|nil end index of last character
 local function next_json_token(json, index)
@@ -81,108 +183,22 @@ local function next_json_token(json, index)
                 end
             end
             return "number", first, index - 1
+        elseif c == "&" then
+            local first = index
+            index = index + 1
+            c = string.sub(json, index, index)
+            while c >= '0' and c <= '9' do
+                index = index + 1
+                c = string.sub(json, index, index)
+            end
+            return "ref", first, index - 1
         else
             error(string.format("Unexpected %q at %d", c, index))
         end
     end
 end
 
--- Main types
-local ZIGZAG = 0
-local FLOAT = 1
-local SIMPLE = 2
-local REF = 3
-
-local BYTES = 8
-local UTF8 = 9
-local HEXSTRING = 10
-local LIST = 11
-local MAP = 12
-local ARRAY = 13
-local TRIE = 14
-local SCOPE = 15
-
--- Simple subtypes
-local FALSE = 0
-local TRUE = 1
-local NULL = 2
-
-local bit = require 'bit'
-local rshift = bit.rshift
-local arshift = bit.arshift
-local band = bit.band
-local lshift = bit.lshift
-local bxor = bit.bxor
-local bor = bit.bor
-
-local byte = string.byte
-
-local ffi = require 'ffi'
-local sizeof = ffi.sizeof
-local copy = ffi.copy
-local ffi_string = ffi.string
-local cast = ffi.cast
-
-local insert = table.insert
-
-local U8Arr = ffi.typeof 'uint8_t[?]'
-local U16Arr = ffi.typeof 'uint16_t[?]'
-local U32Arr = ffi.typeof 'uint32_t[?]'
-local U64Arr = ffi.typeof 'uint64_t[?]'
-local U8Ptr = ffi.typeof 'uint8_t*'
-local U16Ptr = ffi.typeof 'uint16_t*'
-local U32Ptr = ffi.typeof 'uint32_t*'
-local U64Ptr = ffi.typeof 'uint64_t*'
-local U8 = ffi.typeof 'uint8_t'
-local U16 = ffi.typeof 'uint16_t'
-local U32 = ffi.typeof 'uint32_t'
-local U64 = ffi.typeof 'uint64_t'
-local I8 = ffi.typeof 'int8_t'
-local I16 = ffi.typeof 'int16_t'
-local I32 = ffi.typeof 'int32_t'
-local I64 = ffi.typeof 'int64_t'
-local F32 = ffi.typeof 'float'
-local F64 = ffi.typeof 'double'
-
-local converter = ffi.new 'union {double f;uint64_t i;}'
-ffi.cdef [[
-    #pragma pack(1)
-    struct rnibs4 { // for big under 12
-        unsigned int big:4; // lower 4 bits are first
-        unsigned int small:4;
-    };
-    #pragma pack(1)
-    struct rnibs8 { // for big under 256
-        uint8_t big;
-        unsigned int prefix:4;
-        unsigned int small:4;
-    };
-    #pragma pack(1)
-    struct rnibs16 { // for big under 256
-        uint16_t big;
-        unsigned int prefix:4;
-        unsigned int small:4;
-    };
-    #pragma pack(1)
-    struct rnibs32 { // for big under 256
-        uint32_t big;
-        unsigned int prefix:4;
-        unsigned int small:4;
-    };
-    #pragma pack(1)
-    struct rnibs64 { // for big under 256
-        uint64_t big;
-        unsigned int prefix:4;
-        unsigned int small:4;
-    };
-]]
-
-local rnibs4 = ffi.typeof 'struct rnibs4'
-local rnibs8 = ffi.typeof 'struct rnibs8'
-local rnibs16 = ffi.typeof 'struct rnibs16'
-local rnibs32 = ffi.typeof 'struct rnibs32'
-local rnibs64 = ffi.typeof 'struct rnibs64'
-
+ReverseNibs.next_json_token = next_json_token
 
 --- Parse a JSON string into a lua string
 --- @param json string
@@ -298,12 +314,6 @@ local function emit_bytes(emit, buf, len)
     return emit(encode_pair(BYTES, len))
 end
 
---- A specially optimized version of nibs used for fast serilization
---- It's especially optimized for converting existing JSON data to nibs
---- The reverse variant is used to reduce CPU and Memory overhead of the encoder.
---- @class ReverseNibs
-local ReverseNibs = {}
-
 --- Scan a JSON string for duplicated strings and large numbers
 --- @param json string input json document to parse
 --- @return (string|number)[]|nil
@@ -314,33 +324,58 @@ function ReverseNibs.find_dups(json)
     while index <= len do
         local token, first, last = next_json_token(json, index)
         if not token then break end
-        if first and last and last - first > 2 then
-            local possible_dup
-            if token == "string" then
-                possible_dup = parse_string(json, first, last)
-            elseif token == "number" then
-                possible_dup = assert(tonumber(string.sub(json, first, last)))
-            end
-            if possible_dup then
-                local count = counts[possible_dup]
-                if count then
-                    counts[possible_dup] = count + 1
-                else
-                    counts[possible_dup] = 1
-                end
+        assert(first and last)
+        local possible_dup
+        if token == "string" and last > first + 4 then
+            possible_dup = parse_string(json, first, last)
+        elseif token == "number" and last > first + 2 then
+            possible_dup = assert(tonumber(string.sub(json, first, last)))
+        end
+        if possible_dup then
+            local count = counts[possible_dup]
+            if count then
+                counts[possible_dup] = count + 1
+            else
+                counts[possible_dup] = 1
             end
         end
         index = last + 1
     end
-    local dups = {}
+
+
+    -- Extract all repeated values
+    local dup_counts = {}
     local count = 0
-    for k, v in pairs(counts) do
-        if v > 1 then
+    for val, freq in pairs(counts) do
+        if freq > 1 then
             count = count + 1
-            dups[count] = k
+            dup_counts[count] = { val, freq }
         end
     end
-    return count > 0 and dups or nil
+
+    if count == 0 then return end
+
+    -- sort by frequency descending first, then by type, then ordered normally
+    table.sort(dup_counts, function(a, b)
+        if a[2] == b[2] then
+            local t1 = type(a[1])
+            local t2 = type(b[1])
+            if t1 == t2 then
+                return a[1] < b[1]
+            else
+                return t1 > t2
+            end
+        else
+            return a[2] > b[2]
+        end
+    end)
+
+    -- Fill in dups array and return it
+    local dups = {}
+    for i, p in ipairs(dup_counts) do
+        dups[i] = p[1]
+    end
+    return dups
 end
 
 --- @class ReverseNibsConvertOptions
@@ -509,6 +544,9 @@ function ReverseNibs.convert(json, options)
             return emit_string(emit, value)
         elseif token == "bytes" then
             return emit_bytes(emit, parse_bytes(json, first, last))
+        elseif token == "ref" then
+            local ref = assert(tonumber(json:sub(first + 1, last)))
+            return emit(encode_pair(REF, ref))
         else
             error(string.format("Unexpcted %s at %d", token, first))
         end
@@ -522,7 +560,6 @@ function ReverseNibs.convert(json, options)
         local offsets = {}
         for i, v in ipairs(dups) do
             dup_ids[v] = i - 1
-            offsets[i] = offset
             local t = type(v)
             if t == "number" then
                 offset = offset + emit_number(emit, v)
@@ -531,6 +568,8 @@ function ReverseNibs.convert(json, options)
             else
                 error("Unexpected dup type " .. t)
             end
+            -- Store offsets to last byte of each entry
+            offsets[i] = offset - 1
         end
         offset = offset + emit_array_index(offsets)
     end

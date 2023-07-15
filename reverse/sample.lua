@@ -3,12 +3,18 @@ local ReverseNibs = require 'rnibs'
 
 local fruit_json = [[
   [
-    <deadbeef>, "deadbeef",
+    <deadbeef>, "deadbeef", 10000, 20000, 10000, 20000,
     { "color": "red",    "fruit": [ "apple", "strawberry" ] },
     { "color": "green",  "fruit": [ "apple" ] },
     { "color": "yellow", "fruit": [ "apple", "banana" ] },
     true, false, null,
-    0, 1, 100, -100, 0.1, 1.1
+    0, 1, 100, -100, 0.1, 1.1,
+    {
+      <1234>: { "type": "static" },
+      <5678>: { "type": "lambda" },
+      <9abc>: { "type": "static" },
+      <def0>: { "type": "lambda" }
+    }
   ]
 ]]
 
@@ -31,12 +37,12 @@ ReverseNibs.convert(fruit_json, {
   -- Force index for the toplevel array for testing purposes
   indexLimit = 3,
   emit = function(chunk)
+    local hex = chunk:gsub(".", function(c) return string.format("%02x", c:byte()) end)
+    local line = string.format("CHUNK: <%s>", hex)
     if chunk:find("^[\t\r\n -~]*$") then
-      print(string.format("CHUNK: %q", chunk))
-    else
-      local hex = chunk:gsub(".", function(c) return string.format("%02x", c:byte()) end)
-      print(string.format("CHUNK: <%s>", hex))
+      line = line .. string.format(" %q", chunk)
     end
+    print(line)
     chunks[#chunks + 1] = chunk
     return #chunk
   end
