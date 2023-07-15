@@ -1,7 +1,7 @@
 --- Parse a single JSON token
 --- @param json string
 --- @param index integer
---- @return "string"|"number"|"true"|"false"|"null"|":"|","|"{"|"}"|"["|"]"|nil token name
+--- @return "string"|"bytes"|"number"|"true"|"false"|"null"|":"|","|"{"|"}"|"["|"]"|nil token name
 --- @return integer|nil start index of first character
 --- @return integer|nil end index of last character
 local function next_json_token(json, index)
@@ -33,6 +33,18 @@ local function next_json_token(json, index)
                 end
             end
             -- Parse keywords
+        elseif c == "<" then
+            local first = index
+            while true do
+                index = index + 1
+                if index > len then
+                    error(string.format("Unexpected EOS at %d", index))
+                end
+                c = string.sub(json, index, index)
+                if c == ">" then
+                    return "bytes", first, index
+                end
+            end
         elseif c == "t" and string.sub(json, index, index + 3) == "true" then
             return "true", index, index + 3
         elseif c == "f" and string.sub(json, index, index + 4) == "false" then
@@ -94,8 +106,6 @@ local SCOPE = 15
 local FALSE = 0
 local TRUE = 1
 local NULL = 2
-
-local ffi = require 'ffi'
 
 local bit = require 'bit'
 local rshift = bit.rshift
@@ -177,12 +187,27 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 --- Parse a JSON string into a lua string
 --- @param json string
 --- @return string
-local function parse_string(json)
-    if string.find(json, "^\"[^\\]*\"$") then
-        return string.sub(json, 2, #json - 1)
+local function parse_string(json, first, last)
+    local inner = string.sub(json, first + 1, last - 1)
+    if string.find(json, "^[^\\]*$") then
+        return inner
     else
         error "TODO: parse escaped strings"
     end
+end
+
+--- @param json string
+--- @param first integer
+--- @param last integer
+--- @return ffi.cdata*, integer
+local function parse_bytes(json, first, last)
+    local inner = string.sub(json, first + 1, last - 1)
+    local bytes = {}
+    for h in inner:gmatch("[0-9a-f][0-9a-f]") do
+        bytes[#bytes + 1] = tonumber(h, 16)
+    end
+    local buf = U8Arr(#bytes, bytes)
+    return buf, #bytes
 end
 
 ---Encode a small/big pair into binary parts
@@ -264,6 +289,15 @@ local function emit_string(emit, str)
     return len + emit(encode_pair(UTF8, len))
 end
 
+--- @param emit fun(chunk:string):integer
+--- @param buf ffi.cdata*
+--- @param len integer
+--- @return integer count of bytes emitted
+local function emit_bytes(emit, buf, len)
+    emit(ffi_string(buf, len))
+    return emit(encode_pair(BYTES, len))
+end
+
 --- A specially optimized version of nibs used for fast serilization
 --- It's especially optimized for converting existing JSON data to nibs
 --- The reverse variant is used to reduce CPU and Memory overhead of the encoder.
@@ -283,7 +317,7 @@ function ReverseNibs.find_dups(json)
         if first and last and last - first > 2 then
             local possible_dup
             if token == "string" then
-                possible_dup = parse_string(string.sub(json, first, last))
+                possible_dup = parse_string(json, first, last)
             elseif token == "number" then
                 possible_dup = assert(tonumber(string.sub(json, first, last)))
             end
@@ -443,6 +477,10 @@ function ReverseNibs.convert(json, options)
         return offset + emit(encode_pair(ARRAY, offset))
     end
 
+    local simple_false = encode_pair(SIMPLE, FALSE)
+    local simple_true = encode_pair(SIMPLE, TRUE)
+    local simple_null = encode_pair(SIMPLE, NULL)
+
     --- Process a json value
     --- @param token string
     --- @param first integer
@@ -454,21 +492,23 @@ function ReverseNibs.convert(json, options)
         elseif token == "[" then
             return process_array()
         elseif token == "false" then
-            return emit "\x20"
+            return emit(simple_false)
         elseif token == "true" then
-            return emit "\x21"
+            return emit(simple_true)
         elseif token == "null" then
-            return emit "\x22"
+            return emit(simple_null)
         elseif token == "number" then
             local value = assert(tonumber(string.sub(json, first, last)))
             local ref = dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
-            local value = parse_string(string.sub(json, first, last))
+            local value = parse_string(json, first, last)
             local ref = dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
+        elseif token == "bytes" then
+            return emit_bytes(emit, parse_bytes(json, first, last))
         else
             error(string.format("Unexpcted %s at %d", token, first))
         end
@@ -504,6 +544,8 @@ function ReverseNibs.convert(json, options)
     if dups then
         offset = offset + emit(encode_pair(SCOPE, offset))
     end
+
+    assert(index == len)
 
     if chunks then
         local combined = table.concat(chunks)
