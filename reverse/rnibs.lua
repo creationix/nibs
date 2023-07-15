@@ -1,4 +1,79 @@
-local StreamingJsonParse = require './json-parse'
+--- Parse a single JSON token
+--- @param json string
+--- @param index integer
+--- @return "string"|"number"|"true"|"false"|"null"|":"|","|"{"|"}"|"["|"]"|nil token name
+--- @return integer|nil start index of first character
+--- @return integer|nil end index of last character
+local function next_json_token(json, index)
+    local len = #json
+    while true do
+        ::continue::
+        if index > len then break end
+        local c = string.sub(json, index, index)
+        -- Skip whitespace
+        if c == "\r" or c == "\n" or c == "\t" or c == " " then
+            index = index + 1
+            goto continue
+            -- Pass punctuation through as-is
+        elseif c == "[" or c == "]" or c == "{" or c == "}" or c == ":" or c == "," then
+            return c, index, index
+            -- Parse Strings
+        elseif c == '"' then
+            local first = index
+            while true do
+                index = index + 1
+                if index > len then
+                    error(string.format("Unexpected EOS at %d", index))
+                end
+                c = string.sub(json, index, index)
+                if c == "\"" then
+                    return "string", first, index
+                elseif c == "\\" then
+                    index = index + 1
+                end
+            end
+            -- Parse keywords
+        elseif c == "t" and string.sub(json, index, index + 3) == "true" then
+            return "true", index, index + 3
+        elseif c == "f" and string.sub(json, index, index + 4) == "false" then
+            return "false", index, index + 4
+        elseif c == "n" and string.sub(json, index, index + 3) == "null" then
+            return "null", index, index + 3
+            -- Parse numbers
+        elseif c == '-' or (c >= '0' and c <= '9') then
+            local first = index
+            index = index + 1
+            c = string.sub(json, index, index)
+            while c >= '0' and c <= '9' do
+                index = index + 1
+                c = string.sub(json, index, index)
+            end
+            if c == '.' then
+                index = index + 1
+                c = string.sub(json, index, index)
+                while c >= '0' and c <= '9' do
+                    index = index + 1
+                    c = string.sub(json, index, index)
+                end
+            end
+            if c == 'e' or c == 'E' then
+                index = index + 1
+                c = string.sub(json, index, index)
+                if c == "-" or c == "+" then
+                    index = index + 1
+                    c = string.sub(json, index, index)
+                end
+                while c >= '0' and c <= '9' do
+                    index = index + 1
+                    c = string.sub(json, index, index)
+                end
+            end
+            return "number", first, index - 1
+        else
+            error(string.format("Unexpected %q at %d", c, index))
+        end
+    end
+end
 
 -- Main types
 local ZIGZAG = 0
@@ -197,13 +272,13 @@ local ReverseNibs = {}
 
 --- Scan a JSON string for duplicated strings and large numbers
 --- @param json string input json document to parse
---- @return table<string|number,boolean>|nil
+--- @return (string|number)[]|nil
 function ReverseNibs.find_dups(json)
     local index = 1
     local len = #json
     local counts = {}
     while index <= len do
-        local token, first, last = StreamingJsonParse.next(json, index)
+        local token, first, last = next_json_token(json, index)
         if not token then break end
         if first and last and last - first > 2 then
             local possible_dup
@@ -224,16 +299,18 @@ function ReverseNibs.find_dups(json)
         index = last + 1
     end
     local dups = {}
-    for k, v in next, counts do
+    local count = 0
+    for k, v in pairs(counts) do
         if v > 1 then
-            dups[k] = true
+            count = count + 1
+            dups[count] = k
         end
     end
-    return #dups > 0 and dups or nil
+    return count > 0 and dups or nil
 end
 
 --- @class ReverseNibsConvertOptions
---- @field dups? table<string|number,boolean> optional set of values to turn into refs
+--- @field dups? (string|number)[] optional set of values to turn into refs
 --- @field filter? string[] optional list of top-level properties to keep
 --- @field indexLimit? number optional limit for when to generate indices.
 ---                           Lists and Maps need at least this many entries.
@@ -260,6 +337,7 @@ function ReverseNibs.convert(json, options)
     local index = 1
     local len = #json
 
+    local dup_ids
     local process_value
 
     --- Process an object
@@ -271,14 +349,14 @@ function ReverseNibs.convert(json, options)
         local offset = 0
         local offsets = {}
         while true do
-            local token, first, last = StreamingJsonParse.next(json, index)
+            local token, first, last = next_json_token(json, index)
             index = last + 1
             if even and token == "}" then break end
             if needs then
                 if token ~= needs then
                     error(string.format("Missing expected %q at %d", needs, first))
                 end
-                token, first, last = StreamingJsonParse.next(json, index)
+                token, first, last = next_json_token(json, index)
                 index = last + 1
             end
             offset = offset + process_value(token, first, last)
@@ -292,11 +370,40 @@ function ReverseNibs.convert(json, options)
                 even = true
             end
         end
-        if count >= indexLimit * 2 then
-            p { offsets = offsets, count = count, offset = offset }
-            error "TODO: generate Trie index"
+
+        if count < indexLimit * 2 then
+            return offset + emit(encode_pair(MAP, offset))
         end
-        return offset + emit(encode_pair(MAP, offset))
+
+        p { offsets = offsets, count = count, offset = offset }
+        error "TODO: generate Trie index"
+    end
+
+    ---@param offsets integer[]
+    ---@return integer
+    local function emit_array_index(offsets)
+        local count = #offsets
+        local max = offsets[count] or 0
+        ---@type ffi.ctype*
+        local UArr
+        ---@type 1|2|4|8
+        local width
+        if max < 0x100 then
+            width = 1
+            UArr = U8Arr
+        elseif max < 0x10000 then
+            width = 2
+            UArr = U16Arr
+        elseif max < 0x100000000 then
+            width = 4
+            UArr = U32Arr
+        else
+            width = 8
+            UArr = U64Arr
+        end
+        local index_len = count * width
+        emit(ffi_string(UArr(count, offsets), index_len))
+        return index_len + emit(encode_pair(width, index_len))
     end
 
     --- Process an array
@@ -306,15 +413,18 @@ function ReverseNibs.convert(json, options)
         local count = 0
         local offset = 0
         local offsets = {}
+
+        -- First process the child nodes
         while true do
-            local token, first, last = StreamingJsonParse.next(json, index)
+            local token, first, last = next_json_token(json, index)
+            assert(token and first and last, "Unexpected EOS")
             index = last + 1
             if token == "]" then break end
             if needs then
                 if token ~= needs then
                     error(string.format("Missing expected %q at %d", needs, first))
                 end
-                token, first, last = StreamingJsonParse.next(json, index)
+                token, first, last = next_json_token(json, index)
                 index = last + 1
             end
             offset = offset + process_value(token, first, last)
@@ -322,11 +432,15 @@ function ReverseNibs.convert(json, options)
             offsets[count] = offset
             needs = ","
         end
-        if count >= indexLimit then
-            p { offsets = offsets, count = count, offset = offset }
-            error "TODO: generate array index"
+
+        -- Skip index and send as LIST if it's small enough
+        if count < indexLimit then
+            return offset + emit(encode_pair(LIST, offset))
         end
-        return offset + emit(encode_pair(LIST, offset))
+
+        -- Otherwise generate index and array header
+        offset = offset + emit_array_index(offsets)
+        return offset + emit(encode_pair(ARRAY, offset))
     end
 
     --- Process a json value
@@ -347,29 +461,54 @@ function ReverseNibs.convert(json, options)
             return emit "\x22"
         elseif token == "number" then
             local value = assert(tonumber(string.sub(json, first, last)))
+            local ref = dup_ids[value]
+            if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
             local value = parse_string(string.sub(json, first, last))
+            local ref = dup_ids[value]
+            if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
         else
             error(string.format("Unexpcted %s at %d", token, first))
         end
     end
 
-    while index <= len do
-        local token, first, last = StreamingJsonParse.next(json, index)
-        if not token then break end
-        assert(first and last)
-        index = last + 1
-        process_value(token, first, last)
+    local offset = 0
+
+    -- Emit refs targets (aka dups) first if they exist
+    if dups then
+        dup_ids = {}
+        local offsets = {}
+        for i, v in ipairs(dups) do
+            dup_ids[v] = i - 1
+            offsets[i] = offset
+            local t = type(v)
+            if t == "number" then
+                offset = offset + emit_number(emit, v)
+            elseif t == "string" then
+                offset = offset + emit_string(emit, v)
+            else
+                error("Unexpected dup type " .. t)
+            end
+        end
+        offset = offset + emit_array_index(offsets)
     end
 
+    local token, first, last = next_json_token(json, index)
+    assert(token and first and last)
+    index = last + 1
+    offset = offset + process_value(token, first, last)
+
+    -- Emit scope header if there were ref targets (aka dups)
     if dups then
-        error "TODO: emit scope"
+        offset = offset + emit(encode_pair(SCOPE, offset))
     end
 
     if chunks then
-        return table.concat(chunks)
+        local combined = table.concat(chunks)
+        assert(#combined == offset)
+        return combined
     end
 end
 
