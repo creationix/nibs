@@ -18,6 +18,7 @@ local Slice64 = NibLib.U64Arr
 local xxhash64 = import 'xxhash64'
 
 --- The internal trie index used by nibs' HAMTrie type
+--- @class HamtIndex
 local HamtIndex = {}
 
 ---@class Pointer

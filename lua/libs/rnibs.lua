@@ -1,3 +1,6 @@
+local import = _G.import or require
+local HamtIndex = import "hamt-index"
+
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -316,17 +319,23 @@ end
 
 --- Scan a JSON string for duplicated strings and large numbers
 --- @param json string input json document to parse
+--- @param index? integer optional start index
 --- @return (string|number)[]|nil
-function ReverseNibs.find_dups(json)
-    local index = 1
+function ReverseNibs.find_dups(json, index)
+    index = index or 1
     local len = #json
     local counts = {}
+    local depth = 0
     while index <= len do
         local token, first, last = next_json_token(json, index)
         if not token then break end
         assert(first and last)
         local possible_dup
-        if token == "string" and last > first + 4 then
+        if token == "{" or token == "[" then
+            depth = depth + 1
+        elseif token == "}" or token == "]" then
+            depth = depth - 1
+        elseif token == "string" and last > first + 4 then
             possible_dup = parse_string(json, first, last)
         elseif token == "number" and last > first + 2 then
             possible_dup = assert(tonumber(string.sub(json, first, last)))
@@ -340,8 +349,8 @@ function ReverseNibs.find_dups(json)
             end
         end
         index = last + 1
+        if depth == 0 then break end
     end
-
 
     -- Extract all repeated values
     local dup_counts = {}
@@ -384,10 +393,12 @@ end
 --- @field indexLimit? number optional limit for when to generate indices.
 ---                           Lists and Maps need at least this many entries.
 --- @field emit? fun(chunk:string):integer optional function for streaming output
+--- @field index? integer index to start parsing (defaults to 1)
 
 --- Convert a JSON string into a stream of reverse nibs chunks
 ---@param json string input json string to process
 ---@param options? ReverseNibsConvertOptions
+---@return integer final_index
 ---@return string|nil result buffered result when no custom emit is set
 function ReverseNibs.convert(json, options)
     options = options or {}
@@ -403,7 +414,7 @@ function ReverseNibs.convert(json, options)
         end
     end
 
-    local index = 1
+    local index = options.index or 1
     local len = #json
 
     local dup_ids
@@ -419,6 +430,7 @@ function ReverseNibs.convert(json, options)
         local offsets = {}
         while true do
             local token, first, last = next_json_token(json, index)
+            assert(token and first and last, "Unexpected EOS")
             index = last + 1
             if even and token == "}" then break end
             if needs then
@@ -426,21 +438,22 @@ function ReverseNibs.convert(json, options)
                     error(string.format("Missing expected %q at %d", needs, first))
                 end
                 token, first, last = next_json_token(json, index)
+                assert(token and first and last, "Unexpected EOS")
                 index = last + 1
             end
             offset = offset + process_value(token, first, last)
-            count = count + 1
-            offsets[count] = offset
             if even then
                 needs = ":"
                 even = false
             else
+                count = count + 1
+                offsets[count] = offset - 1
                 needs = ","
                 even = true
             end
         end
 
-        if count < indexLimit * 2 then
+        if count < indexLimit then
             return offset + emit(encode_pair(MAP, offset))
         end
 
@@ -498,7 +511,7 @@ function ReverseNibs.convert(json, options)
             end
             offset = offset + process_value(token, first, last)
             count = count + 1
-            offsets[count] = offset
+            offsets[count] = offset - 1
             needs = ","
         end
 
@@ -534,12 +547,12 @@ function ReverseNibs.convert(json, options)
             return emit(simple_null)
         elseif token == "number" then
             local value = assert(tonumber(string.sub(json, first, last)))
-            local ref = dup_ids[value]
+            local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
             local value = parse_string(json, first, last)
-            local ref = dup_ids[value]
+            local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
         elseif token == "bytes" then
@@ -584,13 +597,14 @@ function ReverseNibs.convert(json, options)
         offset = offset + emit(encode_pair(SCOPE, offset))
     end
 
-    assert(index == len)
+    -- assert(index == start - 1 + len)
 
     if chunks then
         local combined = table.concat(chunks)
         assert(#combined == offset)
-        return combined
+        return index, combined
     end
+    return index
 end
 
 return ReverseNibs
