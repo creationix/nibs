@@ -453,12 +453,11 @@ function ReverseNibs.convert(json, options)
             end
         end
 
-        if count < indexLimit then
-            return offset + emit(encode_pair(MAP, offset))
-        end
+        -- TODO: generate Trie index and mark as Trie
+        -- if count >= indexLimit then
+        -- end
 
-        p { offsets = offsets, count = count, offset = offset }
-        error "TODO: generate Trie index"
+        return offset + emit(encode_pair(MAP, offset))
     end
 
     ---@param offsets integer[]
@@ -533,7 +532,7 @@ function ReverseNibs.convert(json, options)
     --- @param token string
     --- @param first integer
     --- @param last integer
-    --- @return integer
+    --- @return integer|nil
     function process_value(token, first, last)
         if token == "{" then
             return process_object()
@@ -588,7 +587,8 @@ function ReverseNibs.convert(json, options)
     end
 
     local token, first, last = next_json_token(json, index)
-    assert(token and first and last)
+    if not token then return end
+    assert(first and last)
     index = last + 1
     offset = offset + process_value(token, first, last)
 
