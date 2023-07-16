@@ -90,18 +90,16 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 local function next_json_token(json, index)
     local len = #json
     while true do
-        ::continue::
         if index > len then break end
         local c = string.sub(json, index, index)
-        -- Skip whitespace
         if c == "\r" or c == "\n" or c == "\t" or c == " " then
+            -- Skip whitespace
             index = index + 1
-            goto continue
-            -- Pass punctuation through as-is
         elseif c == "[" or c == "]" or c == "{" or c == "}" or c == ":" or c == "," then
+            -- Pass punctuation through as-is
             return c, index, index
-            -- Parse Strings
         elseif c == '"' then
+            -- Parse Strings
             local first = index
             while true do
                 index = index + 1
@@ -115,8 +113,8 @@ local function next_json_token(json, index)
                     index = index + 1
                 end
             end
-            -- Parse keywords
         elseif c == "<" then
+            -- Parse keywords
             local first = index
             while true do
                 index = index + 1
@@ -134,8 +132,8 @@ local function next_json_token(json, index)
             return "false", index, index + 4
         elseif c == "n" and string.sub(json, index, index + 3) == "null" then
             return "null", index, index + 3
-            -- Parse numbers
         elseif c == '-' or (c >= '0' and c <= '9') then
+            -- Parse numbers
             local first = index
             index = index + 1
             c = string.sub(json, index, index)
@@ -173,6 +171,12 @@ local function next_json_token(json, index)
                 c = string.sub(json, index, index)
             end
             return "ref", first, index - 1
+        elseif c == "/" then
+            -- Skip comments
+            local _, eol = string.find(json, "^//[^\n]*", index)
+            if eol then
+                index = eol + 1
+            end
         else
             error(string.format("Unexpected %q at %d", c, index))
         end

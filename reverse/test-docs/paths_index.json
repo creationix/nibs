@@ -1,4 +1,5 @@
 {
+  // This is all the key string hashed to 64 bit integers and encode back to back as hex strings
   "index": "1234beef5678dead9abc1337def00000",
   "values": [
     { "type": "static" },
