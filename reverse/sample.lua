@@ -12,12 +12,15 @@ local docs = [[
 
   [ 0, 1, 100, -100, 0.1, 1.1 ]
 
-  {
-    <1234>: { "type": "static" },
-    <5678>: { "type": "lambda" },
-    <9abc>: { "type": "static" },
-    <def0>: { "type": "lambda" }
-  }
+  [
+    <1234beef 5678dead 9abc1337 def00000>,
+    [
+      { "type": "static" },
+      { "type": "lambda" },
+      { "type": "static" },
+      { "type": "lambda" }
+    ]
+  ]
 ]]
 
 -- local StreamingJsonParse = require './json-parse'
@@ -30,11 +33,10 @@ local docs = [[
 --     index = last + 1
 -- end
 
-p("start")
-local chunks = {}
 local len = #docs
 local index = 1
 while index and index <= len do
+  local chunks = {}
   index = ReverseNibs.convert(docs, {
     index = index,
     -- Automatically find the duplicated strings `color`, `fruit`, and `apple`.
@@ -52,6 +54,5 @@ while index and index <= len do
       return #chunk
     end
   })
-  p("end")
   p(table.concat(chunks, ''))
 end
