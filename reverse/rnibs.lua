@@ -114,7 +114,7 @@ local function next_json_token(json, index)
                 end
             end
         elseif c == "<" then
-            -- Parse keywords
+            -- Parse Bytes
             local first = index
             while true do
                 index = index + 1
@@ -163,6 +163,7 @@ local function next_json_token(json, index)
             end
             return "number", first, index - 1
         elseif c == "&" then
+            -- Parse Refs
             local first = index
             index = index + 1
             c = string.sub(json, index, index)
@@ -185,15 +186,55 @@ end
 
 ReverseNibs.next_json_token = next_json_token
 
+local json_escapes = {
+    ["\""] = "\"",
+    ["\\"] = "\\",
+    ["/"] = "/",
+    b = "\b",
+    f = "\f",
+    n = "\n",
+    r = "\r",
+    t = "\t",
+}
+
 --- Parse a JSON string into a lua string
 --- @param json string
 --- @return string
 local function parse_string(json, first, last)
     local inner = string.sub(json, first + 1, last - 1)
-    if string.find(json, "^[^\\]*$") then
+    if string.find(inner, "^[^\\]*$") then
         return inner
     else
-        error "TODO: parse escaped strings"
+        local parts = {}
+        local index = 1
+        while index < last do
+            local a, b = string.find(inner, "^[^\\\"]+", index)
+            if a and b then
+                parts[#parts + 1] = string.sub(inner, a, b)
+                index = b + 1
+            else
+                if string.sub(inner, index, index) == "\\" then
+                    index = index + 1
+                    local n = string.sub(inner, index, index)
+                    local e = json_escapes[n]
+                    if e then
+                        parts[#parts + 1] = e
+                        index = index + 1
+                    elseif n == "u" then
+                        index = index + 1
+                        local m = assert(string.match(inner, "^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]", index), "bad unicode escape")
+                        p("m: ", m)
+                        error "TODO: parse unicode escapes"
+
+                    else
+                        error(string.format("Bad string escape %q at %d", n, index))
+                    end
+                else
+                    break
+                end
+            end
+        end
+        return table.concat(parts, '')
     end
 end
 
