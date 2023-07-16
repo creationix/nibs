@@ -1,0 +1,9 @@
+{
+  "index": "1234beef5678dead9abc1337def00000",
+  "values": [
+    { "type": "static" },
+    { "type": "lambda" },
+    { "type": "static" },
+    { "type": "lambda" }
+  ]
+}

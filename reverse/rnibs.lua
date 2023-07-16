@@ -1,6 +1,3 @@
-local import = _G.import or require
-local HamtIndex = import "hamt-index"
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -22,9 +19,7 @@ local TRUE = 1
 local NULL = 2
 
 local bit = require 'bit'
-local rshift = bit.rshift
 local arshift = bit.arshift
-local band = bit.band
 local lshift = bit.lshift
 local bxor = bit.bxor
 local bor = bit.bor
@@ -32,31 +27,14 @@ local bor = bit.bor
 local byte = string.byte
 
 local ffi = require 'ffi'
-local sizeof = ffi.sizeof
-local copy = ffi.copy
 local ffi_string = ffi.string
-local cast = ffi.cast
-
-local insert = table.insert
 
 local U8Arr = ffi.typeof 'uint8_t[?]'
 local U16Arr = ffi.typeof 'uint16_t[?]'
 local U32Arr = ffi.typeof 'uint32_t[?]'
 local U64Arr = ffi.typeof 'uint64_t[?]'
-local U8Ptr = ffi.typeof 'uint8_t*'
-local U16Ptr = ffi.typeof 'uint16_t*'
-local U32Ptr = ffi.typeof 'uint32_t*'
-local U64Ptr = ffi.typeof 'uint64_t*'
-local U8 = ffi.typeof 'uint8_t'
-local U16 = ffi.typeof 'uint16_t'
-local U32 = ffi.typeof 'uint32_t'
 local U64 = ffi.typeof 'uint64_t'
-local I8 = ffi.typeof 'int8_t'
-local I16 = ffi.typeof 'int16_t'
-local I32 = ffi.typeof 'int32_t'
 local I64 = ffi.typeof 'int64_t'
-local F32 = ffi.typeof 'float'
-local F64 = ffi.typeof 'double'
 
 --- A specially optimized version of nibs used for fast serilization
 --- It's especially optimized for converting existing JSON data to nibs
