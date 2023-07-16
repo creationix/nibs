@@ -393,7 +393,6 @@ function ReverseNibs.convert(json, options)
     end
 
     local index = options.index or 1
-    local len = #json
 
     local dup_ids
     local process_value
@@ -405,7 +404,6 @@ function ReverseNibs.convert(json, options)
         local even = true
         local count = 0
         local offset = 0
-        local offsets = {}
         while true do
             local token, first, last = next_json_token(json, index)
             assert(token and first and last, "Unexpected EOS")
@@ -425,7 +423,6 @@ function ReverseNibs.convert(json, options)
                 even = false
             else
                 count = count + 1
-                offsets[count] = offset - 1
                 needs = ","
                 even = true
             end
@@ -484,6 +481,7 @@ function ReverseNibs.convert(json, options)
                     error(string.format("Missing expected %q at %d", needs, first))
                 end
                 token, first, last = next_json_token(json, index)
+                assert(token and first and last, "Unexpected EOS")
                 index = last + 1
             end
             offset = offset + process_value(token, first, last)
@@ -565,7 +563,7 @@ function ReverseNibs.convert(json, options)
     end
 
     local token, first, last = next_json_token(json, index)
-    if not token then return end
+    if not token then return #json + 1 end
     assert(first and last)
     index = last + 1
     offset = offset + process_value(token, first, last)

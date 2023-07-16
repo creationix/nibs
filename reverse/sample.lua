@@ -1,3 +1,4 @@
+-- Run this file with luvit to test
 local ReverseNibs = require './rnibs'
 
 local fs = require 'fs'
