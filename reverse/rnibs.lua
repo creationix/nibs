@@ -670,6 +670,7 @@ local ReverseNibsList = { __name = "ReverseNibsList", __is_array_like = true }
 function ReverseNibsList:__len()
     local offsets = rawget(self, OFFSETS)
     if not offsets then
+        print("\ninitializing list...")
         local data = rawget(self, DATA)
         local last = rawget(self, LAST)
         local first = rawget(self, FIRST)
@@ -686,6 +687,7 @@ function ReverseNibsList:__len()
         end
         table.sort(offsets)
         rawset(self, OFFSETS, offsets)
+        print("")
     end
     return #offsets
 end
@@ -717,6 +719,7 @@ local ReverseNibsArray = { __name = "ReverseNibsArray", __is_array_like = true, 
 function ReverseNibsArray:__len()
     local count = rawget(self, COUNT)
     if not count then
+        print("\ninitializing array...")
         local data = rawget(self, DATA)
         local last = rawget(self, LAST)
         -- Read the array index header
@@ -725,11 +728,13 @@ function ReverseNibsArray:__len()
         rawset(self, COUNT, c)
         rawset(self, INDEX_FIRST, j - w * c + 1)
         count = c
+        print("")
     end
     return count
 end
 
 function ReverseNibsArray:__index(k)
+    p("array index", k)
     local count = #self
     if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
     local index_first = rawget(self, INDEX_FIRST)
@@ -738,14 +743,15 @@ function ReverseNibsArray:__index(k)
     local offset = decode_pointer(data, width, index_first + width * (k - 1))
     local first = rawget(self, FIRST)
     local v = ReverseNibs.decode(data, first + offset)
-    p{first=first,offset=offset,v=v}
     rawset(self, k, v)
     return v
 end
 
 function ReverseNibsArray:__ipairs()
     local i = 0
+    local len = #self
     return function()
+        if i >= len then return end
         i = i + 1
         return i, self[i]
     end
@@ -767,6 +773,7 @@ end
 ---@param num integer
 ---@return integer
 local function decode_zigzag(num)
+    p("decode_zigzag", num)
     local i = I64(num)
     local o = bxor(rshift(i, 1), -band(i, 1))
     return tonumberMaybe(o)
@@ -776,6 +783,7 @@ end
 ---@param val number
 ---@return integer
 local function decode_float(val)
+    p("decode_float", val)
     converter.i = val
     return converter.f
 end
