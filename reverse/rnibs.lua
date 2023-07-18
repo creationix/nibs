@@ -222,10 +222,10 @@ local function parse_string(json, first, last)
                         index = index + 1
                     elseif n == "u" then
                         index = index + 1
-                        local m = assert(string.match(inner, "^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]", index), "bad unicode escape")
+                        local m = assert(string.match(inner, "^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]", index),
+                            "bad unicode escape")
                         p("m: ", m)
                         error "TODO: parse unicode escapes"
-
                     else
                         error(string.format("Bad string escape %q at %d", n, index))
                     end
@@ -626,6 +626,184 @@ function ReverseNibs.convert(json, options)
         return index, combined
     end
     return index
+end
+
+local band = bit.band
+local rshift = bit.rshift
+
+local function decode_pair(data, index)
+    p("decode pair", index)
+    local p = string.byte(data, index)
+    local little = rshift(p, 4)
+    local big = band(p, 0xf)
+    if big < 12 then
+        return index - 1, little, big
+    elseif big < 0x100 then
+        big = string.byte(data, index - 1)
+        return index - 2, little, big
+    else
+        error "TODO: decode bigger values"
+    end
+end
+
+local function decode_pointer(data, width, index)
+    p("decode pointer", index)
+    if width == 1 then
+        return string.byte(data, index)
+    else
+        error "TODO: decode bigger pointers"
+    end
+end
+
+local DATA = {}
+local OFFSETS = {}
+local FIRST = {}
+local LAST = {}
+local WIDTH = {}
+local COUNT = {}
+local INDEX_FIRST = {}
+
+---@class ReverseNibsList
+local ReverseNibsList = { __name = "ReverseNibsList", __is_array_like = true }
+
+
+function ReverseNibsList:__len()
+    local offsets = rawget(self, OFFSETS)
+    if not offsets then
+        local data = rawget(self, DATA)
+        local last = rawget(self, LAST)
+        local first = rawget(self, FIRST)
+        local index = last
+        offsets = {}
+        while index >= first do
+            offsets[#offsets+1] = index
+            local i, l, b = decode_pair(data, index)
+            if l < 8 then
+                index = i
+            else
+                index = index - b
+            end
+        end
+        table.sort(offsets)
+        rawset(self, OFFSETS, offsets)
+    end
+    return #offsets
+end
+
+function ReverseNibsList:__index(k)
+    assert(#self)
+    ---@type integer[]
+    local offsets = rawget(self, OFFSETS)
+    local i = offsets[k]
+    if not i then return end
+    local v = ReverseNibs.decode(rawget(self, DATA), i)
+    rawset(self, k, v)
+    return v
+end
+
+function ReverseNibsList:__ipairs()
+    local i = 0
+    return function()
+        i = i + 1
+        return i, self[i]
+    end
+end
+
+ReverseNibsList.__pairs = ReverseNibsList.__ipairs
+
+---@class ReverseNibsArray
+local ReverseNibsArray = { __name = "ReverseNibsArray", __is_array_like = true, __is_indexed = true }
+
+function ReverseNibsArray:__len()
+    local count = rawget(self, COUNT)
+    if not count then
+        local data = rawget(self, DATA)
+        local last = rawget(self, LAST)
+        -- Read the array index header
+        local j, w, c = decode_pair(data, last)
+        rawset(self, WIDTH, w)
+        rawset(self, COUNT, c)
+        rawset(self, INDEX_FIRST, j - w * c + 1)
+        count = c
+    end
+    return count
+end
+
+function ReverseNibsArray:__index(k)
+    local count = #self
+    if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
+    local index_first = rawget(self, INDEX_FIRST)
+    local width = rawget(self, WIDTH)
+    local data = rawget(self, DATA)
+    local offset = decode_pointer(data, width, index_first + width * (k - 1))
+    local first = rawget(self, FIRST)
+    local v = ReverseNibs.decode(data, first + offset)
+    p{first=first,offset=offset,v=v}
+    rawset(self, k, v)
+    return v
+end
+
+function ReverseNibsArray:__ipairs()
+    local i = 0
+    return function()
+        i = i + 1
+        return i, self[i]
+    end
+end
+
+ReverseNibsArray.__pairs = ReverseNibsArray.__ipairs
+
+
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
+local function tonumberMaybe(n)
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
+end
+
+---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
+---@param num integer
+---@return integer
+local function decode_zigzag(num)
+    local i = I64(num)
+    local o = bxor(rshift(i, 1), -band(i, 1))
+    return tonumberMaybe(o)
+end
+
+--- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
+---@param val number
+---@return integer
+local function decode_float(val)
+    converter.i = val
+    return converter.f
+end
+
+--- Mount a nibs binary value for lazy reading
+--- when accessing properties on maps, lists, and arrays, the value
+--- is decoded on the fly and memoized for faster access.
+--- @param nibs string binary reverse nibs encoded value
+--- @return string|number|boolean|table|nil toplevel decoded value
+function ReverseNibs.decode(nibs, index)
+    if not index then index = #nibs end
+    local little, big
+    index, little, big = decode_pair(nibs, index)
+    if little == LIST then
+        return setmetatable({
+            [DATA] = nibs,
+            [FIRST] = index - big + 1,
+            [LAST] = index
+        }, ReverseNibsList)
+    elseif little == ARRAY then
+        return setmetatable({
+            [DATA] = nibs,
+            [FIRST] = index - big + 1,
+            [LAST] = index
+        }, ReverseNibsArray)
+    elseif little == ZIGZAG then
+        return decode_zigzag(big)
+    end
 end
 
 return ReverseNibs

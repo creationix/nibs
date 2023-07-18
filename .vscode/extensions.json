@@ -1,6 +1,6 @@
 {
     "recommendations": [
         "sumneko.lua",
-        "dwenegar.vscode-luacheck"
+        "rog2.luacheck"
     ]
 }
