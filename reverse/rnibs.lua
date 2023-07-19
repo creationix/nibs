@@ -638,14 +638,14 @@ local rshift = bit.rshift
 ---@return integer big value or count or size
 local function decode_pair(data, offset)
     p("decode pair", offset)
-    local byte = data[offset]
+    local byte = data[offset-1]
     local little = rshift(byte, 4)
     local big = band(byte, 0xf)
     if big < 12 then
         p{little=little,big=big,offset=offset}
         return offset - 1, little, big
     elseif big < 0x100 then
-        big = data[offset - 1]
+        big = data[offset - 2]
         p{little=little,big=big,offset=offset}
         return offset - 2, little, big
     else
@@ -686,6 +686,7 @@ local INDEX_FIRST = Symbol "INDEX_FIRST"
 ---@param offset integer 0 based offset into data pointing to final byte of value
 ---@return integer new offset into next value
 local function skip_value(data, offset)
+    p("skip",{offset=offset})
     local o, l, b = decode_pair(data, offset)
     if l < 8 then
         -- inline values are done after parsing the nibs pair
@@ -706,9 +707,9 @@ function ReverseNibsList:__len()
         print("\ninitializing list...")
         ---@type integer[]  data
         local data = rawget(self, DATA)
-        ---@type integer offset of last header byte of last child value
+        ---@type integer offset at end of value list
         local last = rawget(self, LAST)
-        ---@type integer offset of start of first child value
+        ---@type integer offset of start value list
         local first = rawget(self, FIRST)
         --- Current offset to read from
         local offset = last
@@ -716,7 +717,9 @@ function ReverseNibsList:__len()
         while offset > first do
             offsets[#offsets + 1] = offset
             offset = skip_value(data, offset)
+            p("after skip",{offset=offset})
         end
+        p("Done scanning", {offset=offset, offsets=offsets})
         table.sort(offsets)
         rawset(self, OFFSETS, offsets)
         print("")
@@ -857,19 +860,19 @@ function ReverseNibs.decode(data, length)
     end
     assert(length, "unknown value end")
     print(string.format("decode %s", to_hex(data, length)))
-    local offset = length - 1
+    local offset = length
     local little, big
     offset, little, big = decode_pair(data, offset)
     if little == LIST then
         return setmetatable({
             [DATA] = data,
-            [FIRST] = offset - big + 1,
+            [FIRST] = offset - big,
             [LAST] = offset
         }, ReverseNibsList)
     elseif little == ARRAY then
         return setmetatable({
             [DATA] = data,
-            [FIRST] = offset - big + 1,
+            [FIRST] = offset - big,
             [LAST] = offset
         }, ReverseNibsArray)
     elseif little == ZIGZAG then
