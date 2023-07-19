@@ -28,13 +28,34 @@ local byte = string.byte
 
 local ffi = require 'ffi'
 local ffi_string = ffi.string
+local istype = ffi.istype
 
 local U8Arr = ffi.typeof 'uint8_t[?]'
 local U16Arr = ffi.typeof 'uint16_t[?]'
 local U32Arr = ffi.typeof 'uint32_t[?]'
 local U64Arr = ffi.typeof 'uint64_t[?]'
+local U16Ptr = ffi.typeof 'uint16_t*'
+local U32Ptr = ffi.typeof 'uint32_t*'
+local U64Ptr = ffi.typeof 'uint64_t*'
+local U8 = ffi.typeof 'uint8_t'
+local U16 = ffi.typeof 'uint16_t'
+local U32 = ffi.typeof 'uint32_t'
 local U64 = ffi.typeof 'uint64_t'
+local I8 = ffi.typeof 'int8_t'
+local I16 = ffi.typeof 'int16_t'
+local I32 = ffi.typeof 'int32_t'
 local I64 = ffi.typeof 'int64_t'
+local F32 = ffi.typeof 'float'
+local F64 = ffi.typeof 'double'
+
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
+local function tonumberMaybe(n)
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
+end
 
 --- A specially optimized version of nibs used for fast serilization
 --- It's especially optimized for converting existing JSON data to nibs
@@ -197,6 +218,26 @@ local json_escapes = {
     t = "\t",
 }
 
+function parse_number(json, first, last)
+    local inner = string.sub(json, first, last)
+    if string.match(inner, "^-?[0-9]+$") then
+        local sign = I64(-1)
+        local big = I64(0)
+        for i = 1, #inner do
+            if string.sub(inner, i, i) == "-" then
+                sign = I64(1)
+            else
+                big = big * 10LL - I64(byte(inner, i) - 48)
+            end
+        end
+
+        return tonumberMaybe(big *sign)
+    else
+        return tonumber(inner,10)
+    end
+
+end
+
 --- Parse a JSON string into a lua string
 --- @param json string
 --- @return string
@@ -274,7 +315,9 @@ end
 ---@param num integer
 ---@return integer
 local function encode_zigzag(num)
+    p{zigzag=num}
     local i = I64(num)
+    p{zigzag64=i}
     return U64(bxor(arshift(i, 63), lshift(i, 1)))
 end
 
@@ -289,12 +332,47 @@ local function encode_float(val)
     return converter.i
 end
 
+--- Detect if a cdata is an integer
+---@param val ffi.cdata*
+---@return boolean is_int
+local function isInteger(val)
+    return istype(I64, val) or
+        istype(I32, val) or
+        istype(I16, val) or
+        istype(I8, val) or
+        istype(U64, val) or
+        istype(U32, val) or
+        istype(U16, val) or
+        istype(U8, val)
+end
+
+--- Detect if a cdata is a float
+---@param val ffi.cdata*
+---@return boolean is_float
+local function isFloat(val)
+    return istype(F64, val) or
+        istype(F32, val)
+end
+
+--- Detect if a number is whole or not
+---@param num number|ffi.cdata*
+local function isWhole(num)
+    local t = type(num)
+    if t == 'cdata' then
+        return isInteger(num)
+    elseif t == 'number' then
+        return not (num ~= num or num == 1 / 0 or num == -1 / 0 or math.floor(num) ~= num)
+    end
+end
+
+
 --- Emit a reverse nibs number
 --- @param emit fun(chunk:string):integer
 --- @param num number
 --- @return integer number of bytes emitted
 local function emit_number(emit, num)
-    if math.floor(num) == num then
+    assert(num)
+    if isWhole(num) then
         return emit(encode_pair(ZIGZAG, encode_zigzag(num)))
     else
         return emit(encode_pair(FLOAT, encode_float(num)))
@@ -361,7 +439,7 @@ function ReverseNibs.find_dups(json, index)
         elseif token == "string" and last > first + 4 then
             possible_dup = parse_string(json, first, last)
         elseif token == "number" and last > first + 2 then
-            possible_dup = assert(tonumber(string.sub(json, first, last)))
+            possible_dup = parse_number(json, first, last)
         end
         if possible_dup then
             local count = counts[possible_dup]
@@ -566,12 +644,12 @@ function ReverseNibs.convert(json, options)
         elseif token == "null" then
             return emit(simple_null)
         elseif token == "number" then
-            local value = assert(tonumber(string.sub(json, first, last)))
+            local value = assert(parse_number(json, first, last))
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
-            local value = parse_string(json, first, last)
+            local value = assert(parse_string(json, first, last))
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
@@ -638,18 +716,28 @@ local rshift = bit.rshift
 ---@return integer big value or count or size
 local function decode_pair(data, offset)
     p("decode pair", offset)
-    local byte = data[offset-1]
+    local byte = data[offset - 1]
     local little = rshift(byte, 4)
     local big = band(byte, 0xf)
     if big < 12 then
-        p{little=little,big=big,offset=offset}
+        p { bits = 4, little = little, big = big, offset = offset }
         return offset - 1, little, big
-    elseif big < 0x100 then
+    elseif big == 12 then
         big = data[offset - 2]
-        p{little=little,big=big,offset=offset}
+        p { bits = 8, little = little, big = big, offset = offset }
         return offset - 2, little, big
+    elseif big == 13 then
+        big = ffi.cast(U16Ptr, data + offset - 3)[0]
+        p { bits = 16, little = little, big = big, offset = offset }
+        return offset - 3, little, big
+    elseif big == 14 then
+        big = ffi.cast(U32Ptr, data + offset - 5)[0]
+        p { bits = 32, little = little, big = big, offset = offset }
+        return offset - 5, little, big
     else
-        error "TODO: decode bigger values"
+        big = ffi.cast(U64Ptr, data + offset - 9)[0]
+        p { bits = 64, little = little, big = big, offset = offset }
+        return offset - 9, little, big
     end
 end
 
@@ -658,7 +746,7 @@ end
 ---@param offset integer
 ---@return integer
 local function decode_pointer(data, width, offset)
-    p("decode pointer", {offset=offset,width=width})
+    p("decode pointer", { offset = offset, width = width })
     if width == 1 then
         return data[offset]
     else
@@ -686,7 +774,7 @@ local INDEX_FIRST = Symbol "INDEX_FIRST"
 ---@param offset integer 0 based offset into data pointing to final byte of value
 ---@return integer new offset into next value
 local function skip_value(data, offset)
-    p("skip",{offset=offset})
+    p("skip", { offset = offset })
     local o, l, b = decode_pair(data, offset)
     if l < 8 then
         -- inline values are done after parsing the nibs pair
@@ -717,9 +805,9 @@ function ReverseNibsList:__len()
         while offset > first do
             offsets[#offsets + 1] = offset
             offset = skip_value(data, offset)
-            p("after skip",{offset=offset})
+            p("after skip", { offset = offset })
         end
-        p("Done scanning", {offset=offset, offsets=offsets})
+        p("Done scanning", { offset = offset, offsets = offsets })
         table.sort(offsets)
         rawset(self, OFFSETS, offsets)
         print("")
@@ -740,7 +828,9 @@ end
 
 function ReverseNibsList:__ipairs()
     local i = 0
+    local len = #self
     return function()
+        if i >= len then return end
         i = i + 1
         return i, self[i]
     end
@@ -762,7 +852,7 @@ function ReverseNibsArray:__len()
         local last = rawget(self, LAST)
         -- Read the array index header
         local o, w, c = decode_pair(data, last)
-        p{o=o,w=w,c=c}
+        p { o = o, w = w, c = c }
         rawset(self, WIDTH, w)
         rawset(self, INDEX_FIRST, o - w * c + 1)
         count = c
@@ -784,7 +874,7 @@ function ReverseNibsArray:__index(k)
     local width = rawget(self, WIDTH)
     local offset = decode_pointer(data, width, index_first + width * (k - 1))
     local first = rawget(self, FIRST)
-    p{index_first=index_first,width=width,offset=offset,first=first}
+    p { index_first = index_first, width = width, offset = offset, first = first }
     local v = ReverseNibs.decode(data, first + offset)
     rawset(self, k, v)
     return v
@@ -801,16 +891,6 @@ function ReverseNibsArray:__ipairs()
 end
 
 ReverseNibsArray.__pairs = ReverseNibsArray.__ipairs
-
-
---- Convert an I64 to a normal number if it's in the safe range
----@param n integer cdata I64
----@return integer|number maybeNum
-local function tonumberMaybe(n)
-    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
-        and tonumber(n)
-        or n
-end
 
 ---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
 ---@param num integer
@@ -835,14 +915,14 @@ end
 ---@param length integer
 ---@return string
 local function to_hex(data, length)
-  local parts = {}
-  local i = 0
-  while i < length do
-    local b = data[i]
-    i = i + 1
-    parts[i] = bit.tohex(b, 2)
-  end
-  return table.concat(parts, ' ')
+    local parts = {}
+    local i = 0
+    while i < length do
+        local b = data[i]
+        i = i + 1
+        parts[i] = bit.tohex(b, 2)
+    end
+    return table.concat(parts, ' ')
 end
 
 --- Mount a nibs binary value for lazy reading
@@ -863,20 +943,44 @@ function ReverseNibs.decode(data, length)
     local offset = length
     local little, big
     offset, little, big = decode_pair(data, offset)
-    if little == LIST then
+    if little == ZIGZAG then
+        return decode_zigzag(big)
+    elseif little == FLOAT then
+        error "TODO: decode FLOAT"
+    elseif little == SIMPLE then
+        if big == FALSE then
+            return false
+        elseif big == TRUE then
+            return true
+        elseif big == NULL then
+            return nil
+        else
+            error(string.format("Unknown SIMPLE %d", big))
+        end
+    elseif little == REF then
+        error "TODO: decode REF"
+    elseif little == BYTES then
+        error "TODO: decode BYTES"
+    elseif little == UTF8 then
+        error "TODO: decode UTF8"
+    elseif little == HEXSTRING then
+        error "TODO: decode HEXSTRING"
+    elseif little == LIST then
         return setmetatable({
             [DATA] = data,
             [FIRST] = offset - big,
             [LAST] = offset
         }, ReverseNibsList)
+    elseif little == MAP then
+        error "TODO: decode MAP"
     elseif little == ARRAY then
-        return setmetatable({
-            [DATA] = data,
-            [FIRST] = offset - big,
-            [LAST] = offset
-        }, ReverseNibsArray)
-    elseif little == ZIGZAG then
-        return decode_zigzag(big)
+        error "TODO: decode ARRAY"
+    elseif little == TRIE then
+        error "TODO: decode TRIE"
+    elseif little == SCOPE then
+        error "TODO: decode SCOPE"
+    else
+        error "Unknown type"
     end
 end
 
