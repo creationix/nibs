@@ -8,5 +8,12 @@
     "Lua.hint.setType": true,
     "Lua.workspace.library": [
         "${3rd}/luv/library"
-    ]
+    ],
+    "files.associations": {
+        "array": "c",
+        "string_view": "c",
+        "initializer_list": "c",
+        "utility": "c",
+        "stdlib.h": "c"
+    }
 }
