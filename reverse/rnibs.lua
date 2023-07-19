@@ -631,59 +631,91 @@ end
 local band = bit.band
 local rshift = bit.rshift
 
-local function decode_pair(data, index)
-    p("decode pair", index)
-    local p = string.byte(data, index)
-    local little = rshift(p, 4)
-    local big = band(p, 0xf)
+---@param data integer[] U8Arr reverse nibs serialized binary data
+---@param offset integer 0 based offset into U8Arr
+---@return integer offset after decoding
+---@return integer little type or width
+---@return integer big value or count or size
+local function decode_pair(data, offset)
+    p("decode pair", offset)
+    local byte = data[offset]
+    local little = rshift(byte, 4)
+    local big = band(byte, 0xf)
     if big < 12 then
-        return index - 1, little, big
+        p{little=little,big=big,offset=offset}
+        return offset - 1, little, big
     elseif big < 0x100 then
-        big = string.byte(data, index - 1)
-        return index - 2, little, big
+        big = data[offset - 1]
+        p{little=little,big=big,offset=offset}
+        return offset - 2, little, big
     else
         error "TODO: decode bigger values"
     end
 end
 
-local function decode_pointer(data, width, index)
-    p("decode pointer", index)
+---@param data integer[]
+---@param width integer
+---@param offset integer
+---@return integer
+local function decode_pointer(data, width, offset)
+    p("decode pointer", {offset=offset,width=width})
     if width == 1 then
-        return string.byte(data, index)
+        return data[offset]
     else
         error "TODO: decode bigger pointers"
     end
 end
 
-local DATA = {}
-local OFFSETS = {}
-local FIRST = {}
-local LAST = {}
-local WIDTH = {}
-local COUNT = {}
-local INDEX_FIRST = {}
+local function Symbol(name)
+    return setmetatable({}, {
+        __name = name,
+        __tostring = function() return "$" .. name end,
+    })
+end
+
+local DATA = Symbol "DATA"
+local OFFSETS = Symbol "OFFSETS"
+local FIRST = Symbol "FIRST"
+local LAST = Symbol "LAST"
+local WIDTH = Symbol "WIDTH"
+local COUNT = Symbol "COUNT"
+local INDEX_FIRST = Symbol "INDEX_FIRST"
+
+--- Skip a value
+---@param data integer[] U8Arr
+---@param offset integer 0 based offset into data pointing to final byte of value
+---@return integer new offset into next value
+local function skip_value(data, offset)
+    local o, l, b = decode_pair(data, offset)
+    if l < 8 then
+        -- inline values are done after parsing the nibs pair
+        return o
+    else
+        -- container values also need the contents skipped
+        return o - b
+    end
+end
 
 ---@class ReverseNibsList
 local ReverseNibsList = { __name = "ReverseNibsList", __is_array_like = true }
 
-
 function ReverseNibsList:__len()
+    ---@type integer[]|nil array of offsets to last header byte of each value
     local offsets = rawget(self, OFFSETS)
     if not offsets then
         print("\ninitializing list...")
+        ---@type integer[]  data
         local data = rawget(self, DATA)
+        ---@type integer offset of last header byte of last child value
         local last = rawget(self, LAST)
+        ---@type integer offset of start of first child value
         local first = rawget(self, FIRST)
-        local index = last
+        --- Current offset to read from
+        local offset = last
         offsets = {}
-        while index >= first do
-            offsets[#offsets+1] = index
-            local i, l, b = decode_pair(data, index)
-            if l < 8 then
-                index = i
-            else
-                index = index - b
-            end
+        while offset > first do
+            offsets[#offsets + 1] = offset
+            offset = skip_value(data, offset)
         end
         table.sort(offsets)
         rawset(self, OFFSETS, offsets)
@@ -692,15 +724,15 @@ function ReverseNibsList:__len()
     return #offsets
 end
 
-function ReverseNibsList:__index(k)
+function ReverseNibsList:__index(key)
     assert(#self)
     ---@type integer[]
     local offsets = rawget(self, OFFSETS)
-    local i = offsets[k]
-    if not i then return end
-    local v = ReverseNibs.decode(rawget(self, DATA), i)
-    rawset(self, k, v)
-    return v
+    local offset = offsets[key]
+    if not offset then return end
+    local value = ReverseNibs.decode(rawget(self, DATA), offset)
+    rawset(self, key, value)
+    return value
 end
 
 function ReverseNibsList:__ipairs()
@@ -717,17 +749,21 @@ ReverseNibsList.__pairs = ReverseNibsList.__ipairs
 local ReverseNibsArray = { __name = "ReverseNibsArray", __is_array_like = true, __is_indexed = true }
 
 function ReverseNibsArray:__len()
+    ---@type integer
     local count = rawget(self, COUNT)
     if not count then
         print("\ninitializing array...")
+        ---@type integer[]
         local data = rawget(self, DATA)
+        ---@type integer
         local last = rawget(self, LAST)
         -- Read the array index header
-        local j, w, c = decode_pair(data, last)
+        local o, w, c = decode_pair(data, last)
+        p{o=o,w=w,c=c}
         rawset(self, WIDTH, w)
-        rawset(self, COUNT, c)
-        rawset(self, INDEX_FIRST, j - w * c + 1)
+        rawset(self, INDEX_FIRST, o - w * c + 1)
         count = c
+        rawset(self, COUNT, count)
         print("")
     end
     return count
@@ -737,11 +773,15 @@ function ReverseNibsArray:__index(k)
     p("array index", k)
     local count = #self
     if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
-    local index_first = rawget(self, INDEX_FIRST)
-    local width = rawget(self, WIDTH)
+    --- @type integer[] reverse nibs encoded binary data
     local data = rawget(self, DATA)
+    --- @type integer offset to start of index
+    local index_first = rawget(self, INDEX_FIRST)
+    --- @type integer width of index pointers
+    local width = rawget(self, WIDTH)
     local offset = decode_pointer(data, width, index_first + width * (k - 1))
     local first = rawget(self, FIRST)
+    p{index_first=index_first,width=width,offset=offset,first=first}
     local v = ReverseNibs.decode(data, first + offset)
     rawset(self, k, v)
     return v
@@ -788,26 +828,49 @@ local function decode_float(val)
     return converter.f
 end
 
+---@param data integer[]
+---@param length integer
+---@return string
+local function to_hex(data, length)
+  local parts = {}
+  local i = 0
+  while i < length do
+    local b = data[i]
+    i = i + 1
+    parts[i] = bit.tohex(b, 2)
+  end
+  return table.concat(parts, ' ')
+end
+
 --- Mount a nibs binary value for lazy reading
 --- when accessing properties on maps, lists, and arrays, the value
 --- is decoded on the fly and memoized for faster access.
---- @param nibs string binary reverse nibs encoded value
+--- @param data string|integer[] binary reverse nibs encoded value
 --- @return string|number|boolean|table|nil toplevel decoded value
-function ReverseNibs.decode(nibs, index)
-    if not index then index = #nibs end
+function ReverseNibs.decode(data, length)
+    if type(data) == "string" then
+        if not length then length = #data end
+        ---@type integer[]
+        local buf = U8Arr(length)
+        ffi.copy(buf, data, length)
+        data = buf
+    end
+    assert(length, "unknown value end")
+    print(string.format("decode %s", to_hex(data, length)))
+    local offset = length - 1
     local little, big
-    index, little, big = decode_pair(nibs, index)
+    offset, little, big = decode_pair(data, offset)
     if little == LIST then
         return setmetatable({
-            [DATA] = nibs,
-            [FIRST] = index - big + 1,
-            [LAST] = index
+            [DATA] = data,
+            [FIRST] = offset - big + 1,
+            [LAST] = offset
         }, ReverseNibsList)
     elseif little == ARRAY then
         return setmetatable({
-            [DATA] = nibs,
-            [FIRST] = index - big + 1,
-            [LAST] = index
+            [DATA] = data,
+            [FIRST] = offset - big + 1,
+            [LAST] = offset
         }, ReverseNibsArray)
     elseif little == ZIGZAG then
         return decode_zigzag(big)
