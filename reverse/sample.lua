@@ -34,15 +34,13 @@ local fs = require 'fs'
 --   end
 -- end
 
-local _, data = ReverseNibs.convert('[7]', { indexLimit = 2 })
+local _, data = ReverseNibs.convert([[
+    [
+        -9223372036854775807,
+        9223372036854775807,
+        -9223372036854775808
+    ]
+]], { indexLimit = 20 })
 p{data=data}
 local n = ReverseNibs.decode(data)
-p "DUMP"
-for key,val in next, n do
-    print(key, ":", val)
-end
-p(n[1])
--- p(n)
--- for i = 1, #n do
---   p(i, n[i])
--- end
+p(n)
