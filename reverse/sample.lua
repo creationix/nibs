@@ -34,13 +34,40 @@ local fs = require 'fs'
 --   end
 -- end
 
-local _, data = ReverseNibs.convert([[
-    [
-        -9223372036854775807,
-        9223372036854775807,
-        -9223372036854775808
-    ]
-]], { indexLimit = 20 })
-p{data=data}
-local n = ReverseNibs.decode(data)
-p(n)
+local ffi = require'ffi'
+p(ReverseNibs)
+-- local json_string = [[
+--     [
+--         -1, 1, 0, 1.0, -1.0, 0.2e-1,
+--         true, false, null,
+--         "Hello", "World\nUnder",
+--         {"name":"R-Nibs"},
+--         <deadbeef>, &1, &2
+--     ]
+-- ]]
+local json_string = "[ 0, -1, 1 ]"
+local len = #json_string
+---@type integer[]
+local json_bytes = ffi.new('uint8_t[?]', len)
+ffi.copy(json_bytes, json_string, len)
+local offset = 0
+while true do
+    local token, start, size = ReverseNibs.next_json_token(json_bytes, offset, len)
+    if not token then break end
+    p(token, start, size, ffi.string(json_bytes + start, size))
+    
+    offset = start + size
+end
+
+p(ReverseNibs.convert(json_bytes, len))
+
+-- local _, data = ReverseNibs.convert([[
+--     [
+--         -9223372036854775807,
+--         9223372036854775807,
+--         -9223372036854775808
+--     ]
+-- ]], { indexLimit = 20 })
+-- p{data=data}
+-- local n = ReverseNibs.decode(data)
+-- p(n)
