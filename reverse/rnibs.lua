@@ -924,7 +924,6 @@ ReverseNibsArray.__pairs = ReverseNibsArray.__ipairs
 ---@param num integer
 ---@return integer
 local function decode_zigzag(num)
-    p("decode_zigzag", num)
     local i = I64(num)
     local o = bxor(rshift(i, 1), -band(i, 1))
     return tonumberMaybe(o)
