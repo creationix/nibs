@@ -115,13 +115,13 @@ local function next_json_token(json, offset, len)
         local c = json[offset]
         if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
             -- "\r" | "\n" | "\t" | " "
-            -- Skip whitespace 
+            -- Skip whitespace
             offset = offset + 1
         elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
             -- "[" | "]" "{" | "}" | ":" | ","
             -- Pass punctuation through as-is
             return string.char(c), offset, 1
-        elseif c == 0x22  then -- double quote
+        elseif c == 0x22 then -- double quote
             -- Parse Strings
             local first = offset
             while true do
@@ -130,7 +130,7 @@ local function next_json_token(json, offset, len)
                     error(string.format("Unexpected EOS at %d", offset))
                 end
                 c = json[offset]
-                if c == 0x22 then -- double quote
+                if c == 0x22 then     -- double quote
                     return "string", first, (offset - first) + 1
                 elseif c == 0x5c then -- backslash
                     offset = offset + 1
@@ -149,24 +149,23 @@ local function next_json_token(json, offset, len)
                     return "bytes", first, (offset - first) + 1
                 end
             end
-        elseif c == 0x74 and offset + 3 < len -- "t"
-            and json[offset + 1] == 0x72      -- "r"
-            and json[offset + 2] == 0x75      -- "u"
-            and json[offset + 3] == 0x65 then -- "e"
+        elseif c == 0x74 and offset + 3 < len              -- "t"
+            and json[offset + 1] == 0x72                   -- "r"
+            and json[offset + 2] == 0x75                   -- "u"
+            and json[offset + 3] == 0x65 then              -- "e"
             return "true", offset, 4
-        elseif c == 0x66 and offset + 4 < len -- "f"
-            and json[offset + 1] == 0x61      -- "a"
-            and json[offset + 2] == 0x6c      -- "l"
-            and json[offset + 3] == 0x73      -- "s"
-            and json[offset + 4] == 0x65 then -- "e"
+        elseif c == 0x66 and offset + 4 < len              -- "f"
+            and json[offset + 1] == 0x61                   -- "a"
+            and json[offset + 2] == 0x6c                   -- "l"
+            and json[offset + 3] == 0x73                   -- "s"
+            and json[offset + 4] == 0x65 then              -- "e"
             return "false", offset, 5
-        elseif c == 0x6e and offset + 3 < len -- "n"
-            and json[offset + 1] == 0x75      -- "u"
-            and json[offset + 2] == 0x6c      -- "l"
-            and json[offset + 3] == 0x6c then -- "l"
+        elseif c == 0x6e and offset + 3 < len              -- "n"
+            and json[offset + 1] == 0x75                   -- "u"
+            and json[offset + 2] == 0x6c                   -- "l"
+            and json[offset + 3] == 0x6c then              -- "l"
             return "null", offset, 4
         elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
-            
             -- Parse numbers
             local first = offset
             offset = offset + 1
@@ -214,17 +213,10 @@ end
 
 ReverseNibs.next_json_token = next_json_token
 
-local json_escapes = {
-    ["\""] = "\"",
-    ["\\"] = "\\",
-    ["/"] = "/",
-    b = "\b",
-    f = "\f",
-    n = "\n",
-    r = "\r",
-    t = "\t",
-}
 
+--- @param json integer[]
+--- @param offset integer
+--- @param limit integer
 local function is_integer(json, offset, limit)
     if json[offset] == 0x2d then -- "-"
         offset = offset + 1
@@ -238,6 +230,9 @@ local function is_integer(json, offset, limit)
     return true
 end
 
+--- @param json integer[]
+--- @param offset integer
+--- @param size integer
 local function parse_number(json, offset, size)
     assert(size > 0)
     local limit = offset + size
@@ -260,49 +255,72 @@ local function parse_number(json, offset, size)
     else
         return tonumber(ffi_string(json + offset, size), 10)
     end
+end
 
+--- @param json integer[]
+--- @param offset integer
+--- @param limit integer
+local function is_unescaped_string(json, offset, limit)
+    while offset < limit do
+        if json[offset] == 0x5c then -- "\\"
+            return false
+        end
+        offset = offset + 1
+    end
+    return true
 end
 
 --- Parse a JSON string into a lua string
---- @param json string
+--- @param json integer[]
+--- @param offset integer
+--- @param size integer
 --- @return string
-local function parse_string(json, first, last)
-    error "TODO: parse string"
-    local inner = string.sub(json, first + 1, last - 1)
-    if string.find(inner, "^[^\\]*$") then
-        return inner
-    else
-        local parts = {}
-        local index = 1
-        while index < last do
-            local a, b = string.find(inner, "^[^\\\"]+", index)
-            if a and b then
-                parts[#parts + 1] = string.sub(inner, a, b)
-                index = b + 1
-            else
-                if string.sub(inner, index, index) == "\\" then
-                    index = index + 1
-                    local n = string.sub(inner, index, index)
-                    local e = json_escapes[n]
-                    if e then
-                        parts[#parts + 1] = e
-                        index = index + 1
-                    elseif n == "u" then
-                        index = index + 1
-                        local m = assert(string.match(inner, "^[0-9a-f][0-9a-f][0-9a-f][0-9a-f]", index),
-                            "bad unicode escape")
-                        p("m: ", m)
-                        error "TODO: parse unicode escapes"
-                    else
-                        error(string.format("Bad string escape %q at %d", n, index))
-                    end
-                else
-                    break
-                end
-            end
-        end
-        return table.concat(parts, '')
+local function parse_string(json, offset, size)
+    -- TODO: parse surrogate pairs
+    local limit = offset + size - 1 -- subtract one to ignore trailing double quote
+    offset = offset + 1 -- add one to ignore leading double quote
+    local start = offset
+    if is_unescaped_string(json, offset, limit) then
+        offset = limit
+        return ffi_string(json + start, offset - start)
     end
+
+    local parts = {}
+    while offset < limit do
+        if json[offset] == 0x5c then -- "\\"
+            if offset > start then
+                parts[#parts + 1] = ffi_string(json + start, offset - start)
+            end
+            offset = offset + 1
+            assert(offset < limit)
+            local c = json[offset]
+            if c == 0x75 then   -- "u"
+                error "TODO: parse unicode escapes"
+            elseif c == 0x62 then -- "b"
+                parts[#parts + 1] = "\b"
+                offset = offset + 1
+            elseif c == 0x66 then -- "f"
+                parts[#parts + 1] = "\f"
+                offset = offset + 1
+            elseif c == 0x6e then -- "n"
+                parts[#parts + 1] = "\n"
+                offset = offset + 1
+            elseif c == 0x72 then -- "t"
+                parts[#parts + 1] = "\t"
+                offset = offset + 1
+            elseif c == 0x74 then -- "r"
+                parts[#parts + 1] = "\r"
+                offset = offset + 1
+            end
+            start = offset
+        else
+            offset = offset + 1
+        end
+    end
+    if offset > start then
+        parts[#parts + 1] = ffi_string(json + start, offset - start)
+    end
+    return table.concat(parts, '')
 end
 
 --- @param json string
@@ -628,8 +646,9 @@ function ReverseNibs.convert(json, len, options)
             local token, start, size = next_json_token(json, offset, len)
             assert(token and start and size, "Unexpected EOS")
             offset = start + size
-            if token == "]" then 
-                break end
+            if token == "]" then
+                break
+            end
             if needs then
                 if token ~= needs then
                     error(string.format("Missing expected %q at %d", needs, start))
