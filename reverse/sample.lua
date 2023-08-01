@@ -34,28 +34,35 @@ local fs = require 'fs'
 --   end
 -- end
 
-local ffi = require'ffi'
+local ffi = require 'ffi'
 p(ReverseNibs)
--- local json_string = [[
---     [
---         -1, 1, 0, 1.0, -1.0, 0.2e-1,
---         true, false, null,
---         "Hello", "World\nUnder",
---         {"name":"R-Nibs"},
---         <deadbeef>, &1, &2
---     ]
--- ]]
-local json_string = "[ 0, -1, 1 ]"
-local len = #json_string
----@type integer[]
-local json_bytes = ffi.new('uint8_t[?]', len)
-ffi.copy(json_bytes, json_string, len)
+local json_bytes, len
+do
+    local json_string = [[
+        [
+            "Hello",
+            "Escape\nIt"
+        ]
+    ]]
+    -- {"name":"R-Nibs"},
+    -- <deadbeef>, &1, &2
+-- local json_string = "[ 0, -1, 1, true, false ]"
+    len = #json_string
+    ---@type integer[]
+    json_bytes = ffi.new('uint8_t[?]', len)
+    ffi.copy(json_bytes, json_string, len)
+end
+
+-- Verify we can still get to the bytes after the string is collected
+collectgarbage "collect"
+collectgarbage "collect"
+
 local offset = 0
 while true do
     local token, start, size = ReverseNibs.next_json_token(json_bytes, offset, len)
     if not token then break end
     p(token, start, size, ffi.string(json_bytes + start, size))
-    
+
     offset = start + size
 end
 
