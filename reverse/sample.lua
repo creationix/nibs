@@ -51,9 +51,11 @@ do
             "\ud83d\ude80",
             "\ud83d",
             "\ud83da",
-            "𐐤𐐮𐐺𐑆"
+            "𐐤𐐮𐐺𐑆",
+            "🚀"
         ]
     ]]
+    json_string = '"\xd8\x3d\xde\x80"'
     -- {"name":"R-Nibs"},
     -- <deadbeef>, &1, &2
 -- local json_string = "[ 0, -1, 1, true, false ]"

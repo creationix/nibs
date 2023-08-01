@@ -226,6 +226,15 @@ local function fromhex(code)
     return code - (code >= 0x61 and 0x57 or code >= 0x41 and 0x37 or 0x30)
 end
 
+--- Is a byte a hex digit in ASCII [0-9a-fA-F]
+---@param code integer
+---@return boolean
+local function ishex(code)
+    return (code <= 0x39 and code >= 0x30)
+        or (code >= 0x61 and code <= 0x66)
+        or (code >= 0x41 and code <= 0x46)
+end
+
 --- @param json integer[]
 --- @param offset integer
 --- @param limit integer
@@ -268,13 +277,16 @@ local function parse_number(json, offset, size)
         return tonumber(ffi_string(json + offset, size), 10)
     end
 end
+ReverseNibs.parse_number = parse_number
 
 --- @param json integer[]
 --- @param offset integer
 --- @param limit integer
-local function is_unescaped_string(json, offset, limit)
+local function is_simple_string(json, offset, limit)
     while offset < limit do
-        if json[offset] == 0x5c then -- "\\"
+        -- TODO: look for unescaped surrogate pairs and convert to normal UTF8
+        local c = json[offset]
+        if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then -- "\\" or first byte of surrogate pair
             return false
         end
         offset = offset + 1
@@ -289,6 +301,7 @@ local function utf8_encode(c)
     if highPair then
         local lowPair = c
         c = ((highPair - 0xd800) * 0x400) + (lowPair - 0xdc00) + 0x10000
+        p("combined", c)
     elseif c >= 0xd800 and c <= 0xdfff then --surrogate pair
         highPair = c
         return
@@ -320,6 +333,13 @@ local function utf8_encode(c)
     end
 end
 
+local json_escapes = {
+    [0x62] = "\b",
+    [0x66] = "\f",
+    [0x6e] = "\n",
+    [0x72] = "\r",
+    [0x74] = "\t",
+}
 
 --- Parse a JSON string into a lua string
 --- @param json integer[]
@@ -327,55 +347,97 @@ end
 --- @param size integer
 --- @return string
 local function parse_string(json, offset, size)
-    -- TODO: parse surrogate pairs
     local limit = offset + size - 1 -- subtract one to ignore trailing double quote
     offset = offset + 1             -- add one to ignore leading double quote
     local start = offset
-    if is_unescaped_string(json, offset, limit) then
+
+    -- Fast path for strings with no escapes
+    if is_simple_string(json, offset, limit) then
         offset = limit
         return ffi_string(json + start, offset - start)
     end
 
     local parts = {}
     local allowHigh
+
+    local function flush()
+        if offset > start then
+            parts[#parts + 1] = ffi_string(json + start, offset - start)
+        end
+        start = offset
+    end
+
+    local function write_char_code(c)
+        local utf8
+        utf8 = utf8_encode(c)
+        if utf8 then
+            parts[#parts + 1] = utf8
+        else
+            allowHigh = true
+        end
+    end
+
     while offset < limit do
         allowHigh = false
-        if json[offset] == 0x5c then -- "\\"
-            if offset > start then
-                parts[#parts + 1] = ffi_string(json + start, offset - start)
-            end
-            offset = offset + 1
-            local c = json[offset]
-            if c == 0x75 then -- "u"
-                assert(offset + 4 < limit)
-                local codePoint = bor(
-                    lshift(fromhex(json[offset + 1]), 12),
-                    lshift(fromhex(json[offset + 2]), 8),
-                    lshift(fromhex(json[offset + 3]), 4),
-                    fromhex(json[offset + 4])
-                )
-                local utf8
-                utf8 = utf8_encode(codePoint)
-                if utf8 then
-                    parts[#parts + 1] = utf8
-                else
-                    allowHigh = true
-                end
-                offset = offset + 4
-            elseif c == 0x62 then -- "b"
-                parts[#parts + 1] = "\b"
-            elseif c == 0x66 then -- "f"
-                parts[#parts + 1] = "\f"
-            elseif c == 0x6e then -- "n"
-                parts[#parts + 1] = "\n"
-            elseif c == 0x72 then -- "t"
-                parts[#parts + 1] = "\t"
-            elseif c == 0x74 then -- "r"
-                parts[#parts + 1] = "\r"
-            end
-            -- Other escapes are included as-is
-            offset = offset + 1
+        local c = json[offset]
+        if c >= 0xd8 and c <= 0xdf and offset + 1 < limit then -- Manually handle native surrogate pairs
+            flush()
+            write_char_code(bor(
+                lshift(c, 8),
+                json[offset + 1]
+            ))
+            offset = offset + 2
             start = offset
+        elseif c == 0x5c then -- "\\"
+            flush()
+            offset = offset + 1
+            if offset >= limit then
+                parts[#parts + 1] = "�"
+                start = offset
+                break
+            end
+            c = json[offset]
+            if c == 0x75 then -- "u"
+                offset = offset + 1
+                -- Count how many hex digits follow the "u"
+                local hex_count = (
+                    (offset < limit and ishex(json[offset])) and (
+                        (offset + 1 < limit and ishex(json[offset + 1])) and (
+                            (offset + 2 < limit and ishex(json[offset + 2])) and (
+                                (offset + 3 < limit and ishex(json[offset + 3])) and (
+                                    4
+                                ) or 3
+                            ) or 2
+                        ) or 1
+                    ) or 0
+                )
+                -- Emit � if there are less than 4
+                if hex_count < 4 then
+                    parts[#parts + 1] = "�"
+                    offset = offset + hex_count
+                    start = offset
+                else
+                    write_char_code(bor(
+                        lshift(fromhex(json[offset]), 12),
+                        lshift(fromhex(json[offset + 1]), 8),
+                        lshift(fromhex(json[offset + 2]), 4),
+                        fromhex(json[offset + 3])
+                    ))
+                    offset = offset + 4
+                    start = offset
+                end
+            else
+                local escape = json_escapes[c]
+                if escape then
+                    parts[#parts + 1] = escape
+                    offset = offset + 1
+                    start = offset
+                else
+                    -- Other escapes are included as-is
+                    start = offset
+                    offset = offset + 1
+                end
+            end
         else
             offset = offset + 1
         end
@@ -392,26 +454,58 @@ local function parse_string(json, offset, size)
         highPair = nil
         parts[#parts + 1] = "�"
     end
-    if offset > start then
-        parts[#parts + 1] = ffi_string(json + start, offset - start)
-    end
+    flush()
     return table.concat(parts, '')
 end
+-- Export for unit testing
+ReverseNibs.parse_string = parse_string
 
 --- @param json string
---- @param first integer
---- @param last integer
+--- @param offset integer
+--- @param size integer
 --- @return ffi.cdata*, integer
-local function parse_bytes(json, first, last)
-    error "TODO: parse bytes"
-    local inner = string.sub(json, first + 1, last - 1)
-    local bytes = {}
-    for h in inner:gmatch("[0-9a-f][0-9a-f]") do
-        bytes[#bytes + 1] = tonumber(h, 16)
+local function parse_bytes(json, offset, size)
+    local limit = offset + size - 1 -- subtract one to ignore trailing ">"
+    offset = offset + 1             -- add one to ignore leading "<"
+    local start = offset
+
+    -- Count number of hex chars
+    local size = 0
+    while offset < limit do
+        local c = json[offset]
+        if ishex(c) then
+            size = size + 1
+        else
+            -- only whitespace is allowed between hex chars            
+            assert(c == 0x09 or c == 0x0a or c == 0x0d or c == 0x20)
+        end
+        offset = offset + 1
     end
-    local buf = U8Arr(#bytes, bytes)
-    return buf, #bytes
+
+    size = rshift(size, 1)
+    local buf = U8Arr(size)
+    -- target offset into buf
+    local o = 0
+    -- storage for partially parsed byte
+    local b
+    offset = start
+    while offset < limit do
+        local c = json[offset]
+        if ishex(c) then
+            if b then
+                buf[o] = bor(b, fromhex(c))
+                o = o + 1
+                b = nil
+            else
+                b = lshift(fromhex(c), 4)
+            end
+        end
+        offset = offset + 1
+    end
+    return buf, size
 end
+
+ReverseNibs.parse_bytes = parse_bytes
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
