@@ -253,10 +253,8 @@ end
 
 --- @param json integer[]
 --- @param offset integer
---- @param size integer
-local function parse_number(json, offset, size)
-    assert(size > 0)
-    local limit = offset + size
+--- @param limit integer
+local function parse_number(json, offset, limit)
     if is_integer(json, offset, limit) then
         -- sign is reversed since we need to use the negative range of I64 for full precision
         -- notice that the big value accumulated is always negative.
@@ -274,7 +272,7 @@ local function parse_number(json, offset, size)
 
         return tonumberMaybe(big * sign)
     else
-        return tonumber(ffi_string(json + offset, size), 10)
+        return tonumber(ffi_string(json + offset, limit - offset), 10)
     end
 end
 ReverseNibs.parse_number = parse_number
@@ -344,10 +342,10 @@ local json_escapes = {
 --- Parse a JSON string into a lua string
 --- @param json integer[]
 --- @param offset integer
---- @param size integer
+--- @param limit integer
 --- @return string
-local function parse_string(json, offset, size)
-    local limit = offset + size - 1 -- subtract one to ignore trailing double quote
+local function parse_string(json, offset, limit)
+    limit = limit - 1 -- subtract one to ignore trailing double quote
     offset = offset + 1             -- add one to ignore leading double quote
     local start = offset
 
@@ -460,21 +458,20 @@ end
 -- Export for unit testing
 ReverseNibs.parse_string = parse_string
 
---- @param json string
+--- @param json integer[]
 --- @param offset integer
---- @param size integer
 --- @return ffi.cdata*, integer
-local function parse_bytes(json, offset, size)
-    local limit = offset + size - 1 -- subtract one to ignore trailing ">"
+local function parse_bytes(json, offset, limit)
+    local limit = limit - 1 -- subtract one to ignore trailing ">"
     offset = offset + 1             -- add one to ignore leading "<"
     local start = offset
 
     -- Count number of hex chars
-    local size = 0
+    local hex_count = 0
     while offset < limit do
         local c = json[offset]
         if ishex(c) then
-            size = size + 1
+            hex_count = hex_count + 1
         else
             -- only whitespace is allowed between hex chars            
             assert(c == 0x09 or c == 0x0a or c == 0x0d or c == 0x20)
@@ -482,8 +479,8 @@ local function parse_bytes(json, offset, size)
         offset = offset + 1
     end
 
-    size = rshift(size, 1)
-    local buf = U8Arr(size)
+    local byte_count = rshift(hex_count, 1)
+    local buf = U8Arr(byte_count)
     -- target offset into buf
     local o = 0
     -- storage for partially parsed byte
@@ -502,7 +499,7 @@ local function parse_bytes(json, offset, size)
         end
         offset = offset + 1
     end
-    return buf, size
+    return buf, byte_count
 end
 
 ReverseNibs.parse_bytes = parse_bytes
@@ -642,9 +639,9 @@ function ReverseNibs.find_dups(json, index)
         elseif token == "}" or token == "]" then
             depth = depth - 1
         elseif token == "string" and size > start + 4 then
-            possible_dup = parse_string(json, start, size)
+            possible_dup = parse_string(json, start, start + size)
         elseif token == "number" and size > start + 2 then
-            possible_dup = parse_number(json, start, size)
+            possible_dup = parse_number(json, start, start + size)
         end
         if possible_dup then
             local count = counts[possible_dup]
@@ -856,19 +853,19 @@ function ReverseNibs.convert(json, len, options)
         elseif token == "null" then
             return emit(simple_null)
         elseif token == "number" then
-            local value = assert(parse_number(json, start, size))
+            local value = assert(parse_number(json, start, start + size))
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
-            local value = assert(parse_string(json, start, size))
+            local value = assert(parse_string(json, start, start + size))
             print("String parsed " .. Tibs.encode(value))
             p(value)
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
         elseif token == "bytes" then
-            return emit_bytes(emit, parse_bytes(json, start, size))
+            return emit_bytes(emit, parse_bytes(json, start, start + size))
         elseif token == "ref" then
             local ref = assert(tonumber(json:sub(start + 1, size)))
             return emit(encode_pair(REF, ref))
