@@ -41,21 +41,12 @@ do
     local json_string = [[
         [
             "Hello",
-            "Escape\nIt",
-            "\"\'\\",
-            "\r\t",
-            "105\u00b0",
-            "\uD801\uDC1D",
-            "\uD83D\uDE80",
-            "\ud801\udc1d",
-            "\ud83d\ude80",
-            "\ud83d",
-            "\ud83da",
-            "𐐤𐐮𐐺𐑆",
-            "🚀"
+            42,
+            true,
+            null,
+            {}
         ]
     ]]
-    json_string = '"\xd8\x3d\xde\x80"'
     -- {"name":"R-Nibs"},
     -- <deadbeef>, &1, &2
 -- local json_string = "[ 0, -1, 1, true, false ]"

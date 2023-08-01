@@ -26,3 +26,10 @@ local encoded, err = ReverseNibs.convert(fruit_json, {
     indexLimit = 3,
 })
 ```
+
+## Run Tests
+
+```sh
+# Ih the `reverse` folder run the following
+ls test-*.lua | xargs -l luvit
+```
