@@ -41,7 +41,17 @@ do
     local json_string = [[
         [
             "Hello",
-            "Escape\nIt"
+            "Escape\nIt",
+            "\"\'\\",
+            "\r\t",
+            "105\u00b0",
+            "\uD801\uDC1D",
+            "\uD83D\uDE80",
+            "\ud801\udc1d",
+            "\ud83d\ude80",
+            "\ud83d",
+            "\ud83da",
+            "𐐤𐐮𐐺𐑆"
         ]
     ]]
     -- {"name":"R-Nibs"},
