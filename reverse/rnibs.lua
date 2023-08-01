@@ -1,3 +1,5 @@
+local Tibs = require '../lua/libs/tibs'
+
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -21,10 +23,13 @@ local NULL = 2
 local bit = require 'bit'
 local arshift = bit.arshift
 local lshift = bit.lshift
+local rshift = bit.rshift
 local bxor = bit.bxor
 local bor = bit.bor
+local band = bit.band
 
 local byte = string.byte
+local char = string.char
 
 local ffi = require 'ffi'
 local ffi_string = ffi.string
@@ -120,7 +125,7 @@ local function next_json_token(json, offset, len)
         elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
             -- "[" | "]" "{" | "}" | ":" | ","
             -- Pass punctuation through as-is
-            return string.char(c), offset, 1
+            return char(c), offset, 1
         elseif c == 0x22 then -- double quote
             -- Parse Strings
             local first = offset
@@ -213,6 +218,13 @@ end
 
 ReverseNibs.next_json_token = next_json_token
 
+--- Convert ascii hex digit to integer
+--- Assumes input is valid character [0-9a-fA-F]
+---@param code integer ascii code for hex digit
+---@return integer num value of hex digit (0-15)
+local function fromhex(code)
+    return code - (code >= 0x61 and 0x57 or code >= 0x41 and 0x37 or 0x30)
+end
 
 --- @param json integer[]
 --- @param offset integer
@@ -270,6 +282,45 @@ local function is_unescaped_string(json, offset, limit)
     return true
 end
 
+local highPair = nil
+---@param c integer
+local function utf8_encode(c)
+    -- Encode surrogate pairs as a single utf8 codepoint
+    if highPair then
+        local lowPair = c
+        c = ((highPair - 0xd800) * 0x400) + (lowPair - 0xdc00) + 0x10000
+    elseif c >= 0xd800 and c <= 0xdfff then --surrogate pair
+        highPair = c
+        return
+    end
+    highPair = nil
+
+    if c <= 0x7f then
+        return char(c)
+    elseif c <= 0x7ff then
+        return char(
+            bor(0xc0, rshift(c, 6)),
+            bor(0x80, band(c, 0x3f))
+        )
+    elseif c <= 0xffff then
+        return char(
+            bor(0xe0, rshift(c, 12)),
+            bor(0x80, band(rshift(c, 6), 0x3f)),
+            bor(0x80, band(c, 0x3f))
+        )
+    elseif c <= 0x10ffff then
+        return char(
+            bor(0xf0, rshift(c, 18)),
+            bor(0x80, band(rshift(c, 12), 0x3f)),
+            bor(0x80, band(rshift(c, 6), 0x3f)),
+            bor(0x80, band(c, 0x3f))
+        )
+    else
+        error "Invalid codepoint"
+    end
+end
+
+
 --- Parse a JSON string into a lua string
 --- @param json integer[]
 --- @param offset integer
@@ -278,7 +329,7 @@ end
 local function parse_string(json, offset, size)
     -- TODO: parse surrogate pairs
     local limit = offset + size - 1 -- subtract one to ignore trailing double quote
-    offset = offset + 1 -- add one to ignore leading double quote
+    offset = offset + 1             -- add one to ignore leading double quote
     local start = offset
     if is_unescaped_string(json, offset, limit) then
         offset = limit
@@ -286,36 +337,60 @@ local function parse_string(json, offset, size)
     end
 
     local parts = {}
+    local allowHigh
     while offset < limit do
+        allowHigh = false
         if json[offset] == 0x5c then -- "\\"
             if offset > start then
                 parts[#parts + 1] = ffi_string(json + start, offset - start)
             end
             offset = offset + 1
-            assert(offset < limit)
             local c = json[offset]
-            if c == 0x75 then   -- "u"
-                error "TODO: parse unicode escapes"
+            if c == 0x75 then -- "u"
+                assert(offset + 4 < limit)
+                local codePoint = bor(
+                    lshift(fromhex(json[offset + 1]), 12),
+                    lshift(fromhex(json[offset + 2]), 8),
+                    lshift(fromhex(json[offset + 3]), 4),
+                    fromhex(json[offset + 4])
+                )
+                local utf8
+                utf8 = utf8_encode(codePoint)
+                if utf8 then
+                    parts[#parts + 1] = utf8
+                else
+                    allowHigh = true
+                end
+                offset = offset + 4
             elseif c == 0x62 then -- "b"
                 parts[#parts + 1] = "\b"
-                offset = offset + 1
             elseif c == 0x66 then -- "f"
                 parts[#parts + 1] = "\f"
-                offset = offset + 1
             elseif c == 0x6e then -- "n"
                 parts[#parts + 1] = "\n"
-                offset = offset + 1
             elseif c == 0x72 then -- "t"
                 parts[#parts + 1] = "\t"
-                offset = offset + 1
             elseif c == 0x74 then -- "r"
                 parts[#parts + 1] = "\r"
-                offset = offset + 1
             end
+            -- Other escapes are included as-is
+            offset = offset + 1
             start = offset
         else
             offset = offset + 1
         end
+        if highPair and not allowHigh then
+            -- If the character after a surrogate pair is not the other half
+            -- clear it and decode as �
+            highPair = nil
+            parts[#parts + 1] = "�"
+        end
+    end
+    if highPair then
+        -- If the last parsed value was a surrogate pair half
+        -- clear it and decode as �
+        highPair = nil
+        parts[#parts + 1] = "�"
     end
     if offset > start then
         parts[#parts + 1] = ffi_string(json + start, offset - start)
@@ -420,14 +495,6 @@ local function emit_number(emit, num)
     else
         return emit(encode_pair(FLOAT, encode_float(num)))
     end
-end
-
---- Convert ascii hex digit to integer
---- Assumes input is valid character [0-9a-f]
----@param code integer ascii code for hex digit
----@return integer num value of hex digit (0-15)
-local function fromhex(code)
-    return code - (code >= 0x61 and 0x57 or 0x30)
 end
 
 --- Emit a reverse nibs string
@@ -701,6 +768,8 @@ function ReverseNibs.convert(json, len, options)
             return emit_number(emit, value)
         elseif token == "string" then
             local value = assert(parse_string(json, start, size))
+            print("String parsed " .. Tibs.encode(value))
+            p(value)
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
