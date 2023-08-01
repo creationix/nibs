@@ -110,13 +110,12 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 --- Parse a single JSON token, call in a loop for a streaming parser.
 --- @param json integer[] U8Array of JSON encoded data
 --- @param offset integer offset of where to start parsing
---- @param len integer length of json byte array
+--- @param limit integer offset to right after json string
 --- @return "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"|nil token name
---- @return integer|nil start offset of first character in token
---- @return integer|nil size count of bytes in token
-local function next_json_token(json, offset, len)
-    while true do
-        if offset >= len then break end
+--- @return integer|nil token_offset offset of first character in token
+--- @return integer|nil token_limit offset to right after token
+local function next_json_token(json, offset, limit)
+    while offset < limit do
         local c = json[offset]
         if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
             -- "\r" | "\n" | "\t" | " "
@@ -125,18 +124,18 @@ local function next_json_token(json, offset, len)
         elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
             -- "[" | "]" "{" | "}" | ":" | ","
             -- Pass punctuation through as-is
-            return char(c), offset, 1
+            return char(c), offset, offset + 1
         elseif c == 0x22 then -- double quote
             -- Parse Strings
             local first = offset
             while true do
                 offset = offset + 1
-                if offset > len then
+                if offset >= limit then
                     error(string.format("Unexpected EOS at %d", offset))
                 end
                 c = json[offset]
                 if c == 0x22 then     -- double quote
-                    return "string", first, (offset - first) + 1
+                    return "string", first, offset + 1
                 elseif c == 0x5c then -- backslash
                     offset = offset + 1
                 end
@@ -146,30 +145,30 @@ local function next_json_token(json, offset, len)
             local first = offset
             while true do
                 offset = offset + 1
-                if offset > len then
+                if offset >= limit then
                     error(string.format("Unexpected EOS at %d", offset))
                 end
                 c = json[offset]
                 if c == 0x3e then -- ">"
-                    return "bytes", first, (offset - first) + 1
+                    return "bytes", first, offset + 1
                 end
             end
-        elseif c == 0x74 and offset + 3 < len              -- "t"
+        elseif c == 0x74 and offset + 3 < limit              -- "t"
             and json[offset + 1] == 0x72                   -- "r"
             and json[offset + 2] == 0x75                   -- "u"
             and json[offset + 3] == 0x65 then              -- "e"
-            return "true", offset, 4
-        elseif c == 0x66 and offset + 4 < len              -- "f"
+            return "true", offset, offset + 4
+        elseif c == 0x66 and offset + 4 < limit              -- "f"
             and json[offset + 1] == 0x61                   -- "a"
             and json[offset + 2] == 0x6c                   -- "l"
             and json[offset + 3] == 0x73                   -- "s"
             and json[offset + 4] == 0x65 then              -- "e"
-            return "false", offset, 5
-        elseif c == 0x6e and offset + 3 < len              -- "n"
+            return "false", offset, offset + 5
+        elseif c == 0x6e and offset + 3 < limit              -- "n"
             and json[offset + 1] == 0x75                   -- "u"
             and json[offset + 2] == 0x6c                   -- "l"
             and json[offset + 3] == 0x6c then              -- "l"
-            return "null", offset, 4
+            return "null", offset, offset + 4
         elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
             -- Parse numbers
             local first = offset
@@ -199,7 +198,7 @@ local function next_json_token(json, offset, len)
                     c = json[offset]
                 end
             end
-            return "number", first, (offset - first)
+            return "number", first, offset
         elseif c == 0x26 then -- "&"
             -- Parse Refs
             local first = offset
@@ -209,7 +208,7 @@ local function next_json_token(json, offset, len)
                 offset = offset + 1
                 c = json[offset]
             end
-            return "ref", first, (offset - first)
+            return "ref", first, offset
         else
             error(string.format("Unexpected %s at %d", c, offset))
         end
@@ -299,7 +298,6 @@ local function utf8_encode(c)
     if highPair then
         local lowPair = c
         c = ((highPair - 0xd800) * 0x400) + (lowPair - 0xdc00) + 0x10000
-        p("combined", c)
     elseif c >= 0xd800 and c <= 0xdfff then --surrogate pair
         highPair = c
         return
@@ -345,11 +343,11 @@ local json_escapes = {
 --- @param limit integer
 --- @return string
 local function parse_string(json, offset, limit)
-    limit = limit - 1 -- subtract one to ignore trailing double quote
-    offset = offset + 1             -- add one to ignore leading double quote
+    limit = limit - 1   -- subtract one to ignore trailing double quote
+    offset = offset + 1 -- add one to ignore leading double quote
     local start = offset
 
-    -- Fast path for strings with no escapes
+    -- Fast path for strings with no escapes or surrogate pairs
     if is_simple_string(json, offset, limit) then
         offset = limit
         return ffi_string(json + start, offset - start)
@@ -463,7 +461,7 @@ ReverseNibs.parse_string = parse_string
 --- @return ffi.cdata*, integer
 local function parse_bytes(json, offset, limit)
     local limit = limit - 1 -- subtract one to ignore trailing ">"
-    offset = offset + 1             -- add one to ignore leading "<"
+    offset = offset + 1     -- add one to ignore leading "<"
     local start = offset
 
     -- Count number of hex chars
@@ -473,7 +471,7 @@ local function parse_bytes(json, offset, limit)
         if ishex(c) then
             hex_count = hex_count + 1
         else
-            -- only whitespace is allowed between hex chars            
+            -- only whitespace is allowed between hex chars
             assert(c == 0x09 or c == 0x0a or c == 0x0d or c == 0x20)
         end
         offset = offset + 1
@@ -726,22 +724,20 @@ function ReverseNibs.convert(json, len, options)
     --- Process an object
     --- @return integer total bytes emitted
     local function process_object()
-        error "TODO: process object"
         local needs
         local even = true
         local count = 0
-        local offset = 0
         while true do
-            local token, first, size = next_json_token(json, offset)
-            assert(token and first and size, "Unexpected EOS")
+            local token, start, size = next_json_token(json, offset, len)
+            assert(token and start and size, "Unexpected EOS")
             offset = size + 1
             if even and token == "}" then break end
             if needs then
                 if token ~= needs then
-                    error(string.format("Missing expected %q at %d", needs, first))
+                    error(string.format("Missing expected %q at %d", needs, start))
                 end
-                token, first, size = next_json_token(json, offset)
-                assert(token and first and size, "Unexpected EOS")
+                token, start, size = next_json_token(json, offset, len)
+                assert(token and start and size, "Unexpected EOS")
                 offset = size + 1
             end
             offset = offset + process_value(token, first, size)
@@ -853,21 +849,19 @@ function ReverseNibs.convert(json, len, options)
         elseif token == "null" then
             return emit(simple_null)
         elseif token == "number" then
-            local value = assert(parse_number(json, start, start + size))
+            local value = parse_number(json, start, start + size)
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_number(emit, value)
         elseif token == "string" then
-            local value = assert(parse_string(json, start, start + size))
-            print("String parsed " .. Tibs.encode(value))
-            p(value)
+            local value = parse_string(json, start, start + size)
             local ref = dup_ids and dup_ids[value]
             if ref then return emit(encode_pair(REF, ref)) end
             return emit_string(emit, value)
         elseif token == "bytes" then
             return emit_bytes(emit, parse_bytes(json, start, start + size))
         elseif token == "ref" then
-            local ref = assert(tonumber(json:sub(start + 1, size)))
+            local ref = parse_number(json, start + 1, start + size)
             return emit(encode_pair(REF, ref))
         else
             error(string.format("Unexpcted %s at %d", token, start))
