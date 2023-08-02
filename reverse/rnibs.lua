@@ -1,4 +1,3 @@
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -152,18 +151,18 @@ local function next_json_token(json, offset, limit)
                     return "bytes", first, offset + 1
                 end
             end
-        elseif c == 0x74 and offset + 3 < limit              -- "t"
+        elseif c == 0x74 and offset + 3 < limit            -- "t"
             and json[offset + 1] == 0x72                   -- "r"
             and json[offset + 2] == 0x75                   -- "u"
             and json[offset + 3] == 0x65 then              -- "e"
             return "true", offset, offset + 4
-        elseif c == 0x66 and offset + 4 < limit              -- "f"
+        elseif c == 0x66 and offset + 4 < limit            -- "f"
             and json[offset + 1] == 0x61                   -- "a"
             and json[offset + 2] == 0x6c                   -- "l"
             and json[offset + 3] == 0x73                   -- "s"
             and json[offset + 4] == 0x65 then              -- "e"
             return "false", offset, offset + 5
-        elseif c == 0x6e and offset + 3 < limit              -- "n"
+        elseif c == 0x6e and offset + 3 < limit            -- "n"
             and json[offset + 1] == 0x75                   -- "u"
             and json[offset + 2] == 0x6c                   -- "l"
             and json[offset + 3] == 0x6c then              -- "l"
@@ -459,8 +458,8 @@ ReverseNibs.parse_string = parse_string
 --- @param offset integer
 --- @return ffi.cdata*, integer
 local function parse_bytes(json, offset, limit)
-    limit = limit - 1 -- subtract one to ignore trailing ">"
-    offset = offset + 1     -- add one to ignore leading "<"
+    limit = limit - 1   -- subtract one to ignore trailing ">"
+    offset = offset + 1 -- add one to ignore leading "<"
     local start = offset
 
     -- Count number of hex chars
@@ -723,21 +722,25 @@ end
 --- @class ReverseNibsConvertOptions
 --- @field dups? (string|number)[] optional set of values to turn into refs
 --- @field filter? string[] optional list of top-level properties to keep
---- @field indexLimit? number optional limit for when to generate indices.
+--- @field arrayLimit? number optional limit for when to generate indices.
+---                           Lists and Maps need at least this many entries.
+--- @field trieLimit? number optional limit for when to generate indices.
 ---                           Lists and Maps need at least this many entries.
 --- @field emit? fun(chunk:string):integer optional function for streaming output
 
 --- Convert a JSON string into a stream of reverse nibs chunks
 ---@param json integer[] input json as U8Array to process
+---@param offset integer
 ---@param len integer length of bytes
 ---@param options? ReverseNibsConvertOptions
 ---@return integer final_index
 ---@return string|nil result buffered result when no custom emit is set
-function ReverseNibs.convert(json, len, options)
+function ReverseNibs.convert(json, offset, len, options)
     options = options or {}
     local dups = options.dups
     local emit = options.emit
-    local indexLimit = options.indexLimit or 12
+    local arrayLimit = options.arrayLimit or 12
+    local trieLimit = options.trieLimit or (1 / 0)
     local chunks
     if not emit then
         chunks = {}
@@ -746,9 +749,6 @@ function ReverseNibs.convert(json, len, options)
             return #chunk
         end
     end
-
-    -- zero based parsing offset into input json bytearray
-    local offset = 0
 
     local dup_ids
     local process_value
@@ -759,20 +759,21 @@ function ReverseNibs.convert(json, len, options)
         local needs
         local even = true
         local count = 0
+        local written = 0
         while true do
-            local token, start, size = next_json_token(json, offset, len)
-            assert(token and start and size, "Unexpected EOS")
-            offset = size + 1
-            if even and token == "}" then break end
+            local t, o, l = next_json_token(json, offset, len)
+            assert(t and o and l, "Unexpected EOS")
+            offset = l
+            if even and t == "}" then break end
             if needs then
-                if token ~= needs then
-                    error(string.format("Missing expected %q at %d", needs, start))
+                if t ~= needs then
+                    error(string.format("Missing expected %q at %d", needs, o))
                 end
-                token, start, size = next_json_token(json, offset, len)
-                assert(token and start and size, "Unexpected EOS")
-                offset = size + 1
+                t, o, l = next_json_token(json, offset, len)
+                assert(t and o and l, "Unexpected EOS")
+                offset = l
             end
-            offset = offset + process_value(token, first, size)
+            written = written + process_value(t, o, l)
             if even then
                 needs = ":"
                 even = false
@@ -783,11 +784,11 @@ function ReverseNibs.convert(json, len, options)
             end
         end
 
-        -- TODO: generate Trie index and mark as Trie
-        -- if count >= indexLimit then
-        -- end
+        if count >= trieLimit then
+            error "TODO: generate Trie index and mark as Trie"
+        end
 
-        return offset + emit(encode_pair(MAP, offset))
+        return written + emit(encode_pair(MAP, written))
     end
 
     ---@param offsets integer[]
@@ -850,7 +851,7 @@ function ReverseNibs.convert(json, len, options)
         end
 
         -- Skip index and send as LIST if it's small enough
-        if count < indexLimit then
+        if count < arrayLimit then
             return local_offset + emit(encode_pair(LIST, local_offset))
         end
 
@@ -869,7 +870,7 @@ function ReverseNibs.convert(json, len, options)
     --- @param limit integer
     --- @return integer|nil bytecount of emitted data
     function process_value(token, offset, limit)
-        p("PROCESS VALUE", start, size, offset)
+        p("PROCESS VALUE", start, offset, limit)
         if token == "{" then
             return process_object()
         elseif token == "[" then
