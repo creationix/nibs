@@ -684,6 +684,42 @@ function ReverseNibs.find_dups(json, offset, limit)
     return dups
 end
 
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return integer
+local function skip_value(json, offset, limit)
+    local t, _, l = next_json_token(json, offset, limit)
+    if not l then return offset end
+    offset = l
+    if t == "{" then
+        while offset < limit do
+            t, _, l = next_json_token(json, offset, limit)
+            if not l then return offset end
+            offset = l
+            if t == "}" then
+                return offset
+            else
+                offset = skip_value(json, offset, limit)
+            end
+        end
+    elseif t == "[" then
+        while offset < limit do
+            t, _, l = next_json_token(json, offset, limit)
+            if not l then return offset end
+            offset = l
+            if t == "]" then
+                return offset
+            else
+                offset = skip_value(json, offset, limit)
+            end
+        end
+    elseif t == "]" or t == "}" or t == ":" or t == "," then
+        error("Unexpected token " .. t)
+    end
+    return offset
+end
+
 --- @class ReverseNibsConvertOptions
 --- @field dups? (string|number)[] optional set of values to turn into refs
 --- @field filter? string[] optional list of top-level properties to keep
@@ -829,10 +865,10 @@ function ReverseNibs.convert(json, len, options)
 
     --- Process a json value
     --- @param token string
-    --- @param start integer
-    --- @param size integer
+    --- @param offset integer
+    --- @param limit integer
     --- @return integer|nil bytecount of emitted data
-    function process_value(token, start, size)
+    function process_value(token, offset, limit)
         p("PROCESS VALUE", start, size, offset)
         if token == "{" then
             return process_object()
