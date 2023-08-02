@@ -1,4 +1,3 @@
-local Tibs = require '../lua/libs/tibs'
 
 -- Main types
 local ZIGZAG = 0
@@ -460,7 +459,7 @@ ReverseNibs.parse_string = parse_string
 --- @param offset integer
 --- @return ffi.cdata*, integer
 local function parse_bytes(json, offset, limit)
-    local limit = limit - 1 -- subtract one to ignore trailing ">"
+    limit = limit - 1 -- subtract one to ignore trailing ">"
     offset = offset + 1     -- add one to ignore leading "<"
     local start = offset
 
@@ -572,7 +571,6 @@ local function isWhole(num)
     end
 end
 
-
 --- Emit a reverse nibs number
 --- @param emit fun(chunk:string):integer
 --- @param num number
@@ -619,27 +617,25 @@ end
 
 --- Scan a JSON string for duplicated strings and large numbers
 --- @param json integer[] input json document to parse
---- @param index? integer optional start index
+--- @param offset integer
+--- @param limit integer
 --- @return (string|number)[]|nil
-function ReverseNibs.find_dups(json, index)
-    error "TODO: implement find_dups"
-    index = index or 1
-    local len = #json
+function ReverseNibs.find_dups(json, offset, limit)
     local counts = {}
     local depth = 0
-    while index <= len do
-        local token, start, size = next_json_token(json, index, len)
-        if not token then break end
-        assert(start and size)
+    while offset < limit do
+        local t, o, l = next_json_token(json, offset, limit)
+        if not t then break end
+        assert(o and l)
         local possible_dup
-        if token == "{" or token == "[" then
+        if t == "{" or t == "[" then
             depth = depth + 1
-        elseif token == "}" or token == "]" then
+        elseif t == "}" or t == "]" then
             depth = depth - 1
-        elseif token == "string" and size > start + 4 then
-            possible_dup = parse_string(json, start, start + size)
-        elseif token == "number" and size > start + 2 then
-            possible_dup = parse_number(json, start, start + size)
+        elseif t == "string" and o + 4 < l then
+            possible_dup = parse_string(json, o, l)
+        elseif t == "number" and o + 2 < l then
+            possible_dup = parse_number(json, o, l)
         end
         if possible_dup then
             local count = counts[possible_dup]
@@ -649,7 +645,7 @@ function ReverseNibs.find_dups(json, index)
                 counts[possible_dup] = 1
             end
         end
-        index = size + 1
+        offset = l
         if depth == 0 then break end
     end
 
