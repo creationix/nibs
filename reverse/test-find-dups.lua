@@ -23,8 +23,8 @@ for i = 1, #tests, 2 do
   assert(type(dups) == type(expected_dups))
   if dups then
     assert(#dups == #expected_dups)
-    for i = 1, #dups do
-      assert(dups[i] == expected_dups[i])
+    for j = 1, #dups do
+      assert(dups[j] == expected_dups[j])
     end
   end
 end

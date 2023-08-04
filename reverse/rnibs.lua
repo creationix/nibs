@@ -113,6 +113,44 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 --- @return integer|nil token_offset offset of first character in token
 --- @return integer|nil token_limit offset to right after token
 local function next_json_token(json, offset, limit)
+
+    -- Consume exactly one digit `[0-9]`
+    local function consume_one_digit()
+        if offset >= limit then
+            error(string.format("Unexpected EOS at %d", offset))
+        end
+        local c = json[offset]
+        if c < 0x30 or c > 0x39 then -- outside "0-9"
+            error(string.format("Unexpected %q at %d", char(c), offset))
+        end
+        offset = offset + 1
+    end
+
+    -- Consume zero or more digits `[0-9]*`
+    local function consume_digits()
+        while offset < limit do
+            local c = json[offset]
+            if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+            offset = offset + 1
+        end
+    end
+
+    ---Match a single optional character
+    ---@param ... integer possible matches
+    ---@return boolean matched
+    local function consume_optional(...)
+        if offset < limit then
+            local c = json[offset]
+            for i = 1, select("#", ...) do
+                if c == select(i, ...) then
+                    offset = offset + 1
+                    return true
+                end
+            end
+        end
+        return false
+    end
+
     while offset < limit do
         local c = json[offset]
         if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
@@ -168,44 +206,29 @@ local function next_json_token(json, offset, limit)
             and json[offset + 3] == 0x6c then              -- "l"
             return "null", offset, offset + 4
         elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
-            -- Parse numbers
+            -- But that is fine and siplifies the logic here a lot.
             local first = offset
             offset = offset + 1
-            c = json[offset]
-            while c >= 0x30 and c <= 0x39 do -- "0"-"9"
-                offset = offset + 1
-                c = json[offset]
+            if c == 0x2d then -- "-" needs at least one digit after
+                consume_one_digit()
             end
-            if c == 0x2e then -- "."
-                offset = offset + 1
-                c = json[offset]
-                while c >= 0x30 and c <= 0x39 do
-                    offset = offset + 1
-                    c = json[offset]
-                end
+            consume_digits()
+            if consume_optional(0x2e) then -- "."
+                consume_one_digit()
+                consume_digits()
             end
-            if c == 0x65 or c == 0x45 then -- "e" | "E"
-                offset = offset + 1
-                c = json[offset]
-                if c == 0x2b or c == 0x2d then -- "+" | "-"
-                    offset = offset + 1
-                    c = json[offset]
-                end
-                while c >= 0x30 and c <= 0x39 do -- "0"-"9"
-                    offset = offset + 1
-                    c = json[offset]
-                end
+            if consume_optional(0x65, 0x45) then -- "e"|"E"
+                consume_optional(0x2b, 0x2d) -- "+"|"-"
+                consume_one_digit()
+                consume_digits()
             end
             return "number", first, offset
         elseif c == 0x26 then -- "&"
             -- Parse Refs
             local first = offset
             offset = offset + 1
-            c = json[offset]
-            while c >= 0x30 and c <= 0x39 do -- "0"-"9"
-                offset = offset + 1
-                c = json[offset]
-            end
+            consume_one_digit()
+            consume_digits()
             return "ref", first, offset
         else
             error(string.format("Unexpected %s at %d", c, offset))
@@ -251,7 +274,7 @@ end
 --- @param json integer[]
 --- @param offset integer
 --- @param limit integer
-local function parse_number(json, offset, limit)
+function ReverseNibs.parse_number(json, offset, limit)
     if is_integer(json, offset, limit) then
         -- sign is reversed since we need to use the negative range of I64 for full precision
         -- notice that the big value accumulated is always negative.
@@ -272,7 +295,8 @@ local function parse_number(json, offset, limit)
         return tonumber(ffi_string(json + offset, limit - offset), 10)
     end
 end
-ReverseNibs.parse_number = parse_number
+
+local parse_number = ReverseNibs.parse_number
 
 --- @param json integer[]
 --- @param offset integer
