@@ -774,6 +774,7 @@ function ReverseNibs.convert(json, offset, len, options)
         end
     end
 
+    ---@type table<string|number, integer>|nil
     local dup_ids
     local process_value
 
