@@ -105,11 +105,13 @@ local rnibs16 = ffi.typeof 'struct rnibs16'
 local rnibs32 = ffi.typeof 'struct rnibs32'
 local rnibs64 = ffi.typeof 'struct rnibs64'
 
+---@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
+
 --- Parse a single JSON token, call in a loop for a streaming parser.
 --- @param json integer[] U8Array of JSON encoded data
 --- @param offset integer offset of where to start parsing
 --- @param limit integer offset to right after json string
---- @return "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"|nil token name
+--- @return JsonToken|nil token name
 --- @return integer|nil token_offset offset of first character in token
 --- @return integer|nil token_limit offset to right after token
 local function next_json_token(json, offset, limit)
@@ -231,7 +233,7 @@ local function next_json_token(json, offset, limit)
             consume_digits()
             return "ref", first, offset
         else
-            error(string.format("Unexpected %s at %d", c, offset))
+            error(string.format("Unexpected %q at %d", string.char(c), offset))
         end
     end
 end
