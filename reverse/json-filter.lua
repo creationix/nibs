@@ -29,7 +29,7 @@ local function json_filter(input_json, keep_fields)
     local offsets = { 0 }
 
     -- States:
-    -- 0 start stage
+    -- 0 start state
     -- 1 expecting key
     -- 2 expecting colon
     -- 3 expecting value
@@ -41,82 +41,67 @@ local function json_filter(input_json, keep_fields)
     -- This is set when a value should be skipped
     local should_skip = false
 
+    local pair_start
+    local first_pair = true
+
     while offset < len do
         local t, o, l = next_json_token(json_bytes, offset, len)
-        p(offset,state,t,o,l)
-        offset = l
-        if state == 0 then
-            if t == "{" then
-                state = 3 -- Expect key next
-            else
-                -- stay in state 0
-            end
-        elseif state == 1 then
-            assert(t == ":")
-            state = 4
-        elseif state == 2 then
-            if t == "," then
-                state = 3
-            elseif t == "}" then
-                state = 0
-            else 
-                error(string.format("Unexpected %q at %d", t, o))
-            end
-        elseif state == 3 then
-        elseif state == 4 then
-        else
-        end
-        p("TOKEN", offset, t,o,l)
+        -- p(state,offset,o,l,t)
         if not t then break end
         assert(o and l)
-
         offset = l
-        if t == "{" or t == "[" then
-            ---@cast t "{"|"["
-            depth = depth + 1
-            if depth == 1 then
-                kind = t
-                expected = "key"
+
+        if state == 0 then -- start state
+            if t == "{" then
+                state = 1
+                pair_start = l
             end
-        elseif depth == 1 and kind == "{" then
-            p(expected,t,o,l)
-            if expected == "key" then
-                assert(t == "string")
-                local key = parse_string(json_bytes, o, l)
-                if keep_fields[key] then
-                    skip_start = nil
+        elseif state == 1 then -- expecting key
+            if t ~= "string" then
+                error(string.format("Expected string key at %d", o))
+            end
+            local key = parse_string(json_bytes, o, l)
+            should_skip = not keep_fields[key]
+            state = 2
+        elseif state == 2 then -- expecting colon
+            if t ~= ":" then
+                error(string.format("Expecded colon at %d", o))
+            end
+            state = 3
+        elseif state == 3 then -- expecting value
+            if t == "{" or t == "[" then
+                state = 5
+            else
+                state = 4
+            end
+        elseif state == 4 then
+            local pair_end = t == "," and first_pair and l or o
+            if should_skip then
+                if offsets[#offsets] >= pair_start then
+                    offsets[#offsets] = pair_end
                 else
-                    skip_start = previous_comma or o
+                    offsets[#offsets + 1] = pair_start
+                    offsets[#offsets + 1] = pair_end
                 end
-                expected = "colon"
-            elseif expected == "colon" then
-                assert(t == ":")
-                expected = "value"
-            elseif expected == "value" then
-                expected = "comma"
-            elseif expected == "comma" then
-                assert(t == "," or t == "}")
-                if skip_start then
-                    local skip_end = t == "," and l or o
-                    if skip_start <= offsets[#offsets] then
-                        offsets[#offsets] = skip_end
-                    else
-                        offsets[#offsets + 1] = skip_start
-                        offsets[#offsets + 1] = skip_end
-                    end
-                    skip_start = nil
-                end
-                if t == "," then
-                    previous_comma = o
-                    expected = "key"
-                elseif t == "}" then
-                    depth = depth - 1
-                    expected = nil
-                    previous_comma = nil
-                end
+            else
+                first_pair = false
             end
-        elseif t == "}" or t == "]" then
-            depth = depth - 1
+            if t == "," then
+                state = 1
+                pair_start = o
+            elseif t == "}" then
+                state = 0
+            else
+                error(string.format("Expected comma or brace at %d", o))
+            end
+        elseif state >= 5 then
+            if t == "{" or t == "[" then
+                state = state + 1
+            elseif t == "}" or t == "]" then
+                state = state - 1
+            end
+        else
+            error "Invalid state"
         end
     end
     offsets[#offsets + 1] = offset
