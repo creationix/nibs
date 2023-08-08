@@ -13,28 +13,63 @@ local concat = table.concat
 ---@param keep_fields table<string,boolean> map of top-level fields we wish to keep
 ---@return string json output
 local function json_filter(input_json, keep_fields)
-    -- First convert to bytearray for faster processing
-    local len = #input_json
+
+    -- offset into bytearray
+    ---@type integer 
+    local offset = 0
+    -- length of bytearray
+    local len = #input_json 
+    -- ByteArray version of JSON for faster processing
     ---@type integer[]
     local json_bytes = U8Arr(len)
     copy(json_bytes, input_json, len)
 
-    ---@type integer[] list of integer offsets in alternating pairs of offset/limit
+    -- list of integer offsets in alternating pairs of offset/limit
+    ---@type integer[] 
     local offsets = { 0 }
-    local offset = 0
-    local depth = 0
-    ---@type "{"|"["|nil
-    local kind
-    ---@type "key"|"colon"|"value"|"comma"|nil
-    local expected
-    ---@type integer|nil position of previous comma before a potentially skipped key/value pair
-    local previous_comma
-    ---@type integer|nil
-    local skip_start
+
+    -- States:
+    -- 0 start stage
+    -- 1 expecting key
+    -- 2 expecting colon
+    -- 3 expecting value
+    -- 4 expecting end or comma
+    -- 5+ inside value
+    ---@type integer
+    local state = 0
+
+    -- This is set when a value should be skipped
+    local should_skip = false
+
     while offset < len do
         local t, o, l = next_json_token(json_bytes, offset, len)
+        p(offset,state,t,o,l)
+        offset = l
+        if state == 0 then
+            if t == "{" then
+                state = 3 -- Expect key next
+            else
+                -- stay in state 0
+            end
+        elseif state == 1 then
+            assert(t == ":")
+            state = 4
+        elseif state == 2 then
+            if t == "," then
+                state = 3
+            elseif t == "}" then
+                state = 0
+            else 
+                error(string.format("Unexpected %q at %d", t, o))
+            end
+        elseif state == 3 then
+        elseif state == 4 then
+        else
+        end
+        p("TOKEN", offset, t,o,l)
         if not t then break end
         assert(o and l)
+
         offset = l
         if t == "{" or t == "[" then
             ---@cast t "{"|"["
