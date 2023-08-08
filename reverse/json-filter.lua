@@ -1,6 +1,7 @@
 local ReverseNibs = require './rnibs'
 local ffi = require 'ffi'
 local copy = ffi.copy
+local ffi_string = ffi.string
 local U8Arr = ffi.typeof 'uint8_t[?]'
 
 ---@param input_json string json input
@@ -25,8 +26,6 @@ local function meta_filter(input_json, keep_fields)
     local previous_comma
     ---@type integer|nil
     local skip_start
-    ---@type integer|nil
-    local skip_end
     while offset < len do
         local t, o, l = ReverseNibs.next_json_token(json_bytes, offset, len)
         if not t then break end
@@ -54,10 +53,19 @@ local function meta_filter(input_json, keep_fields)
                 assert(t == ":")
                 expected = "value"
             elseif expected == "value" then
-                p{should_skip=should_skip}
                 expected = "comma"
             elseif expected == "comma" then
                 assert(t == "," or t == "}")
+                if skip_start then
+                    local skip_end = t == "," and l or o
+                    if skip_start <= offsets[#offsets] then
+                        offsets[#offsets] = skip_end
+                    else
+                        offsets[#offsets + 1] = skip_start
+                        offsets[#offsets + 1] = skip_end
+                    end
+                    skip_start = nil
+                end
                 if t == "," then
                     previous_comma = o
                     expected = "key"
@@ -70,8 +78,19 @@ local function meta_filter(input_json, keep_fields)
         elseif t == "}" or t == "]" then
             depth = depth - 1
         end
+    end
+    offsets[#offsets + 1] = offset
+    p(offsets)
+    local parts = {}
+    for i = 1, #offsets, 2 do
+        local o, l = offsets[i], offsets[i + 1]
+        p(o, l)
+        parts[#parts + 1] = ffi_string(json_bytes + o, l - o)
+    end
+    p(parts)
+    return table.concat(parts)
 end
-end
+
 
 local tests = {
     '{"name":"Filter","age":100}', {name=true},'{"name":"Filter"}',
