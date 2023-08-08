@@ -38,15 +38,17 @@ local function json_filter(input_json, keep_fields)
     ---@type integer
     local state = 0
 
-    -- This is set when a value should be skipped
+    -- Remember if a pair should be skipped after parsing key
     local should_skip = false
 
+    -- Remember when the current pair started in case we need to skip it
     local pair_start
+
+    -- Special handling for commas when leading values are skipped
     local first_pair = true
 
     while offset < len do
         local t, o, l = next_json_token(json_bytes, offset, len)
-        -- p(state,offset,o,l,t)
         if not t then break end
         assert(o and l)
         offset = l
@@ -105,15 +107,27 @@ local function json_filter(input_json, keep_fields)
         end
     end
     offsets[#offsets + 1] = offset
-    p(offsets)
-    local parts = {}
+
+    -- Count total size of final JSON string
+    local size = 0
     for i = 1, #offsets, 2 do
         local o, l = offsets[i], offsets[i + 1]
-        p(o, l)
-        parts[#parts + 1] = ffi_string(json_bytes + o, l - o)
+        local slice_len = l - o
+        size = size + slice_len
     end
-    p(parts)
-    return concat(parts)
+
+    -- Write the slices to the a new buffer
+    local buf = U8Arr(size)
+    offset = 0
+    for i = 1, #offsets, 2 do
+        local o, l = offsets[i], offsets[i + 1]
+        local slice_len = l - o
+        copy(buf + offset, json_bytes + o, slice_len)
+        offset = offset + slice_len
+    end
+
+    -- Return as a new smaller string
+    return ffi_string(buf, size)
 end
 
 return json_filter
