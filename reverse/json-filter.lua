@@ -1,13 +1,18 @@
 local ReverseNibs = require './rnibs'
+local next_json_token = ReverseNibs.next_json_token
+local parse_string = ReverseNibs.parse_string
+
 local ffi = require 'ffi'
 local copy = ffi.copy
 local ffi_string = ffi.string
 local U8Arr = ffi.typeof 'uint8_t[?]'
 
+local concat = table.concat
+
 ---@param input_json string json input
 ---@param keep_fields table<string,boolean> map of top-level fields we wish to keep
 ---@return string json output
-local function meta_filter(input_json, keep_fields)
+local function json_filter(input_json, keep_fields)
     -- First convert to bytearray for faster processing
     local len = #input_json
     ---@type integer[]
@@ -27,7 +32,7 @@ local function meta_filter(input_json, keep_fields)
     ---@type integer|nil
     local skip_start
     while offset < len do
-        local t, o, l = ReverseNibs.next_json_token(json_bytes, offset, len)
+        local t, o, l = next_json_token(json_bytes, offset, len)
         if not t then break end
         assert(o and l)
         offset = l
@@ -42,7 +47,7 @@ local function meta_filter(input_json, keep_fields)
             p(expected,t,o,l)
             if expected == "key" then
                 assert(t == "string")
-                local key = ReverseNibs.parse_string(json_bytes, o, l)
+                local key = parse_string(json_bytes, o, l)
                 if keep_fields[key] then
                     skip_start = nil
                 else
@@ -88,22 +93,7 @@ local function meta_filter(input_json, keep_fields)
         parts[#parts + 1] = ffi_string(json_bytes + o, l - o)
     end
     p(parts)
-    return table.concat(parts)
+    return concat(parts)
 end
 
-
-local tests = {
-    '{"name":"Filter","age":100}', {name=true},'{"name":"Filter"}',
-    '{"name":"Filter","age":100}', {age=true},'{"age":100}',
-    '{"name":"Filter","age":100}', {name=true,age=true},'{"name":"Filter","age":100}',
-    '{"name":"Filter","age":100}', {},'{}',
-}
-for i = 1, #tests, 3 do
-    local input_json = tests[i]
-    ---@type table<string,boolean>
-    local keep_fields = tests[i+1]
-    local expected_output_json = tests[i+2]
-    local actual_output_json = meta_filter(input_json, keep_fields)
-    p(input_json,keep_fields,actual_output_json,expected_output_json)
-    assert(expected_output_json == actual_output_json, "JSON mismatch")
-end
+return json_filter
