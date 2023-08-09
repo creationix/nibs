@@ -106,31 +106,42 @@ local rnibs32 = ffi.typeof 'struct rnibs32'
 local rnibs64 = ffi.typeof 'struct rnibs64'
 
 
----@param json integer[]
----@param offset integer
----@param limit integer
----@return "string" token
----@return integer offset
----@return integer limit
-local function scan_string(json, offset, limit)
-    -- Parse Strings
-    local first = offset
-    while true do
-        offset = offset + 1
-        if offset >= limit then
-            error(string.format("Unexpected EOS at %d", offset))
-        end
-        local c = json[offset]
-        if c == 0x22 then     -- double quote
-            return "string", first, offset + 1
-        elseif c == 0x5c then -- backslash
-            offset = offset + 1
-        end
+---@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
+
+local function consume_digit(json, offset, limit)
+    if offset >= limit then
+        return nil, string.format("Unexpected EOS at %d", offset)
     end
+    local c = json[offset]
+    if c < 0x30 or c > 0x39 then -- outside "0-9"
+        return nil, string.format("Unexpected %q at %d", char(c), offset)
+    end
+    return offset + 1
 end
 
+local function consume_digits(json, offset, limit)
+    while offset < limit do
+        local c = json[offset]
+        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+        offset = offset + 1
+    end
+    return offset
+end
 
----@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
+local function consume_optional(json, offset, limit, c)
+    if offset < limit and json[offset] == c then
+        return offset + 1, true
+    end
+    return offset, false
+end
+
+local function consume_optionals(json, offset, limit, c1, c2)
+    local c = json[offset]
+    if offset < limit and (c == c1 or c == c2) then
+        return offset + 1, true
+    end
+    return offset, false
+end
 
 --- Parse a single JSON token, call in a loop for a streaming parser.
 --- @param json integer[] U8Array of JSON encoded data
@@ -151,7 +162,20 @@ local function next_json_token(json, offset, limit)
             -- Pass punctuation through as-is
             return char(c), offset, offset + 1
         elseif c == 0x22 then -- double quote
-            return scan_string(json, offset, limit)
+            -- Parse Strings
+            local first = offset
+            while true do
+                offset = offset + 1
+                if offset >= limit then
+                    error(string.format("Unexpected EOS at %d", offset))
+                end
+                c = json[offset]
+                if c == 0x22 then     -- double quote
+                    return "string", first, offset + 1
+                elseif c == 0x5c then -- backslash
+                    offset = offset + 1
+                end
+            end
         elseif c == 0x74 and offset + 3 < limit            -- "t"
             and json[offset + 1] == 0x72                   -- "r"
             and json[offset + 2] == 0x75                   -- "u"
@@ -169,67 +193,27 @@ local function next_json_token(json, offset, limit)
             and json[offset + 3] == 0x6c then              -- "l"
             return "null", offset, offset + 4
         elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
-            -- But that is fine and siplifies the logic here a lot.
             local first = offset
             offset = offset + 1
+
             if c == 0x2d then -- "-" needs at least one digit after
-                if offset >= limit then
-                    error(string.format("Unexpected EOS at %d", offset))
-                end
-                c = json[offset]
-                if c < 0x30 or c > 0x39 then -- outside "0-9"
-                    error(string.format("Unexpected %q at %d", char(c), offset))
-                end
-                offset = offset + 1
+                offset = assert(consume_digit(json, offset, limit))
             end
-            while offset < limit do
-                c = json[offset]
-                if c < 0x30 or c > 0x39 then break end -- outside "0-9"
-                offset = offset + 1
-            end
-            if offset < limit then
-                c = json[offset]
-                if c == 0x2e then -- '.'
-                    offset = offset + 1
-                    if offset >= limit then
-                        error(string.format("Unexpected EOS at %d", offset))
-                    end
-                    c = json[offset]
-                    if c < 0x30 or c > 0x39 then -- outside "0-9"
-                        error(string.format("Unexpected %q at %d", char(c), offset))
-                    end
-                    offset = offset + 1
-                    while offset < limit do
-                        c = json[offset]
-                        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
-                        offset = offset + 1
-                    end
-                end
+            offset = consume_digits(json, offset, limit)
+
+            local matched
+            offset, matched = consume_optional(json, offset, limit, 0x2e) -- "."
+            if matched then
+                offset = assert(consume_digit(json, offset, limit))
+                offset = consume_digits(json, offset, limit)
             end
 
-            if offset < limit then
-                c = json[offset]
-                if c == 0x65 or c == 0x45 then -- 'e'|"E"
-                    offset = offset + 1
-                    if offset < limit then
-                        c = json[offset]
-                        if c == 0x2b or c == 0x2d then -- '+'|"-"
-                            offset = offset + 1
-                            if offset >= limit then
-                                error(string.format("Unexpected EOS at %d", offset))
-                            end
-                            c = json[offset]
-                            if c < 0x30 or c > 0x39 then -- outside "0-9"
-                                error(string.format("Unexpected %q at %d", char(c), offset))
-                            end
-                            offset = offset + 1
-                            while offset < limit do
-                                c = json[offset]
-                                if c < 0x30 or c > 0x39 then break end -- outside "0-9"
-                                offset = offset + 1
-                            end
-                        end
-                    end
+            offset, matched = consume_optionals(json, offset, limit, 0x65, 0x45) -- "e"|"E"
+            if matched then
+                offset, matched = consume_optionals(json, offset, limit, 0x2b, 0x2d) -- "+"|"-"
+                if matched then
+                    offset = assert(consume_digit(json, offset, limit))
+                    offset = consume_digits(json, offset, limit)
                 end
             end
 
