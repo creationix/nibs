@@ -7,8 +7,6 @@ local copy = ffi.copy
 local ffi_string = ffi.string
 local U8Arr = ffi.typeof 'uint8_t[?]'
 
-local concat = table.concat
-
 ---@param input_json string json input
 ---@param keep_fields table<string,boolean> map of top-level fields we wish to keep
 ---@return string json output

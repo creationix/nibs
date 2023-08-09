@@ -105,6 +105,31 @@ local rnibs16 = ffi.typeof 'struct rnibs16'
 local rnibs32 = ffi.typeof 'struct rnibs32'
 local rnibs64 = ffi.typeof 'struct rnibs64'
 
+
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return "string" token
+---@return integer offset
+---@return integer limit
+local function scan_string(json, offset, limit)
+    -- Parse Strings
+    local first = offset
+    while true do
+        offset = offset + 1
+        if offset >= limit then
+            error(string.format("Unexpected EOS at %d", offset))
+        end
+        local c = json[offset]
+        if c == 0x22 then     -- double quote
+            return "string", first, offset + 1
+        elseif c == 0x5c then -- backslash
+            offset = offset + 1
+        end
+    end
+end
+
+
 ---@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
 
 --- Parse a single JSON token, call in a loop for a streaming parser.
@@ -115,44 +140,6 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 --- @return integer|nil token_offset offset of first character in token
 --- @return integer|nil token_limit offset to right after token
 local function next_json_token(json, offset, limit)
-
-    -- Consume exactly one digit `[0-9]`
-    local function consume_one_digit()
-        if offset >= limit then
-            error(string.format("Unexpected EOS at %d", offset))
-        end
-        local c = json[offset]
-        if c < 0x30 or c > 0x39 then -- outside "0-9"
-            error(string.format("Unexpected %q at %d", char(c), offset))
-        end
-        offset = offset + 1
-    end
-
-    -- Consume zero or more digits `[0-9]*`
-    local function consume_digits()
-        while offset < limit do
-            local c = json[offset]
-            if c < 0x30 or c > 0x39 then break end -- outside "0-9"
-            offset = offset + 1
-        end
-    end
-
-    ---Match a single optional character
-    ---@param ... integer possible matches
-    ---@return boolean matched
-    local function consume_optional(...)
-        if offset < limit then
-            local c = json[offset]
-            for i = 1, select("#", ...) do
-                if c == select(i, ...) then
-                    offset = offset + 1
-                    return true
-                end
-            end
-        end
-        return false
-    end
-
     while offset < limit do
         local c = json[offset]
         if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
@@ -164,33 +151,7 @@ local function next_json_token(json, offset, limit)
             -- Pass punctuation through as-is
             return char(c), offset, offset + 1
         elseif c == 0x22 then -- double quote
-            -- Parse Strings
-            local first = offset
-            while true do
-                offset = offset + 1
-                if offset >= limit then
-                    error(string.format("Unexpected EOS at %d", offset))
-                end
-                c = json[offset]
-                if c == 0x22 then     -- double quote
-                    return "string", first, offset + 1
-                elseif c == 0x5c then -- backslash
-                    offset = offset + 1
-                end
-            end
-        elseif c == 0x3c then -- "<"
-            -- Parse Bytes
-            local first = offset
-            while true do
-                offset = offset + 1
-                if offset >= limit then
-                    error(string.format("Unexpected EOS at %d", offset))
-                end
-                c = json[offset]
-                if c == 0x3e then -- ">"
-                    return "bytes", first, offset + 1
-                end
-            end
+            return scan_string(json, offset, limit)
         elseif c == 0x74 and offset + 3 < limit            -- "t"
             and json[offset + 1] == 0x72                   -- "r"
             and json[offset + 2] == 0x75                   -- "u"
@@ -212,26 +173,67 @@ local function next_json_token(json, offset, limit)
             local first = offset
             offset = offset + 1
             if c == 0x2d then -- "-" needs at least one digit after
-                consume_one_digit()
+                if offset >= limit then
+                    error(string.format("Unexpected EOS at %d", offset))
+                end
+                c = json[offset]
+                if c < 0x30 or c > 0x39 then -- outside "0-9"
+                    error(string.format("Unexpected %q at %d", char(c), offset))
+                end
+                offset = offset + 1
             end
-            consume_digits()
-            if consume_optional(0x2e) then -- "."
-                consume_one_digit()
-                consume_digits()
+            while offset < limit do
+                c = json[offset]
+                if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+                offset = offset + 1
             end
-            if consume_optional(0x65, 0x45) then -- "e"|"E"
-                consume_optional(0x2b, 0x2d) -- "+"|"-"
-                consume_one_digit()
-                consume_digits()
+            if offset < limit then
+                c = json[offset]
+                if c == 0x2e then -- '.'
+                    offset = offset + 1
+                    if offset >= limit then
+                        error(string.format("Unexpected EOS at %d", offset))
+                    end
+                    c = json[offset]
+                    if c < 0x30 or c > 0x39 then -- outside "0-9"
+                        error(string.format("Unexpected %q at %d", char(c), offset))
+                    end
+                    offset = offset + 1
+                    while offset < limit do
+                        c = json[offset]
+                        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+                        offset = offset + 1
+                    end
+                end
             end
+
+            if offset < limit then
+                c = json[offset]
+                if c == 0x65 or c == 0x45 then -- 'e'|"E"
+                    offset = offset + 1
+                    if offset < limit then
+                        c = json[offset]
+                        if c == 0x2b or c == 0x2d then -- '+'|"-"
+                            offset = offset + 1
+                            if offset >= limit then
+                                error(string.format("Unexpected EOS at %d", offset))
+                            end
+                            c = json[offset]
+                            if c < 0x30 or c > 0x39 then -- outside "0-9"
+                                error(string.format("Unexpected %q at %d", char(c), offset))
+                            end
+                            offset = offset + 1
+                            while offset < limit do
+                                c = json[offset]
+                                if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+                                offset = offset + 1
+                            end
+                        end
+                    end
+                end
+            end
+
             return "number", first, offset
-        elseif c == 0x26 then -- "&"
-            -- Parse Refs
-            local first = offset
-            offset = offset + 1
-            consume_one_digit()
-            consume_digits()
-            return "ref", first, offset
         else
             error(string.format("Unexpected %q at %d", string.char(c), offset))
         end
@@ -300,21 +302,6 @@ end
 
 local parse_number = ReverseNibs.parse_number
 
---- @param json integer[]
---- @param offset integer
---- @param limit integer
-local function is_simple_string(json, offset, limit)
-    while offset < limit do
-        -- TODO: look for unescaped surrogate pairs and convert to normal UTF8
-        local c = json[offset]
-        if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then -- "\\" or first byte of surrogate pair
-            return false
-        end
-        offset = offset + 1
-    end
-    return true
-end
-
 local highPair = nil
 ---@param c integer
 local function utf8_encode(c)
@@ -372,7 +359,18 @@ local function parse_string(json, offset, limit)
     local start = offset
 
     -- Fast path for strings with no escapes or surrogate pairs
-    if is_simple_string(json, offset, limit) then
+    local is_simple_string = true
+    while offset < limit do
+        -- TODO: look for unescaped surrogate pairs and convert to normal UTF8
+        local c = json[offset]
+        if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then -- "\\" or first byte of surrogate pair
+            is_simple_string = false
+            break
+        end
+        offset = offset + 1
+    end
+
+    if is_simple_string then
         offset = limit
         return ffi_string(json + start, offset - start)
     end
