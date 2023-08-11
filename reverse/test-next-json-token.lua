@@ -53,18 +53,23 @@ for i = 1, #tests, 2 do
     ffi.copy(json, json_str, len)
     local offset = 0
     local limit = len
-    p(json_str)
-    for _, result in ipairs(tests[i + 1]) do
+    print(string.format("json_str: %q", json_str))
+    for _, expected in ipairs(tests[i + 1]) do
         assert(offset < limit)
         local t, o, l = ReverseNibs.next_json_token(json, offset, limit)
         assert(t and o and l)
-        p({ offset, limit }, { t, o, l }, result, ffi.string(json + o, l - o))
-        assert(t == result[1], "mismatched token in result")
-        assert(o == result[2], "mismatched offset in result")
-        assert(l == result[3], "mismatched limit in result")
+        print(string.format("offset: %d, limit: %d expected: (%s) actual: (%s) matched: %q",
+            offset, limit,
+            table.concat(expected, ' '),
+            table.concat({t, o, l}, ' '),
+            ffi.string(json + o, l - o)
+        ))
+        assert(t == expected[1], "mismatched token in result")
+        assert(o == expected[2], "mismatched offset in result")
+        assert(l == expected[3], "mismatched limit in result")
         offset = l
     end
     local t, o, l = ReverseNibs.next_json_token(json, offset, limit)
-    p(t,o,l)
+    print(t,o,l)
     assert(not t and not o and not l)
 end

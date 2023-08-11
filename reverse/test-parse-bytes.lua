@@ -32,12 +32,12 @@ for i = 1, #tests, 2 do
   local json = ffi.new("uint8_t[?]", len)
   ffi.copy(json, input, len)
   local output, size = ReverseNibs.parse_bytes(json, 0, len)
-  p(input, output, size)
+  print(input, output, size)
 
 
   if not same(output, size, expected_str) then
-    p("expected", expected_str)
-    p("actual", ffi.string(output, size))
+    print("expected", expected_str)
+    print("actual", ffi.string(output, size))
     error("Mismatch")
   end
 end

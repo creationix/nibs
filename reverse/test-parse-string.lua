@@ -52,10 +52,10 @@ for i = 1, #tests, 2 do
   local json = ffi.new("uint8_t[?]", len)
   ffi.copy(json, input, len)
   local output = ReverseNibs.parse_string(json, 0, len)
-  p(input, output)
+  print(string.format("input: %q, output: %q", input, output))
 
   if output ~= expected then
-    p("expected", expected)
+    print("expected", expected)
     print("actual", output)
     error("Mismatch")
   end
