@@ -251,7 +251,7 @@ Value | JSON | Nibs
 b6 --> List(6)
 ```
 
-### Map
+### `c` - Map
 
 Map is the same as list, except the items are considered alternating keys and values.  Lookup by key is O(2n).
 
@@ -264,9 +264,9 @@ Value | JSON | Nibs
 
 ```lua
     6e616d --> `n`,`a`,`m`,`e`
-  64 --> Utf8(4)
+  94 --> Utf8(4)
     4e696273 --> `N`,`i`,`b`,`s`
-  64 --> Utf8(4)
+  94 --> Utf8(4)
   21 --> Simple(1)
   20 --> Simple(0)
 cc --> Map(12)
@@ -276,7 +276,7 @@ cc --> Map(12)
 > Tibs syntax (and Nibs data model) allows any type as object keys, not just strings like in JSON
 
 
-### Array
+### `d` - Array
 
 The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
 
@@ -304,14 +304,15 @@ d7 --> Array(7)
 > [!NOTE]
 > The `#` in the Tibs representation signifies the array should be indexed when converted to Nibs.
 
-### References
+### `3`,`f` - Ref and Scope
 
-The `ref` type is used to reference into a userspace table of values.  The table is found by in the nearest `scope` wrapping the current value.
+The `Ref` type is used to reference into a userspace table of values.  The table is found by in the nearest `Scope` wrapping the current value.
 
 Typically this is the outermost value in a nibs document so that all data can reuse the same refs array.
 
-This is encoded like array, except it's semantic meaning is special.  All entries except for the
-last store the values of referenced values and the last entry can then reference them by index.
+`Scope` is encoded like array, except the inner value comes before the index.
+
+The 5 sections are (`targets`, `index`, `index-header`, `value`, `value-header`)
 
 For example, consider the following value:
 
@@ -333,7 +334,7 @@ Then the encoded value would look more like this with the refs applied.
 
 ```js
 // encoding with refs and refsscope
-RefScope(
+(
   "color", "fruits", "apple",
   [ { &0: "red", &1: [&2, "strawberry"] },
     { &0: "green", &1: [&2] },
@@ -341,98 +342,101 @@ RefScope(
 )
 ```
 
-In this example, the refs table overhead is:
+This is about 25 bytes smaller than it would be encoded without refs.
 
-```txt
-+2 <- RefScope-8
-+1 <- IndexHeader
-+3 <- 3 pointers 1 byte each
--5 <- "color" to Ref(0)
--6 <- "fruits" to Ref(1)
--5 <- "apple" to Ref(2)
--5 <- "color" to Ref(0)
--6 <- "fruits" to Ref(1)
--5 <- "color" to Ref(0)
--5 <- "apple" to Ref(2)
--6 <- "fruits" to Ref(1)
--5 <- "apple" to Ref(2)
-+6 <- "color"
-+7 <- "fruits"
-+6 <- "apple"
--2 <- some nibs pairs jump to inline instead of 8 bit length
-------------------------
-25 bytes saved!
-```
 
 Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
+The Tibs representation for this is:
+
+```js
+( 1, 2, 3, 4,
+  [ &3, &1, &2, &0 ]
+)
+```
+
+The Nibs representation is:
+
 ```lua
-fc 0f --> Ref-8(15)
-  14 --> ArrayIndex(width=1,count=4)
-    00 --> Pointer(0) -> 1
-    01 --> Pointer(1) -> 2
-    02 --> Pointer(2) -> 3
-    03 --> Pointer(3) -> 4
-    04 --> Pointer(4) -> value
   02 --> ZigZag(2) = 1
   04 --> ZigZag(4) = 2
   06 --> ZigZag(6) = 3
   08 --> ZigZag(8) = 4
-  b4 --> List(4)
+    00 --> Pointer(0) -> 1
+    01 --> Pointer(1) -> 2
+    02 --> Pointer(2) -> 3
+    03 --> Pointer(3) -> 4
+  14 --> ArrayIndex(width=1,count=4)
     33 --> Ref(3) -> Pointer(8) -> 4
     31 --> Ref(1) -> Pointer(6) -> 2
     32 --> Ref(2) -> Pointer(7) -> 3
     30 --> Ref(0) -> Pointer(5) -> 1
---> RefScope(1,2,3,4,[&3,&1,&2,&0])
+  b4 --> List(4)
+0e fc --> Scope-8(14)
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
 
+Another example is the following (note one ref isn't used)
+
+```js
+( "dead", "beef", &1 )
+```
+
 ```lua
-fb --> Ref(11)
-  13 --> ArrayIndex(width=1,count=2)
-    00 --> Pointer(0) -> "dead"
-    03 --> Pointer(6) -> "beef"
-    06 --> Pointer(6) -> value
-  a2 --> HexString(2)
     dead
   a2 --> HexString(2)
     beef
+  a2 --> HexString(2)
+    02 --> pointer to header for `dead`
+    05 --> pointer to header for `beef`
+  12 --> ArrayIndex(width=1,count=2)
   31 --> Ref(1) -> "beef"
---> RefScope("dead","beef",&1)
+fa --> Scope(10)
 ```
 
-The larger ref example from above would be encoded like this:
+The larger ref example from above:
+
+```js
+// encoding with refs and refsscope
+(
+  "color", "fruits", "apple",
+  [ { &0: "red", &1: [&2, "strawberry"] },
+    { &0: "green", &1: [&2] },
+    { &0: "yellow", &1: [&2, "banana"] } ]
+)
+```
+
+Would encode like this:
 
 ```lua
-fc 4f --> Ref-8(79)
-  14 --> ArrayIndex(width=1,count=3)
-    00 --> Ptr(0)
-    06 --> Ptr(6)
-    0d --> Ptr(13)
-    13 --> Ptr(19)
-  95636f6c6f72 --> "color"
-  96667275697473 --> "fruits"
-  956170706c65 --> "apple"
-  bc 35 --> List-8(53)
-    cc 14 --> Map-8(20)
+  636f6c6f72 95 --> "color"
+  667275697473 96 --> "fruits"
+  6170706c65 95 --> "apple"
+    05 --> Ptr(5) (header of "color")
+    0c --> Ptr(12) (header of "fruits")
+    0d --> Ptr(13) (header of "apple")
+  13 --> ArrayIndex(width=1,count=3)
       30 --> Ref(0)
-      93726564 --> "red"
+      726564 93 --> "red"
       31 --> Ref(1)
-      bc 0c --> List-8(12)
         32 --> Ref(2)
-        9a73747261776265727279 --> "strawberry"
+        73747261776265727279 9a --> "strawberry"
+      0c bc --> List-8(12)
+    14 cc --> Map-8(20)
+      30 --> Ref(0)
+      677265656e 95 --> "green"
+      31 --> Ref(1)
+        32 --> Ref(2)
+      b1 --> List(1)
     ca --> Map(10)
       30 --> Ref(0)
-      95677265656e --> "green"
+      79656c6c6f77 96 --> "yellow"
       31 --> Ref(1)
-      b1 --> List(1)
         32 --> Ref(2)
-    cc 12 --> Map-8(18)
-      30 --> Ref(0)
-      9679656c6c6f77 --> "yellow"
-      31 --> Ref(1)
+        62616e616e61 96 --> "banana"
       b8 --> List(8)
-        32 --> Ref(2)
-        9662616e616e61 --> "banana"
+    12 cc --> Map-8(18)
+  35 bc --> List-8(53)
+4e fc --> Ref-8(78)
 ```
