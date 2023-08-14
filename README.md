@@ -2,9 +2,11 @@
 
 Nibs is a new binary serialization format with the following set of priorities:
 
-![test-js workflow](https://github.com/creationix/nibs/actions/workflows/test-js.yml/badge.svg)
-![test-lua workflow](https://github.com/creationix/nibs/actions/workflows/test-lua.yml/badge.svg)
-![test-reverse workflow](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yml/badge.svg)
+[![Run JS Tests](https://github.com/creationix/nibs/actions/workflows/test-js.yaml/badge.svg)](https://github.com/creationix/nibs/actions/workflows/test-js.yaml)
+
+[![Run Lua Tests](https://github.com/creationix/nibs/actions/workflows/test-lua.yaml/badge.svg)](https://github.com/creationix/nibs/actions/workflows/test-lua.yaml)
+
+[![Run Lua Reverse Tests](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yaml/badge.svg)](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yaml)
 
 ## Fast Random Access Reads
 
