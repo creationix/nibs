@@ -214,9 +214,9 @@ Examples:
 
 Value | JSON | Nibs 
 ----- | ---- | ----
-`"🏵ROSETTE"` | `<22 f09f8fb5524f5345545445 22>` | `<f09f8fb5524f5345545445 9b>`
-`"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa 22>` | `<f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa 18 9c>`
-`"👶!"` | `<22 f09f91b621 22>` | `<f09f91b621 95>`
+`"🏵ROSETTE"` | `<22 f09f8fb5 524f5345545445 22>` | `<f09f8fb5 524f5345545445 9b>`
+`"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 22>` | `<f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 18 9c>`
+`"👶"` | `<22 f09f91b6 22>` | `<f09f91b6 95>`
 
 ### Hex Strings
 
@@ -227,30 +227,18 @@ Examples:
 Value | JSON | Nibs 
 ----- | ---- | ----
 `"deadbeef"` | `<22 6465616462656566 22>` | `<deadbeef a4>`
-
+`"0123456789abcdef"` | `<22 30313233343536373839616263646566 22>` | `<0123456789abcdef a8>`
 ### List
 
 The `list` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
 
-```lua
-b0 --> List(0)
---> []
+Examples:
 
-b3 --> List(3)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
---> [1,2,3]
-
-b6 --> List(6)
-  b1 --> List(1)
-    02 --> ZigZag(2)
-  b1 --> List(1)
-    04 --> ZigZag(4)
-  b1 --> List(1)
-    06 --> ZigZag(6)
---> [[1],[2],[3]]
-```
+Value | JSON | Nibs 
+----- | ---- | ----
+`[]` | `<5b 5d>` | `<b0>`
+`[1,2,3]` | `<5b 31 2c 32 2c 33 5d>` | `<02 04 06 b2>`
+`[[1],[2],[3]]` | `<5b 5b 31 5d 2c 5b 32 5d 2c 5b 33 5d 5d>` | `<02 b1 04 b1 06 b1 b6>`
 
 ### Map
 
