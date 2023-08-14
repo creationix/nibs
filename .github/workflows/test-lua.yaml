@@ -30,6 +30,8 @@ jobs:
         run: ./luvit lua/tests/test-nibs-decoder.lua
       - name: Test nibs optimization utilities and all conversions
         run: ./luvit lua/tests/test-nibs-utils.lua
+      - name: Install stock luajit
+        run: sudo apt-get install luajit
       - name: Test reverse find-dups
         run: luajit reverse/test-find-dups.lua
       - name: Test reverse json-filter
