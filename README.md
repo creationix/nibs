@@ -48,7 +48,6 @@ Repeated values can be stored just once and then referenced later on using the `
 
 - [JavaScript](js/README.md)
 - [LuaJit](lua/README.md)
-- Go (coming soon)
 
 ## Binary Nibs Format Specification
 
@@ -87,7 +86,7 @@ Having this 4-bit alignment on the header byte makes is easy to manually read ni
 
 ## Nibs Value Types
 
-For each encoded integer pair, the first small number is the type and the big number is it's parameter:
+For each encoded integer pair, the small number is the type and the big number is it's parameter:
 
 ```c++
 enum Type {
@@ -108,8 +107,9 @@ enum Type {
     Map       = c, // big = len (list of alternating nibs keys and values)
     Array     = d, // big = len (array index then list)
                    // small2 = width, big2 = count
-    Trie      = e, // big = len (trie index then list)
-                   // small2 = width, big2 = count
+
+    // slot e reserved
+
     Scope     = f, // big = len (wrapped value, then array of refs)
                    // small2 = width, big2 = count
 };
@@ -133,27 +133,17 @@ int64_t decodeZigZag(uint64_t i) {
 }
 ```
 
-The best way to show this is with some examples going from encoded bytes to dissambly to final semantic meaning.
+Examples:
 
-```lua
-00 --> ZigZag(0)
---> 0
-
-03 --> ZigZag(3)
---> -2
-
-0c 54 --> ZigZag-8(84)
---> 42
-
-0d d0 07 --> ZigZag-16(2000)
---> 1000
-
-0e 40 0d 03 00 --> ZigZag-32(200000)
---> 100000
-
-0f 00 c8 17 a8 04 00 00 00 --> ZigZag-64(20000000000)
---> 10000000000
-```
+Value | JSON | Nibs 
+----- | ---- | ----
+`0` | `<30>` | `<00>`
+`-1` | `<2d31>` | `<01>`
+`1` | `<31>` | `<02>`
+`-2` | `<2d32>` | `<03>`
+`2` | `<32>` | `<04>`
+`42` | `<3432>` | `<54 0c>`
+`1000` | `<31303030>` | `<d007 0d>`
 
 ### Floating Point Numbers
 
@@ -171,19 +161,14 @@ double decodeDouble(uint64_t i) {
 
 This means that in practice it will nearly always use the largest representation since `double` almost always uses the high bits.
 
-```lua
-1f 18 2d 44 54 fb 21 09 40 --> Float-64(0x400921fb54442d18)
---> 3.1415926535897930
+Examples:
 
-1f 00 00 00 00 00 00 f0 7f --> Float-64(0x7ff0000000000000)
---> inf
-
-1f 00 00 00 00 00 00 f0 ff --> Float-64(0xfff0000000000000)
---> -inf
-
-1f 00 00 00 00 00 00 f8 ff --> Float-64(0xfff8000000000000)
---> nan
-```
+Value | JSON | Nibs 
+----- | ---- | ----
+`3.1415926535897930` | `332e313431353932363533353839373933` | `182d4454fb210940 1f`
+`inf` | | `000000000000f07f 1f`
+`-inf` | | `000000000000f0ff 1f`
+`nan` | | `000000000000f8ff 1f`
 
 ### Simple SubTypes
 
@@ -199,63 +184,49 @@ enum SubType {
 };
 ```
 
-These are simple indeed to encode.
+Examples:
 
-```lua
-20 --> Simple(1)
---> false
-
-21 --> Simple(1)
---> true
-
-22 --> Simple(2)
---> null
-```
+Value | JSON | Nibs 
+----- | ---- | ----
+`false` | `<66616c7365>` | `<20>`
+`true` | `<74727565>` | `<21>`
+`null` | `<6e756c6c>` | `<22>`
 
 ### Bytes
 
 Bytes are a container for raw octets.
 
-```lua
-84 --> Bytes(4)
-  de ad be ef --> 0xde 0xad 0xbe 0xef
---> <deadbeef>
-```
+Examples:
+
+Value | JSON | Nibs 
+----- | ---- | ----
+`<>` | | `<80>`
+`<deadbeef>` | | `<deadbeef 84>`
+`<0123456789abcdef>` | | `<0123456789abcdef 88>`
+`<00112233445566778899aabbccddeeff>` | | `<00112233445566778899aabbccddeeff 10 8c>`
+
 
 ### Utf8 Unicode Strings
 
-Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints higher than 16-bits are allowed, but also are surrogate pairs.  It is recommended to not encode as surrogate pairs and use the smaller native encoding utf-8 allows.
+Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints higher than 16-bits are allowed, but also are surrogate pairs.  It is recommended to not encode as surrogate pairs and use the native encoding utf-8 allows.
 
-```lua
-9b --> Utf8(11)
-  f0 9f 8f b5 --> `🏵`
-  52 4f 53 45 54 54 45 --> `R` `O` `S` `E` `T` `T` `E`
---> "🏵ROSETTE"
+Examples:
 
-9c 18 --> Utf8-8(24)
-  f0 9f 9f a5 --> `🟥`
-  f0 9f 9f a7 --> `🟧`
-  f0 9f 9f a8 --> `🟨`
-  f0 9f 9f a9 --> `🟩`
-  f0 9f 9f a6 --> `🟦`
-  f0 9f 9f aa --> `🟪`
---> "🟥🟧🟨🟩🟦🟪"
-
-95 --> Utf8(5)
-  f0 9f 91 b6 --> `👶`
-  21 --> `!`
---> "👶!"
-```
+Value | JSON | Nibs 
+----- | ---- | ----
+`"🏵ROSETTE"` | `<22 f09f8fb5524f5345545445 22>` | `<f09f8fb5524f5345545445 9b>`
+`"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa 22>` | `<f09f9fa5f09f9fa7f09f9fa8f09f9fa9f09f9fa6f09f9faa 18 9c>`
+`"👶!"` | `<22 f09f91b621 22>` | `<f09f91b621 95>`
 
 ### Hex Strings
 
 Hex Strings are an optimization for common string values that are an even number of lowercase hexadecimal characters.  They are stored in half the space by storing the pairs as bytes, but are strings externally.
 
-```lua
-a4 --> HexString(4)
-  de ad be ef --> 0xde 0xad 0xbe 0xef
---> "deadbeef"
-```
+Examples:
+
+Value | JSON | Nibs 
+----- | ---- | ----
+`"deadbeef"` | `<22 6465616462656566 22>` | `<deadbeef a4>`
 
 ### List
 
