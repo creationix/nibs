@@ -415,7 +415,7 @@ Would encode like this:
   6170706c65 95 --> "apple"
     05 --> Ptr(5) (header of "color")
     0c --> Ptr(12) (header of "fruits")
-    0d --> Ptr(13) (header of "apple")
+    12 --> Ptr(18) (header of "apple")
   13 --> ArrayIndex(width=1,count=3)
       30 --> Ref(0)
       726564 93 --> "red"
