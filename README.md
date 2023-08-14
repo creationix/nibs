@@ -12,9 +12,7 @@ Nibs is a new binary serialization format with the following set of priorities:
 
 This format is designed to be read in-place (similar to cap'n proto) so that arbitrarily large documents can be read with minimal memory or compute requirements.  For example a 1 TiB mega nibs document could be read from a virtual block device where blocks are fetched from the network on-demand and the initial latency to start walking the data structure would be nearly instant.  Large documents could also be written to local NVMe drives and loaded to RAM using memmap.
 
-To enable this random access, all values are either inline (just the nibs pair) or contain a prefix length so that a single indirection can jump to the next value.  Also some types like the [proposed `array` type](https://github.com/creationix/nibs/issues/4) enable O(1) lookup of arrays of any size.
-
-Userspace types using the [proposed tags](https://github.com/creationix/nibs/issues/4) can enable O(1) misses and O(log n) hits for trees via userspace bloom filters and hash array mapped tries.
+To enable this random access, all values are either inline (just the nibs pair) or contain a postfix length so that a single indirection can jump to the next value.  Also some types like the `Array` type enable O(1) lookup of arrays of any size with an inline index of fixed-width pointers that is read instead of scanning to the Nth entry.
 
 ## Self Documenting
 
@@ -22,15 +20,11 @@ Nibs documents are similar to JSON in that the objects are self documenting (unl
 
 But if a developer chooses to also have schemas, it's possible to encode values as a nibs `list` and then the code would know what each positional value it.
 
-## Compact on the Wire
-
-Nibs tries to balance between compactness and simplicity and finds a nice middle ground.  Especially when combined with [the `ref` type](https://github.com/creationix/nibs/issues/4) typical JSON payloads can be made considerably smaller.  Numbers are very compact, binary can be enbedded as-is without base64 or hex encoding, etc.
-
 ## Simple to Implement
 
 One of the main goals of nibs vs existing formats is it aims to be simple implement.  It should be possible for a single developer with experience writing serilization libraries to have an initial working version very quickly so that new languages/tools can easily adopt it.  This also means that these libraries are likely to have no dependencies themselves keeping it lean.
 
-This is a much simpler format than pretty much any of the existing formats except for JSON.
+This is a much simpler format than pretty much any of the existing formats except for maybe JSON.
 
 ## Simple to Understand
 
@@ -40,7 +34,15 @@ Another goal is for the format itself to be simple to understand and think about
 
 Any value that can be encoded in JSON can also be encoded in nibs.  In this way it's similar to msgpack and cbor format, but it's much faster to read since it doesn't require parsing the whole document first.
 
-There is also a [proposal to add a textual representation that is a superset of JSON](https://github.com/creationix/nibs/issues/3).  This would make it even easier to integrate into systems that use JSON or need textual representations of data (like config files or documentation).
+There is also a defined textual representation known as Tibs that is a superset of JSON.  This makes it even easier to integrate into systems that use JSON or need textual representations of data (like config files or documentation).
+
+## Compact on the Wire
+
+Nibs tries to balance between compactness and simplicity and finds a nice middle ground.  Binary data can be stored as-is (without base64) and small values are genereally smaller than JSON. For example `-10000` is only 3 bytes in nibs (vs 6 in JSON) and `false` is 1 byte (vs 5 in JSON). `"hi"` is 3 bytes (vs 4 in JSON), `[0,-1,1]` is 4 bytes (vs 8 in JSON), etc...
+
+The `HexString` value type allows storing strings that contain an even number of lowercase hexadecimal using half the bytes.  For example `"deadbeef"` would only take 5 bytes (*4 bytes for the body and 1 byte for the header*) vs 10 for JSON (*8 for the body and 2 for the quotes*).  You can store your git sha1 hashes in nibs as strings and only use 22 bytes instead of 42 bytes!
+
+Repeated values can be stored just once and then referenced later on using the `Scope` and `Ref` types.  For example, it's very common for a large JSON document to have an array of objects where each object repeats the same keys for each entry.`[{"name": ...}, {"name": ...}, ...]` would be encoded as `("name", [{@0: ...}, {@0: ...}, ...])` where `&0` is a `Ref` that takes 1 byte and `(...)` is a `Scope` containing the ref targets and the child value that contains the refs inline.
 
 ## Implementations
 
@@ -55,24 +57,33 @@ All multi-byte numbers in this spec are assumed to be little-endian.
 In this document *"should"* means that an implementation is recommended to work this way.
 However *"must"* means that it is not considered spec compliant without said behavior.
 
+Nibs documents are read right-to-left similar to the zipfile format.  This direction was chosen to make it easier to write performant streaming encoders and doesn't really make it harder to decode the format.  One interesting byproduct of this is it's possible to concatenate a nibs document with a native system executible (since they always read left-to-right and ignore garbage at the end).  This makes it possible to quickly turn nibs documents into standalone programs without any special build tools.
+
 ## Integer Pair Encoding
+
+The core serialization structure in Nibs is the nibble pair (hence the name).
 
 There are 5 possible encoding patterns depending on the size of the second number:
 
 ```js
-xxxx yyyy
-xxxx 1100 yyyyyyyy
-xxxx 1101 yyyyyyyy yyyyyyyy
-xxxx 1110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
-xxxx 1111 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
-          yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
+                                    xxxx yyyy
+                           yyyyyyyy xxxx 1100
+                  yyyyyyyy yyyyyyyy xxxx 1101
+yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy xxxx 1110
+yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy xxxx 1111
+yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
 ```
 
 Here the `x`s are a `u4` and the `y`s are semantically a `u64` using zero extension on the smaller numbers.
 
-Encoders *should* only use the smallest possible encoding for a given value.
+Having this 4-bit alignment on the header byte makes is easy to manually read nibs value from a hex dump for quick debugging.
 
-Decoders *must* accept all.
+
+> [!NOTE]
+> Encoders *should* only use the smallest possible encoding for a given value.
+
+> [!WARNING]
+> Decoders *must* accept all.
 
 ## Nibs Value Types
 
