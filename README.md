@@ -240,6 +240,17 @@ Value | JSON | Nibs
 `[1,2,3]` | `<5b 31 2c 32 2c 33 5d>` | `<02 04 06 b2>`
 `[[1],[2],[3]]` | `<5b 5b 31 5d 2c 5b 32 5d 2c 5b 33 5d 5d>` | `<02 b1 04 b1 06 b1 b6>`
 
+
+```lua
+    02 --> ZigZag(2)
+  b1 --> List(1)
+    04 --> ZigZag(4)
+  b1 --> List(1)
+    06 --> ZigZag(6)
+  b1 --> List(1)
+b6 --> List(6)
+```
+
 ### Map
 
 Map is the same as list, except the items are considered alternating keys and values.  Lookup by key is O(2n).
@@ -251,7 +262,19 @@ Value | JSON | Nibs
 `{"name":"Nibs"}` | `<7b 22 6e616d65 22 3a 22 4e696273 22 7d>` | `<6e616d65 94 4e696273 94 ca>`
 `{"name":"Nibs",true:false}` | N/A | `<6e616d65 94 4e696273 94 21 20 cc>`
 
-``
+```lua
+    6e616d --> `n`,`a`,`m`,`e`
+  64 --> Utf8(4)
+    4e696273 --> `N`,`i`,`b`,`s`
+  64 --> Utf8(4)
+  21 --> Simple(1)
+  20 --> Simple(0)
+cc --> Map(12)
+```
+
+> [!NOTE]
+> Tibs syntax (and Nibs data model) allows any type as object keys, not just strings like in JSON
+
 
 ### Array
 
