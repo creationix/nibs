@@ -115,7 +115,7 @@ enum Type {
 };
 ```
 
-### ZigZag Integers
+### `0` - ZigZag Integers
 
 The `integer` type has `i64` range, but is encoded with zigzag encoding to take advantage of the smaller nibs representations for common values.
 
@@ -145,7 +145,7 @@ Value | JSON | Nibs
 `42` | `<3432>` | `<54 0c>`
 `1000` | `<31303030>` | `<d007 0d>`
 
-### Floating Point Numbers
+### `1` - Floating Point Numbers
 
 The `float` type is stored as binary-64 (aka `double`) bitcast to u64.
 
@@ -170,7 +170,7 @@ Value | JSON | Nibs
 `-inf` | | `000000000000f0ff 1f`
 `nan` | | `000000000000f8ff 1f`
 
-### Simple SubTypes
+### `2` - Simple SubTypes
 
 The simple type has it's own subtype enum for booleans and null.
 
@@ -192,7 +192,7 @@ Value | JSON | Nibs
 `true` | `<74727565>` | `<21>`
 `null` | `<6e756c6c>` | `<22>`
 
-### Bytes
+### `8` - Bytes
 
 Bytes are a container for raw octets.
 
@@ -206,7 +206,7 @@ Value | JSON | Nibs
 `<00112233445566778899aabbccddeeff>` | | `<00112233445566778899aabbccddeeff 10 8c>`
 
 
-### Utf8 Unicode Strings
+### `9` - Utf8 Unicode Strings
 
 Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints higher than 16-bits are allowed, but also are surrogate pairs.  It is recommended to not encode as surrogate pairs and use the native encoding utf-8 allows.
 
@@ -218,7 +218,7 @@ Value | JSON | Nibs
 `"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 22>` | `<f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 18 9c>`
 `"👶"` | `<22 f09f91b6 22>` | `<f09f91b6 95>`
 
-### Hex Strings
+### `a` - Hex Strings
 
 Hex Strings are an optimization for common string values that are an even number of lowercase hexadecimal characters.  They are stored in half the space by storing the pairs as bytes, but are strings externally.
 
@@ -228,7 +228,7 @@ Value | JSON | Nibs
 ----- | ---- | ----
 `"deadbeef"` | `<22 6465616462656566 22>` | `<deadbeef a4>`
 `"0123456789abcdef"` | `<22 30313233343536373839616263646566 22>` | `<0123456789abcdef a8>`
-### List
+### `b` - List
 
 The `list` type is a ordered list of values.  It's encoded as zero or more nibs encoded values concatenated back to back.  These have O(n) lookup cost since the list of items needs to be scanned linearly.
 
@@ -242,134 +242,44 @@ Value | JSON | Nibs
 
 ### Map
 
-Map is the same, except the items are considered alternatinv keys and values.  Lookup by key is O(2n).
+Map is the same as list, except the items are considered alternating keys and values.  Lookup by key is O(2n).
 
-```lua
-cb --> Map(11)
-  94 --> Utf8(4)
-    6e 61 6d 65 --> `n` `a` `m` `e`
-  93 --> Utf8(3)
-    54 69 6d --> `T` `i` `m`
-  21 --> Simple(1)
-  20 --> Simple(0)
---> {"name":"Tim",true:false}
-```
+Examples:
+
+Value | JSON | Nibs 
+----- | ---- | ----
+`{"name":"Nibs"}` | `<7b 22 6e616d65 22 3a 22 4e696273 22 7d>` | `<6e616d65 94 4e696273 94 ca>`
+`{"name":"Nibs",true:false}` | N/A | `<6e616d65 94 4e696273 94 21 20 cc>`
+
+``
 
 ### Array
 
 The `array` type is like list, except it includes an array of pointers before the payload to enable O(1) lookups.
 
-This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the end of the index (the start of the list of values).
+This index is encoded via a secondary nibs pair where small is the byte width of the pointers and big is the number of entries.  This is followed by the pointers as offset distances from the start of the value segment.
+
+The 4 sections are (`values`, `index`, `index-header`, `value-header`).
+
+Examples:
+
+Value | JSON | Nibs 
+----- | ---- | ----
+`[#1,2,3]` | N/A | `<00 02 04 00 01 02 13 d7>`
 
 ```lua
-d7 --> Array(7)
-  13 --> ArrayIndex(width=1,count=3)
-    00 --> Pointer(0)
-    01 --> Pointer(1)
-    02 --> Pointer(2)
   02 --> ZigZag(2)
   04 --> ZigZag(4)
   06 --> ZigZag(6)
---> [1,2,3]
-```
-
-### Trie
-
-A trie is an indexed map, this is done by creating a HAMT prefix trie from the nibs binary encoded map key hashed.
-
-This index is a HAMT ([Hash Array Mapped Trie](https://en.wikipedia.org/wiki/Hash_array_mapped_trie)). The keys need to be mapped to uniformly distributed hashes.  By default nibs uses the [xxhash64](https://github.com/Cyan4973/xxHash) algorithm.
-
-The secondary nibs pair is pointer width and size of trie in entries.
-
-Example key hashing.
-
-```c++
-key = "name"                   // "name"
-encoded = nibs.encode(key)     // <946e616d65>
-seed = 0                       // 0
-hash = xxhash64(encoded, seed) // 0xff0dd0ea8d956135ULL
-```
-
-```lua
-ec 11 --> Trie-8(17)
-  14 --> TrieIndex(width=4,count=4)
-    00 --> HashSeed(0)
-    21 --> Bitmask([0,5])
-    8a --> Leaf(10)
-    80 --> Leaf(0)
-  94 --> Utf8(4)
-    6e --> 'n'
-    61 --> 'a'
-    6d --> 'm'
-    65 --> 'e'
-  94 --> Utf8(4)
-    4e --> 'N'
-    69 --> 'i'
-    62 --> 'b'
-    73 --> 's'
-  21 --> Simple(1)
-  20 --> Simple(0)
---> {"name":"Nibs",true:false}
-```
-
-The same value with a worse seed chosen can show an internal node:
-
-```lua
-ec 13 --> Trie-8(19)
-  16 --> IndexHeader(width=1,count=6)
-    03 --> HashSeed(3)
-    04 --> Bitmask([2])
     00 --> Pointer(0)
-    22 --> Bitmask([1,5])
-    80 --> Leaf(0)
-    8a --> Leaf(10)
-  94 --> Utf8(4)
-    6e --> 'n'
-    61 --> 'a'
-    6d --> 'm'
-    65 --> 'e'
-  94 --> Utf8(4)
-    4e --> 'N'
-    69 --> 'i'
-    62 --> 'b'
-    73 --> 's'
-  21 --> Simple(1)
-  20 --> Simple(0)
---> {"name":"Nibs",true:false}
+    01 --> Pointer(1)
+    02 --> Pointer(2)
+  13 --> ArrayIndex(width=1,count=3)
+d7 --> Array(7)
 ```
 
-### HAMT Encoding
-
-Each node in the trie index has a bitfield so that only used pointers need to be stored.
-
-For example, consider a simplified 4-bit wide trie node with 4 hashes pointing to values at offsets 0,1,2,3:
-
-- `0101` -> 0
-- `0011` -> 1
-- `1010` -> 2
-- `1011` -> 3
-
-Since the width is 4 bits, we can only consume the hash 2 bits at a time (starting with least-significant).
-
-This means the root node has 3 entries for `01`, `10`, and `11`.  Since two keys share the `11` prefix a second node is needed.
-
-```c++
-// Hash config
- 0000 // (seed 0)
-// Root Node (xxxx)
- 1110 // Bitfield [1,2,3]
-1 000 // xx01 -> leaf 0
-1 010 // xx10 -> leaf 2
-0 000 // xx11 -> node 0
-// Second Node (xx11)
- 0101 // Bitfield [0,2]
-1 001 // 0011 -> leaf 1
-1 000 // 1011 -> leaf 3
-```
-
-For each 1 in the bitfield, a pointer follows in the node.  The least significant bit is 0, most significant is 3.
-
-The pointers have a 1 prefix in the most significant position when pointing to a leaf node.  The value is offset from the start of the map (after the index).  Internal pointers start with a 0 in the most significant position followed by an offset from the end of the pointer.
+> [!NOTE]
+> The `#` in the Tibs representation signifies the array should be indexed when converted to Nibs.
 
 ### References
 
