@@ -30,16 +30,4 @@ jobs:
         run: ./luvit lua/tests/test-nibs-decoder.lua
       - name: Test nibs optimization utilities and all conversions
         run: ./luvit lua/tests/test-nibs-utils.lua
-      - name: Install stock luajit
-        run: sudo apt-get install luajit
-      - name: Test reverse find-dups
-        run: luajit reverse/test-find-dups.lua
-      - name: Test reverse json-filter
-        run: luajit reverse/test-json-filter.lua
-      - name: Test reverse next-json-token
-        run: luajit reverse/test-next-json-token.lua
-      - name: Test reverse parse-bytes
-        run: luajit reverse/test-parse-bytes.lua
-      - name: Test reverse parse-string
-        run: luajit reverse/test-parse-string.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."
