@@ -2,6 +2,10 @@
 
 Nibs is a new binary serialization format with the following set of priorities:
 
+![test-js workflow](https://github.com/creationix/nibs/actions/workflows/test-js.yml/badge.svg)
+![test-lua workflow](https://github.com/creationix/nibs/actions/workflows/test-lua.yml/badge.svg)
+![test-reverse workflow](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yml/badge.svg)
+
 ## Fast Random Access Reads
 
 This format is designed to be read in-place (similar to cap'n proto) so that arbitrarily large documents can be read with minimal memory or compute requirements.  For example a 1 TiB mega nibs document could be read from a virtual block device where blocks are fetched from the network on-demand and the initial latency to start walking the data structure would be nearly instant.  Large documents could also be written to local NVMe drives and loaded to RAM using memmap.
