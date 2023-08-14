@@ -108,6 +108,12 @@ local rnibs64 = ffi.typeof 'struct rnibs64'
 
 ---@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
 
+-- Consume a single required digit [0-9]
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return integer|nil new_offset
+---@return nil|string error
 local function consume_digit(json, offset, limit)
     if offset >= limit then
         return nil, string.format("Unexpected EOS at %d", offset)
@@ -119,6 +125,11 @@ local function consume_digit(json, offset, limit)
     return offset + 1
 end
 
+-- Consume a sequence of zero or more digits [0-9]
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return integer new_offset
 local function consume_digits(json, offset, limit)
     while offset < limit do
         local c = json[offset]
@@ -128,14 +139,14 @@ local function consume_digits(json, offset, limit)
     return offset
 end
 
-local function consume_optional(json, offset, limit, c)
-    if offset < limit and json[offset] == c then
-        return offset + 1, true
-    end
-    return offset, false
-end
-
-local function consume_optionals(json, offset, limit, c1, c2)
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@param c1 integer
+---@param c2? integer
+---@return integer new_offset
+---@return boolean did_matche
+local function consume_optional(json, offset, limit, c1, c2)
     local c = json[offset]
     if offset < limit and (c == c1 or c == c2) then
         return offset + 1, true
@@ -208,13 +219,11 @@ local function next_json_token(json, offset, limit)
                 offset = consume_digits(json, offset, limit)
             end
 
-            offset, matched = consume_optionals(json, offset, limit, 0x65, 0x45) -- "e"|"E"
+            offset, matched = consume_optional(json, offset, limit, 0x45, 0x65) -- "e"|"E"
             if matched then
-                offset, matched = consume_optionals(json, offset, limit, 0x2b, 0x2d) -- "+"|"-"
-                if matched then
-                    offset = assert(consume_digit(json, offset, limit))
-                    offset = consume_digits(json, offset, limit)
-                end
+                offset = consume_optional(json, offset, limit, 0x2b, 0x2d)      -- "+"|"-"
+                offset = assert(consume_digit(json, offset, limit))
+                offset = consume_digits(json, offset, limit)
             end
 
             return "number", first, offset
