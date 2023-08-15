@@ -1,7 +1,5 @@
 local import = _G.import or require
 
-local HamtIndex = import "hamt-index"
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -14,7 +12,7 @@ local HEXSTRING = 10
 local LIST = 11
 local MAP = 12
 local ARRAY = 13
-local TRIE = 14
+
 local SCOPE = 15
 
 -- Simple subtypes
@@ -71,29 +69,30 @@ ffi.cdef [[
     };
     #pragma pack(1)
     struct nibs8 { // for big under 256
+        uint8_t big;
         unsigned int prefix:4;
         unsigned int small:4;
-        uint8_t big;
     };
     #pragma pack(1)
     struct nibs16 { // for big under 256
+        uint16_t big;
         unsigned int prefix:4;
         unsigned int small:4;
-        uint16_t big;
     };
     #pragma pack(1)
     struct nibs32 { // for big under 256
+        uint32_t big;
         unsigned int prefix:4;
         unsigned int small:4;
-        uint32_t big;
     };
     #pragma pack(1)
     struct nibs64 { // for big under 256
+        uint64_t big;
         unsigned int prefix:4;
         unsigned int small:4;
-        uint64_t big;
     };
 ]]
+
 
 local nibs4 = ffi.typeof 'struct nibs4'
 local nibs8 = ffi.typeof 'struct nibs8'
@@ -115,13 +114,13 @@ local function encode_pair(small, big)
     if big < 0xc then
         return 1, nibs4(big, small)
     elseif big < 0x100 then
-        return 2, nibs8(12, small, big)
+        return 2, nibs8(big, 12, small)
     elseif big < 0x10000 then
-        return 3, nibs16(13, small, big)
+        return 3, nibs16(big, 13, small)
     elseif big < 0x100000000 then
-        return 5, nibs32(14, small, big)
+        return 5, nibs32(big, 14, small)
     else
-        return 9, nibs64(15, small, big)
+        return 9, nibs64(big, 15, small)
     end
 end
 
@@ -185,7 +184,6 @@ local encode_list
 local encode_map
 local encode_array
 local generate_array_index
-local encode_trie
 local encode_scope
 
 ---@class Nibs
@@ -218,10 +216,10 @@ function encode_any(val)
         if len % 2 == 0 and string.match(val, "^[0-9a-f]+$") then
             len = len / 2
             local size, head = encode_pair(HEXSTRING, len)
-            return size + len, { head, NibLib.hexStrToBuf(val) }
+            return size + len, { NibLib.hexStrToBuf(val), head  }
         end
         local size, head = encode_pair(UTF8, len)
-        return size + len, { head, val }
+        return size + len, { val, head }
     elseif t == "cdata" then
         if NibLib.isInteger(val) then
             -- Treat cdata integers as integers
@@ -236,7 +234,7 @@ function encode_any(val)
             local size, head = encode_pair(BYTES, len)
             collectgarbage("collect")
             if len > 0 then
-                return size + len, { head, val }
+                return size + len, { val, head }
             else
                 return size, head
             end
@@ -257,10 +255,6 @@ function encode_any(val)
             end
             return encode_list(val)
         else
-            if mt and mt.__is_indexed then
-                collectgarbage("collect")
-                return encode_trie(val)
-            end
             return encode_map(val)
         end
     else
@@ -279,8 +273,8 @@ function encode_list(list)
         body[i] = entry
         total = total + size
     end
-    local size, prefix = encode_pair(LIST, total)
-    return size + total, { prefix, body }
+    local size, head = encode_pair(LIST, total)
+    return size + total, { body, head }
 end
 
 ---@param list Value[]
@@ -293,13 +287,13 @@ function encode_array(list)
     for i, v in ipairs(list) do
         local size, entry = encode_any(v)
         body[i] = entry
-        offsets[i] = total
         total = total + size
+        offsets[i] = total - 1
     end
     local more, index = generate_array_index(offsets)
     total = total + more
-    local size, prefix = encode_pair(ARRAY, total)
-    return size + total, { prefix, index, body }
+    local size, head = encode_pair(ARRAY, total)
+    return size + total, { body, index, head }
 end
 
 ---@param scope Scope
@@ -308,27 +302,28 @@ end
 function encode_scope(scope)
     local total = 0
 
-    -- First encode the wrapped value
-    local valueSize, valueEntry = encode_any(scope[1])
-
-    -- Then encode the refs and record their relative offsets
+    -- first encode the refs and record their relative offsets
     local body = {}
     local offsets = {}
-    for i = 2, #scope do
+    for i = 1, #scope - 1 do
         local v = scope[i]
         local size, entry = encode_any(v)
-        body[i - 1] = entry
-        offsets[i - 1] = total
+        body[i] = entry
         total = total + size
+        offsets[i] = total - 1
     end
 
     -- Generate index header and value header
     local more, index = generate_array_index(offsets)
-    total = total + more + valueSize
+    total = total + more
+
+    -- Then encode the wrapped value
+    local valueSize, valueEntry = encode_any(scope[#scope])
+    total = total + valueSize
 
     -- combine everything
-    local size, prefix = encode_pair(SCOPE, total)
-    return size + total, { prefix, valueEntry, index, body }
+    local size, head = encode_pair(SCOPE, total)
+    return size + total, { body, index, valueEntry, head }
 end
 
 ---@param map table<Value,Value>
@@ -346,39 +341,7 @@ function encode_map(map)
         total = total + size
     end
     local size, head = encode_pair(MAP, total)
-    return size + total, { head, body }
-end
-
----@param map table<Value,Value>
----@return integer
----@return any
-function encode_trie(map)
-    local total = 0
-    local body = {}
-    local offsets = {}
-    for k, v in pairs(map) do
-        collectgarbage("collect")
-
-        local size, entry = combine(encode_any(k))
-        offsets[entry] = total
-        insert(body, entry)
-        total = total + size
-
-        size, entry = encode_any(v)
-        insert(body, entry)
-        total = total + size
-    end
-
-    local count, width, index = HamtIndex.encode(offsets)
-    total = total + count * width
-
-    local size, prefix, meta
-    size, meta = encode_pair(width, count)
-    total = total + size
-
-    size, prefix = encode_pair(TRIE, total)
-
-    return total + size, { prefix, meta, index, body }
+    return size + total, { body, head }
 end
 
 ---@private
@@ -406,7 +369,7 @@ function generate_array_index(offsets)
         index = Slice64(count, offsets)
     end
     local more, head = encode_pair(width, count)
-    return more + sizeof(index), { head, index }
+    return more + sizeof(index), { index, head }
 end
 
 ---@param read ByteProvider
@@ -519,7 +482,6 @@ local get
 ---@field omega number end of data as offset to after data
 ---@field width number? width of index entries
 ---@field count number? count of index entries
----@field seed number? hash seed for trie hamt
 
 -- Weakmap for associating private metadata to tables.
 ---@type table<table,NibsMetaEntry>
