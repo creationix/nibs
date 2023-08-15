@@ -206,7 +206,7 @@ function encode_any(val)
         if len % 2 == 0 and string.match(val, "^[0-9a-f]+$") then
             len = len / 2
             local size, head = encode_pair(HEXSTRING, len)
-            return size + len, { NibLib.hexStrToBuf(val), head  }
+            return size + len, { NibLib.hexStrToBuf(val), head }
         end
         local size, head = encode_pair(UTF8, len)
         return size + len, { val, head }
@@ -371,51 +371,6 @@ local function tonumberMaybe(n)
         or n
 end
 
----@param data integer[] U8Arr reverse nibs serialized binary data
----@param offset integer 0 based offset into U8Arr
----@return integer offset after decoding
----@return integer little type or width
----@return integer big value or count or size
-local function decode_pair(data, offset)
-    p("decode pair", offset)
-    local byte = data[offset - 1]
-    local little = rshift(byte, 4)
-    local big = band(byte, 0xf)
-    if big < 12 then
-        p { bits = 4, little = little, big = big, offset = offset }
-        return offset - 1, little, big
-    elseif big == 12 then
-        big = cast(U8Ptr, data + offset - 2)[0]
-        p { bits = 8, little = little, big = big, offset = offset }
-        return offset - 2, little, big
-    elseif big == 13 then
-        big = cast(U16Ptr, data + offset - 3)[0]
-        p { bits = 16, little = little, big = big, offset = offset }
-        return offset - 3, little, big
-    elseif big == 14 then
-        big = cast(U32Ptr, data + offset - 5)[0]
-        p { bits = 32, little = little, big = big, offset = offset }
-        return offset - 5, little, big
-    else
-        big = cast(U64Ptr, data + offset - 9)[0]
-        p { bits = 64, little = little, big = big, offset = offset }
-        return offset - 9, little, big
-    end
-end
-
----@param data integer[]
----@param width integer
----@param offset integer
----@return integer
-local function decode_pointer(data, width, offset)
-    p("decode pointer", { offset = offset, width = width })
-    if width == 1 then
-        return data[offset]
-    else
-        error "TODO: decode bigger pointers"
-    end
-end
-
 ---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
 ---@param num integer
 ---@return integer
@@ -434,58 +389,6 @@ local function decode_float(val)
     return converter.f
 end
 
----@param data integer[]
----@param length integer
----@return string
-local function to_hex(data, length)
-    local parts = {}
-    local i = 0
-    while i < length do
-        local b = data[i]
-        i = i + 1
-        parts[i] = bit.tohex(b, 2)
-    end
-    return table.concat(parts, ' ')
-end
-
-local function decode_bytes(data, offset, big)
-    p("decode_bytes", { offset = offset, big = big })
-    local buf = U8Arr(big)
-    copy(buf, data + offset - big, big)
-    return buf
-end
-
-local function decode_utf8(data, offset, big)
-    p("decode_utf8", { offset = offset, big = big })
-    return ffi_string(data + offset - big, big)
-end
-
-local function tohexcode(b)
-    return b + (b < 10 and 0x30 or 0x57)
-end
-
-local function decode_hexstring(data, offset, big)
-    p("decode_hexstring", { offset = offset, big = big })
-    local buf = U8Arr(big * 2)
-    local ptr = data + offset - big
-    for i = 0, big - 1 do
-        local b = ptr[i]
-        buf[i * 2] = tohexcode(rshift(b, 4))
-        buf[i * 2 + 1] = tohexcode(band(b, 15))
-    end
-    return ffi_string(buf, big * 2)
-end
-
---- Reverse a list in-place
----@param list any[]
-local function reverse(list)
-    local len = #list
-    for i = 1, rshift(len, 1) do
-        local j = len - i + 1
-        list[j], list[i] = list[i], list[j]
-    end
-end
-
 local function Symbol(name)
     return setmetatable({}, {
         __name = name,
@@ -493,90 +396,234 @@ local function Symbol(name)
     })
 end
 
+-- Reference to array buffer so it stays alive
 local DATA = Symbol "DATA"
-local OFFSETS = Symbol "OFFSETS"
-local KEYS = Symbol "KEYS"
-local FIRST = Symbol "FIRST"
-local LAST = Symbol "LAST"
-local SCOPE_OFFSET = Symbol "SCOPE_OFFSET"
-local WIDTH = Symbol "WIDTH"
-local COUNT = Symbol "COUNT"
-local INDEX_FIRST = Symbol "INDEX_FIRST"
+-- pointer before values (as integer data offset)
+local START = Symbol "START"
+-- pointer after values (as integer data offset) (also start of index array when present)
+local END = Symbol "END"
+-- pointer at end of index header (as integer data offset)
+local INDEX = Symbol "INDEX"
 
---- Skip a value
----@param data integer[] U8Arr
----@param offset integer 0 based offset into data pointing to final byte of value
----@return integer new offset into next value
-local function skip_value(data, offset)
-    p("skip", { offset = offset })
-    local o, l, b = decode_pair(data, offset)
-    if l < 8 then
-        -- inline values are done after parsing the nibs pair
-        return o
+local COUNT = Symbol "COUNT"
+
+-- Reference to the nearest scope array
+local CURRENT_SCOPE = Symbol "CURRENT_SCOPE"
+
+---@alias Nibs.Value boolean|number|string|integer[]|Nibs.List|Nibs.Array|Nibs.Map|nil
+
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming header
+---@return integer little type or width
+---@return integer big value or count or size
+local function decode_pair(first, last)
+    last = last - 1
+    assert(last >= first)
+    local byte = last[0]
+    local little = rshift(byte, 4)
+    local big = band(byte, 0xf)
+    if big < 12 then
+        return last, little, big
+    elseif big == 12 then
+        last = last - 1
+        assert(last >= first)
+        return last, little, cast(U8Ptr, last)[0]
+    elseif big == 13 then
+        last = last - 2
+        assert(last >= first)
+        return last, little, cast(U16Ptr, last)[0]
+    elseif big == 14 then
+        last = last - 4
+        assert(last >= first)
+        return last, little, cast(U32Ptr, last)[0]
     else
-        -- container values also need the contents skipped
-        return o - b
+        last = last - 8
+        assert(last >= first)
+        return last, little, cast(U64Ptr, last)[0]
     end
 end
 
----@alias Nibs.Value boolean|number|string|ffi.cdata*|Nibs.List|Nibs.Array|Nibs.Map|nil
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming header
+---@return integer[] bytes decoded value
+local function decode_bytes(first, last)
+    local len = last - first
+    local buf = U8Arr(len)
+    copy(buf, first, len)
+    return first, buf
+end
 
-local decode
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming header
+---@return string utf8 decoded value
+local function decode_utf8(first, last)
+    return first, ffi_string(first, last - first)
+end
 
----@param data integer[]
----@param id integer
----@param scope_offset integer
----@return Nibs.Value
-local function decode_ref(data, id, scope_offset)
-    p("decode_ref", { id = id, scope_offset = scope_offset })
-    local offset, _, big = decode_pair(data, scope_offset)
-    local first = offset - big
-    offset = skip_value(data, offset)
-    local o, w, c = decode_pair(data, offset)
-    local width = w
-    local index_first = o - w * c
-    p { index_first = index_first, count = count, w = w }
+---@param b integer nibble value
+---@return integer ascii hex code
+local function tohexcode(b)
+    return b + (b < 10 and 0x30 or 0x57)
+end
 
-    local ptr = decode_pointer(data, width, index_first + width * id)
-    p{ptr=ptr}
-    return decode(data, first + ptr, scope_offset)
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming header
+---@return string hex decoded value
+local function decode_hexstring(first, last)
+    local len = last - first
+    local buf = U8Arr(len * 2)
+    for i = 0, len - 1 do
+        local b = first[i]
+        buf[i * 2] = tohexcode(rshift(b, 4))
+        buf[i * 2 + 1] = tohexcode(band(b, 15))
+    end
+    return first, ffi_string(buf, len * 2)
+end
+
+local decode_list, decode_map, decode_array, decode_scope
+
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming value
+local function skip_value(first, last)
+    local n, l, b = decode_pair(first, last)
+    last = l < 8 and n or n - b
+    assert(last >= first)
+    return last
+end
+
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@param scope? Nibs.Array nearest nibs scope array
+---@return integer[] new_last after consuming value
+---@return Nibs.Value decoded_value
+local function decode_value(first, last, scope)
+    -- Read the value header and update the upper boundary
+    local type_tag, int_val
+    do
+        local new_last
+        new_last, type_tag, int_val = decode_pair(first, last)
+        assert(new_last >= first)
+        last = new_last
+    end
+
+    p("decode_value", { type_tag = type_tag, int_val = int_val })
+
+    -- Process inline types (0-7)
+    if type_tag == ZIGZAG then
+        return last, decode_zigzag(int_val)
+    elseif type_tag == FLOAT then
+        return last, decode_float(int_val)
+    elseif type_tag == SIMPLE then
+        if int_val == FALSE then
+            return last, false
+        elseif int_val == TRUE then
+            return last, true
+        elseif int_val == NULL then
+            return last, nil
+        else
+            error(string.format("Unknown SIMPLE %d", int_val))
+        end
+    elseif type_tag == REF then
+        assert(scope, "missing scope array")
+        return scope[int_val]
+    elseif type_tag < 8 then
+        error(string.format("Unknown inline type %d", type_tag))
+    end
+
+    -- Use the length prefix to tighten up the lower boundary
+    do
+        local new_first = last - int_val
+        assert(new_first >= first)
+        first = new_first
+    end
+
+    if type_tag == BYTES then
+        return decode_bytes(first, last)
+    elseif type_tag == UTF8 then
+        return decode_utf8(first, last)
+    elseif type_tag == HEXSTRING then
+        return decode_hexstring(first, last)
+    elseif type_tag == LIST then
+        return decode_list(first, last, scope)
+    elseif type_tag == MAP then
+        return decode_map(first, last, scope)
+    elseif type_tag == ARRAY then
+        return decode_array(first, last, scope)
+    elseif type_tag == SCOPE then
+        return decode_scope(first, last, scope)
+    else
+        error(string.format("Unknown container type %d", type_tag))
+    end
+end
+
+function decode_list(first, last, scope)
+    return first, setmetatable({
+        [START] = first,
+        [END] = last,
+        [CURRENT_SCOPE] = scope,
+    }, Nibs.List)
+end
+
+function decode_map(first, last, scope)
+    return first, setmetatable({
+        [START] = first,
+        [END] = last,
+        [CURRENT_SCOPE] = scope,
+    }, Nibs.Map)
+end
+
+function decode_array(first, last, scope)
+    local n, l, b = decode_pair(first, last)
+    return first, setmetatable({
+        [START] = first,
+        [END] = n - l * b,
+        [INDEX] = last,
+        [CURRENT_SCOPE] = scope,
+    }, Nibs.Array)
+end
+
+function decode_scope(first, last, scope)
+    local index = skip_value(first, last)
+    assert(index >= first)
+    scope = decode_array(first, index, scope)
+    local index2, value = decode_value(index, last, scope)
+    assert(index2 == index)
+    return first, value
 end
 
 ---@class Nibs.List
 Nibs.List = { __name = "Nibs.List", __is_array_like = true }
 
 function Nibs.List:__len()
-    ---@type integer[]|nil array of offsets to last header byte of each value
-    local offsets = rawget(self, OFFSETS)
-    if not offsets then
-        ---@type integer[]  data
-        local data = rawget(self, DATA)
-        ---@type integer offset at end of value list
-        local last = rawget(self, LAST)
-        ---@type integer offset of start value list
-        local first = rawget(self, FIRST)
-        --- Current offset to read from
-        local offset = last
-        offsets = {}
-        while offset > first do
-            offsets[#offsets + 1] = offset
-            offset = skip_value(data, offset)
+    local len = rawget(self, COUNT)
+    if not len then
+        len = 0
+        local first = rawget(self, START)
+        local last = rawget(self, END)
+        while last > first do
+            last = skip_value(first, last)
+            len = len + 1
         end
-        reverse(offsets)
-        rawset(self, OFFSETS, offsets)
+        rawset(self, COUNT, len)
     end
-    return #offsets
+    return len
 end
 
 function Nibs.List:__index(key)
-    assert(#self)
-    ---@type integer[]
-    local offsets = rawget(self, OFFSETS)
-    local data = rawget(self, DATA)
-    local scope_offset = rawget(self, SCOPE_OFFSET)
-    local offset = offsets[key]
-    if not offset then return end
-    local value = decode(data, offset, scope_offset)
+    if type(key) ~= "number" or math.floor(key) ~= key or key < 1 then return end
+    local count = #self
+    if key > count then return end
+    local first = rawget(self, START)
+    local last = rawget(self, END)
+    for _ = #self, key + 1, -1 do
+        last = skip_value(first, last)
+    end
+    local _, value = decode_value(first, last, rawget(self, CURRENT_SCOPE))
     rawset(self, key, value)
     return value
 end
@@ -593,204 +640,161 @@ end
 
 Nibs.List.__pairs = Nibs.List.__ipairs
 
+---@param data integer[]
+---@param width integer
+---@param offset integer
+---@return integer
+local function decode_pointer(data, width, offset)
+    p("decode pointer", { offset = offset, width = width })
+    if width == 1 then
+        return data[offset]
+    else
+        error "TODO: decode bigger pointers"
+    end
+end
+
 ---@class Nibs.Array
 Nibs.Array = { __name = "Nibs.Array", __is_array_like = true, __is_indexed = true }
 
-function Nibs.Array:__len()
-    ---@type integer
-    local count = rawget(self, COUNT)
-    if not count then
-        ---@type integer[]
-        local data = rawget(self, DATA)
-        ---@type integer
-        local last = rawget(self, LAST)
-        -- Read the array index header
-        local o, w, c = decode_pair(data, last)
-        rawset(self, WIDTH, w)
-        rawset(self, INDEX_FIRST, o - w * c + 1)
-        count = c
-        rawset(self, COUNT, count)
-    end
-    return count
-end
+-- function Nibs.Array:__len()
+--     ---@type integer
+--     local count = rawget(self, COUNT)
+--     if not count then
+--         ---@type integer[]
+--         local data = rawget(self, START)
+--         ---@type integer
+--         local last = rawget(self, END)
+--         -- Read the array index header
+--         local o, w, c = decode_pair(data, last)
+--         rawset(self, WIDTH, w)
+--         rawset(self, INDEX_START, o - w * c)
+--         count = c
+--         rawset(self, COUNT, count)
+--     end
+--     return count
+-- end
 
-function Nibs.Array:__index(k)
-    local count = #self
-    if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
-    --- @type integer[] reverse nibs encoded binary data
-    local data = rawget(self, DATA)
-    --- @type integer offset to start of index
-    local index_first = rawget(self, INDEX_FIRST)
-    --- @type integer width of index pointers
-    local width = rawget(self, WIDTH)
-    local offset = decode_pointer(data, width, index_first + width * (k - 1))
-    local first = rawget(self, FIRST)
-    local scope_offset = rawget(self, SCOPE_OFFSET)
-    local v = decode(data, first + offset, scope_offset)
-    rawset(self, k, v)
-    return v
-end
+-- function Nibs.Array:__index(k)
+--     local count = #self
+--     if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
+--     --- @type integer[] reverse nibs encoded binary data
+--     local data = rawget(self, START)
+--     --- @type integer offset to start of index
+--     local index_offset = rawget(self, INDEX_START)
+--     --- @type integer width of index pointers
+--     local width = rawget(self, WIDTH)
+--     p { index_first = index_offset, width = width, k = k }
+--     local offset = decode_pointer(data, width, index_offset + width * (k - 1))
+--     local first = rawget(self, FIRST)
+--     local scope_offset = rawget(self, CURRENT_SCOPE)
+--     local v = decode(data, first + offset, scope_offset)
+--     rawset(self, k, v)
+--     return v
+-- end
 
-function Nibs.Array:__ipairs()
-    local i = 0
-    local len = #self
-    return function()
-        if i >= len then return end
-        i = i + 1
-        return i, self[i]
-    end
-end
+-- function Nibs.Array:__ipairs()
+--     local i = 0
+--     local len = #self
+--     return function()
+--         if i >= len then return end
+--         i = i + 1
+--         return i, self[i]
+--     end
+-- end
 
 ---@class Nibs.Map
 Nibs.Map = { __name = "Nibs.Map", __is_array_like = false }
 
-function Nibs.Map:__len()
-    ---@type table<any,integer>|nil array of offsets to last header byte of each value
-    local offsets = rawget(self, OFFSETS)
-    if not offsets then
-        ---@type integer[]  data
-        local data = rawget(self, DATA)
-        ---@type integer offset at end of value list
-        local last = rawget(self, LAST)
-        ---@type integer offset of start value list
-        local first = rawget(self, FIRST)
-        ---@type integer|nil scope index
-        local scope_offset = rawget(self, SCOPE_OFFSET)
-        --- Current offset to read from
-        local offset = last
-        ---@type any[]
-        local keys = {}
-        offsets = {}
-        while offset > first do
-            local o = offset
-            offset = skip_value(data, offset)
-            ---@type any
-            local key = decode(data, offset, scope_offset)
-            assert(key ~= nil)
-            keys[#keys + 1] = key
-            offsets[key] = o
-            -- TODO: we shouldn't need this skip, we should get offset from decode
-            offset = skip_value(data, offset)
-        end
-        reverse(keys)
-        rawset(self, KEYS, keys)
-        rawset(self, OFFSETS, offsets)
-    end
-    return 0
-end
+-- function Nibs.Map:__len()
+--     ---@type table<any,integer>|nil array of offsets to last header byte of each value
+--     local offsets = rawget(self, OFFSETS)
+--     if not offsets then
+--         ---@type integer[]  data
+--         local data = rawget(self, START)
+--         ---@type integer offset at end of value list
+--         local last = rawget(self, END)
+--         ---@type integer offset of start value list
+--         local first = rawget(self, FIRST)
+--         ---@type integer|nil scope index
+--         local scope_offset = rawget(self, CURRENT_SCOPE)
+--         --- Current offset to read from
+--         local offset = last
+--         ---@type any[]
+--         local keys = {}
+--         offsets = {}
+--         while offset > first do
+--             local o = offset
+--             offset = skip_value(data, offset)
+--             ---@type any
+--             local key = decode(data, offset, scope_offset)
+--             assert(key ~= nil)
+--             keys[#keys + 1] = key
+--             offsets[key] = o
+--             -- TODO: we shouldn't need this skip, we should get offset from decode
+--             offset = skip_value(data, offset)
+--         end
+--         reverse(keys)
+--         rawset(self, KEYS, keys)
+--         rawset(self, OFFSETS, offsets)
+--     end
+--     return 0
+-- end
 
-function Nibs.Map:__pairs()
-    assert(#self)
-    ---@type integer[]
-    local data = rawget(self, DATA)
-    ---@type table<any,integer>
-    local offsets = rawget(self, OFFSETS)
-    ---@type any[]
-    local keys = rawget(self, KEYS)
-    ---@type integer|nil
-    local scope_offset = rawget(self, SCOPE_OFFSET)
-    local i = 0
-    local len = #keys
-    return function ()
-        if i < len then
-            i = i + 1
-            local key = keys[i]
-            local offset = offsets[key]
-            local value = decode(data, offset, scope_offset)
-            return key, value
-        end
-    end
-end
+-- function Nibs.Map:__pairs()
+--     assert(#self)
+--     ---@type integer[]
+--     local data = rawget(self, START)
+--     ---@type table<any,integer>
+--     local offsets = rawget(self, OFFSETS)
+--     ---@type any[]
+--     local keys = rawget(self, KEYS)
+--     ---@type integer|nil
+--     local scope_offset = rawget(self, CURRENT_SCOPE)
+--     local i = 0
+--     local len = #keys
+--     return function()
+--         if i < len then
+--             i = i + 1
+--             local key = keys[i]
+--             local offset = offsets[key]
+--             local value = decode(data, offset, scope_offset)
+--             return key, value
+--         end
+--     end
+-- end
 
-function Nibs.Map.__ipairs()
-    return function () end
-end
+-- function Nibs.Map.__ipairs()
+--     return function() end
+-- end
 
-function Nibs.Map:__index(key)
-    assert(#self)
-    ---@type integer[]
-    local data = rawget(self, DATA)
-    ---@type table<any,integer>
-    local offsets = rawget(self, OFFSETS)
-    ---@type integer|nil
-    local scope_offset = rawget(self, SCOPE_OFFSET)
-    local offset = offsets[key]
-    if not offset then return end
-    -- TODO: consider memoizing this
-    local value = decode(data, offset, scope_offset)
-    return value
-end
+-- function Nibs.Map:__index(key)
+--     assert(#self)
+--     ---@type integer[]
+--     local data = rawget(self, START)
+--     ---@type table<any,integer>
+--     local offsets = rawget(self, OFFSETS)
+--     ---@type integer|nil
+--     local scope_offset = rawget(self, CURRENT_SCOPE)
+--     local offset = offsets[key]
+--     if not offset then return end
+--     -- TODO: consider memoizing this
+--     local value = decode(data, offset, scope_offset)
+--     return value
+-- end
 
---- Mount a nibs binary value for lazy reading
---- when accessing properties on maps, lists, and arrays, the value
---- is decoded on the fly and memoized for faster access.
 --- @param data string|integer[] binary reverse nibs encoded value
---- @param length integer|nil length of binary data
---- @param scope_offset integer|nil scope to use for references
---- @return Nibs.Value
-function Nibs.decode(data, length, scope_offset)
+--- @param length? integer length of binary data
+function Nibs.decode(data, length)
     if type(data) == "string" then
-        if not length then length = #data end
-        ---@type integer[]
+        length = length or #string
         local buf = U8Arr(length)
         copy(buf, data, length)
         data = buf
     end
-    assert(length, "unknown value end")
-    print(string.format("decode %s", to_hex(data, length)))
-    local offset = length
-    local little, big
-    offset, little, big = decode_pair(data, offset)
-    if little == ZIGZAG then
-        return decode_zigzag(big)
-    elseif little == FLOAT then
-        return decode_float(big)
-    elseif little == SIMPLE then
-        if big == FALSE then
-            return false
-        elseif big == TRUE then
-            return true
-        elseif big == NULL then
-            return nil
-        else
-            error(string.format("Unknown SIMPLE %d", big))
-        end
-    elseif little == REF then
-        assert(scope_offset, "missing scope index")
-        return decode_ref(data, big, scope_offset)
-    elseif little == BYTES then
-        return decode_bytes(data, offset, big)
-    elseif little == UTF8 then
-        return decode_utf8(data, offset, big)
-    elseif little == HEXSTRING then
-        return decode_hexstring(data, offset, big)
-    elseif little == LIST then
-        return setmetatable({
-            [DATA] = data,
-            [FIRST] = offset - big,
-            [LAST] = offset,
-            [SCOPE_OFFSET] = scope_offset,
-        }, Nibs.List)
-    elseif little == MAP then
-        return setmetatable({
-            [DATA] = data,
-            [FIRST] = offset - big,
-            [LAST] = offset,
-            [SCOPE_OFFSET] = scope_offset,
-        }, Nibs.Map)
-    elseif little == ARRAY then
-        return setmetatable({
-            [DATA] = data,
-            [FIRST] = offset - big,
-            [LAST] = offset,
-            [SCOPE_OFFSET] = scope_offset,
-        }, Nibs.Array)
-    elseif little == SCOPE then
-        return decode(data, offset, length)
-    else
-        error(string.format("Unknown type 0x%x at %d", little, length))
-    end
+    local offset, value = decode_value(data, data + length)
+    p("data", data, "offset", offset, "value", value)
+    assert(offset - data == 0)
+    return value
 end
-decode = Nibs.decode
 
 return Nibs
