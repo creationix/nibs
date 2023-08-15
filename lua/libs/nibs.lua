@@ -405,7 +405,8 @@ local END = Symbol "END"
 -- pointer at end of index header (as integer data offset)
 local INDEX = Symbol "INDEX"
 
-local COUNT = Symbol "COUNT"
+-- Array of offsets for list and map
+local OFFSETS = Symbol "OFFSETS"
 
 -- Reference to the nearest scope array
 local CURRENT_SCOPE = Symbol "CURRENT_SCOPE"
@@ -596,34 +597,62 @@ function decode_scope(first, last, scope)
     return first, value
 end
 
+-- Reverse a list in place
+---@param list any[]
+local function reverse(list)
+    local len = #list
+    for i = 1, rshift(len, 1) do
+        local j = len - i + 1
+        list[i], list[j] = list[j], list[i]
+    end
+end
+
+---@param self Nibs.List|Nibs.Map
+local function get_offsets(self)
+    ---@type integer[][]
+    local offsets = rawget(self, OFFSETS)
+    if not offsets then
+        ---@type integer[]
+        local first = rawget(self, START)
+        ---@type integer[]
+        local last = rawget(self, END)
+        local i = 0
+        offsets = {}
+        while last > first do
+            p({i=i,first=first,last=last})
+            i = i + 1
+            offsets[i] = last
+            last = skip_value(first, last)
+        end
+        -- offsets[i] = last
+        p({i=i,first=first,last=last})
+        assert(last == first)
+        reverse(offsets)
+        offsets[0] = first
+        p{offsets=offsets}
+        rawset(self, OFFSETS, offsets)
+    end
+    return offsets
+end
+
 ---@class Nibs.List
 Nibs.List = { __name = "Nibs.List", __is_array_like = true }
 
 function Nibs.List:__len()
-    local len = rawget(self, COUNT)
-    if not len then
-        len = 0
-        local first = rawget(self, START)
-        local last = rawget(self, END)
-        while last > first do
-            last = skip_value(first, last)
-            len = len + 1
-        end
-        rawset(self, COUNT, len)
-    end
-    return len
+    return #get_offsets(self)
 end
 
 function Nibs.List:__index(key)
     if type(key) ~= "number" or math.floor(key) ~= key or key < 1 then return end
-    local count = #self
-    if key > count then return end
-    local first = rawget(self, START)
-    local last = rawget(self, END)
-    for _ = #self, key + 1, -1 do
-        last = skip_value(first, last)
-    end
-    local _, value = decode_value(first, last, rawget(self, CURRENT_SCOPE))
+    ---@type integer[][]
+    local offsets = get_offsets(self)
+    if key > #offsets then return end
+    ---@type integer[]
+    local first = offsets[key - 1]
+    local last = offsets[key]
+    ---@type Nibs.Array|nil
+    local scope = rawget(self, CURRENT_SCOPE)
+    local _, value = decode_value(first, last, scope)
     rawset(self, key, value)
     return value
 end
@@ -640,39 +669,58 @@ end
 
 Nibs.List.__pairs = Nibs.List.__ipairs
 
----@param data integer[]
----@param width integer
----@param offset integer
----@return integer
-local function decode_pointer(data, width, offset)
-    p("decode pointer", { offset = offset, width = width })
-    if width == 1 then
-        return data[offset]
-    else
-        error "TODO: decode bigger pointers"
+---@class Nibs.Map
+Nibs.Map = { __name = "Nibs.Map", __is_array_like = false }
+
+function Nibs.Map.__len()
+    return 0
+end
+
+function Nibs.Map:__pairs()
+    local offsets = get_offsets(self)
+    local i = 0
+    p(offsets)
+    return function ()
+        if i >= #offsets then return end
+        i = i + 2
+        local first = offsets[i - 2]
+        local mid = offsets[i - 1]
+        local last = offsets[i]
+        p(i, first, mid, last)
+        assert(i and first and mid and last)
+        local _, key = decode_value(first, mid)
+        local _, value = decode_value(mid, last)
+        rawset(self, key, value)
+        return key, value
     end
+end
+
+function Nibs.Map.__ipairs()
+    return function() end
+end
+
+function Nibs.Map:__index(key)
+    error "TODO: Nibs.Map:__index"
 end
 
 ---@class Nibs.Array
 Nibs.Array = { __name = "Nibs.Array", __is_array_like = true, __is_indexed = true }
 
--- function Nibs.Array:__len()
---     ---@type integer
---     local count = rawget(self, COUNT)
---     if not count then
---         ---@type integer[]
---         local data = rawget(self, START)
---         ---@type integer
---         local last = rawget(self, END)
---         -- Read the array index header
---         local o, w, c = decode_pair(data, last)
---         rawset(self, WIDTH, w)
---         rawset(self, INDEX_START, o - w * c)
---         count = c
---         rawset(self, COUNT, count)
---     end
---     return count
--- end
+function Nibs.Array:__len()
+    ---@type integer
+    local count = rawget(self, COUNT)
+    if not count then
+        ---@type integer[]
+        local first = rawget(self, END)
+        ---@type integer[]
+        local last = rawget(self, INDEX)
+        local _, _, b = decode_pair(first, last)
+        count = b
+        rawset(self, COUNT, count)
+    end
+    print("Array count", count)
+    return count
+end
 
 -- function Nibs.Array:__index(k)
 --     local count = #self
@@ -700,86 +748,6 @@ Nibs.Array = { __name = "Nibs.Array", __is_array_like = true, __is_indexed = tru
 --         i = i + 1
 --         return i, self[i]
 --     end
--- end
-
----@class Nibs.Map
-Nibs.Map = { __name = "Nibs.Map", __is_array_like = false }
-
--- function Nibs.Map:__len()
---     ---@type table<any,integer>|nil array of offsets to last header byte of each value
---     local offsets = rawget(self, OFFSETS)
---     if not offsets then
---         ---@type integer[]  data
---         local data = rawget(self, START)
---         ---@type integer offset at end of value list
---         local last = rawget(self, END)
---         ---@type integer offset of start value list
---         local first = rawget(self, FIRST)
---         ---@type integer|nil scope index
---         local scope_offset = rawget(self, CURRENT_SCOPE)
---         --- Current offset to read from
---         local offset = last
---         ---@type any[]
---         local keys = {}
---         offsets = {}
---         while offset > first do
---             local o = offset
---             offset = skip_value(data, offset)
---             ---@type any
---             local key = decode(data, offset, scope_offset)
---             assert(key ~= nil)
---             keys[#keys + 1] = key
---             offsets[key] = o
---             -- TODO: we shouldn't need this skip, we should get offset from decode
---             offset = skip_value(data, offset)
---         end
---         reverse(keys)
---         rawset(self, KEYS, keys)
---         rawset(self, OFFSETS, offsets)
---     end
---     return 0
--- end
-
--- function Nibs.Map:__pairs()
---     assert(#self)
---     ---@type integer[]
---     local data = rawget(self, START)
---     ---@type table<any,integer>
---     local offsets = rawget(self, OFFSETS)
---     ---@type any[]
---     local keys = rawget(self, KEYS)
---     ---@type integer|nil
---     local scope_offset = rawget(self, CURRENT_SCOPE)
---     local i = 0
---     local len = #keys
---     return function()
---         if i < len then
---             i = i + 1
---             local key = keys[i]
---             local offset = offsets[key]
---             local value = decode(data, offset, scope_offset)
---             return key, value
---         end
---     end
--- end
-
--- function Nibs.Map.__ipairs()
---     return function() end
--- end
-
--- function Nibs.Map:__index(key)
---     assert(#self)
---     ---@type integer[]
---     local data = rawget(self, START)
---     ---@type table<any,integer>
---     local offsets = rawget(self, OFFSETS)
---     ---@type integer|nil
---     local scope_offset = rawget(self, CURRENT_SCOPE)
---     local offset = offsets[key]
---     if not offset then return end
---     -- TODO: consider memoizing this
---     local value = decode(data, offset, scope_offset)
---     return value
 -- end
 
 --- @param data string|integer[] binary reverse nibs encoded value
