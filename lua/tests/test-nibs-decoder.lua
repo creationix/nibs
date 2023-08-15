@@ -16,7 +16,7 @@ local allTests = assert(Tibs.decode(text))
 for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
     for section, tests in pairs(allTests) do
-        if section ~= "Refs" then goto continue end
+        -- if section ~= "Refs" then goto continue end
         print("\n" .. colorize("highlight", section) .. "\n")
         for i = 1, #tests, 2 do
             local input = tests[i]
