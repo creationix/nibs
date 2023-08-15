@@ -235,9 +235,9 @@ function encode_any(val)
         return encode_pair(SIMPLE, NULL)
     elseif t == "table" then
         local mt = getmetatable(val)
-        if mt == Ref then
+        if mt and mt.__is_ref then
             return encode_pair(REF, val[1])
-        elseif mt == Scope then
+        elseif mt and mt.__is_scope then
             return encode_scope(val)
         elseif NibLib.isArrayLike(val) then
             if mt and mt.__is_indexed then
@@ -278,7 +278,7 @@ function encode_array(list)
         local size, entry = encode_any(v)
         body[i] = entry
         total = total + size
-        offsets[i] = total - 1
+        offsets[i] = total
     end
     local more, index = generate_array_index(offsets)
     total = total + more
@@ -300,7 +300,7 @@ function encode_scope(scope)
         local size, entry = encode_any(v)
         body[i] = entry
         total = total + size
-        offsets[i] = total - 1
+        offsets[i] = total
     end
 
     -- Generate index header and value header
@@ -788,7 +788,7 @@ function Nibs.decode(data, length, scope_offset)
     elseif little == SCOPE then
         return decode(data, offset, length)
     else
-        error(string.format("Unknown type 0x%x", little))
+        error(string.format("Unknown type 0x%x at %d", little, length))
     end
 end
 decode = Nibs.decode

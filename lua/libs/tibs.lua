@@ -257,7 +257,7 @@ end
 --- Class used to store references when encoding.
 ---@class Ref
 ---@field index number
-local Ref = { __name = "Ref" }
+local Ref = { __name = "Ref", __is_ref = true }
 Tibs.Ref = Ref
 do
     ---Construct a nibs ref instance from a ref index
@@ -274,7 +274,7 @@ end
 
 --- Scope used to encode references.
 ---@class Scope
-local Scope = { __name = "Scope", __is_array_like = true, __is_indexed = true }
+local Scope = { __name = "Scope", __is_array_like = true, __is_scope = true }
 Tibs.Scope = Scope
 do
 
