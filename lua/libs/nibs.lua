@@ -89,11 +89,6 @@ local nibs8 = ffi.typeof 'struct nibs8'
 local nibs16 = ffi.typeof 'struct nibs16'
 local nibs32 = ffi.typeof 'struct nibs32'
 local nibs64 = ffi.typeof 'struct nibs64'
-local nibs4ptr = ffi.typeof 'struct nibs4*'
-local nibs8ptr = ffi.typeof 'struct nibs8*'
-local nibs16ptr = ffi.typeof 'struct nibs16*'
-local nibs32ptr = ffi.typeof 'struct nibs32*'
-local nibs64ptr = ffi.typeof 'struct nibs64*'
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
@@ -402,8 +397,11 @@ local DATA = Symbol "DATA"
 local START = Symbol "START"
 -- pointer after values (as integer data offset) (also start of index array when present)
 local END = Symbol "END"
--- pointer at end of index header (as integer data offset)
-local INDEX = Symbol "INDEX"
+
+-- pointer width of array index
+local WIDTH = Symbol "WIDTH"
+-- pointer count of array index
+local COUNT = Symbol "COUNT"
 
 -- Array of offsets for list and map
 local OFFSETS = Symbol "OFFSETS"
@@ -583,7 +581,8 @@ function decode_array(first, last, scope)
     return first, setmetatable({
         [START] = first,
         [END] = n - l * b,
-        [INDEX] = last,
+        [WIDTH] = l,
+        [COUNT] = b,
         [CURRENT_SCOPE] = scope,
     }, Nibs.Array)
 end
@@ -619,17 +618,13 @@ local function get_offsets(self)
         local i = 0
         offsets = {}
         while last > first do
-            p({i=i,first=first,last=last})
             i = i + 1
             offsets[i] = last
             last = skip_value(first, last)
         end
-        -- offsets[i] = last
-        p({i=i,first=first,last=last})
         assert(last == first)
         reverse(offsets)
         offsets[0] = first
-        p{offsets=offsets}
         rawset(self, OFFSETS, offsets)
     end
     return offsets
@@ -679,14 +674,12 @@ end
 function Nibs.Map:__pairs()
     local offsets = get_offsets(self)
     local i = 0
-    p(offsets)
-    return function ()
+    return function()
         if i >= #offsets then return end
         i = i + 2
         local first = offsets[i - 2]
         local mid = offsets[i - 1]
         local last = offsets[i]
-        p(i, first, mid, last)
         assert(i and first and mid and last)
         local _, key = decode_value(first, mid)
         local _, value = decode_value(mid, last)
@@ -709,46 +702,43 @@ Nibs.Array = { __name = "Nibs.Array", __is_array_like = true, __is_indexed = tru
 function Nibs.Array:__len()
     ---@type integer
     local count = rawget(self, COUNT)
-    if not count then
-        ---@type integer[]
-        local first = rawget(self, END)
-        ---@type integer[]
-        local last = rawget(self, INDEX)
-        local _, _, b = decode_pair(first, last)
-        count = b
-        rawset(self, COUNT, count)
-    end
-    print("Array count", count)
     return count
 end
 
--- function Nibs.Array:__index(k)
---     local count = #self
---     if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
---     --- @type integer[] reverse nibs encoded binary data
---     local data = rawget(self, START)
---     --- @type integer offset to start of index
---     local index_offset = rawget(self, INDEX_START)
---     --- @type integer width of index pointers
---     local width = rawget(self, WIDTH)
---     p { index_first = index_offset, width = width, k = k }
---     local offset = decode_pointer(data, width, index_offset + width * (k - 1))
---     local first = rawget(self, FIRST)
---     local scope_offset = rawget(self, CURRENT_SCOPE)
---     local v = decode(data, first + offset, scope_offset)
---     rawset(self, k, v)
---     return v
--- end
+function Nibs.Array:__index(k)
+    ---@type integer
+    local count = rawget(self, COUNT)
+    if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
+    ---@type integer
+    local width = rawget(self, WIDTH)
+    ---@type integer[] start of value
+    local first = rawget(self, START)
+    ---@type integer[] end of value, start of index
+    local last = rawget(self, END)
+    ---@type ffi.ctype*
+    local Ptr = assert(width == 1 and U8Ptr
+        or width == 2 and U16Ptr
+        or width == 4 and U32Ptr
+        or width == 8 and U64Ptr
+        or nil, "invalid width")
+    ---@type integer
+    local offset = cast(Ptr, last + (k - 1) * width)[0]
+    ---@type Nibs.Array|nil
+    local scope = rawget(self, CURRENT_SCOPE)
+    local _, value = decode_value(first, first + offset, scope)
+    rawset(self, k, value)
+    return value
+end
 
--- function Nibs.Array:__ipairs()
---     local i = 0
---     local len = #self
---     return function()
---         if i >= len then return end
---         i = i + 1
---         return i, self[i]
---     end
--- end
+function Nibs.Array:__ipairs()
+    local i = 0
+    local len = #self
+    return function()
+        if i >= len then return end
+        i = i + 1
+        return i, self[i]
+    end
+end
 
 --- @param data string|integer[] binary reverse nibs encoded value
 --- @param length? integer length of binary data
