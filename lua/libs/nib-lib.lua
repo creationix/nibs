@@ -171,8 +171,8 @@ end
 ---Turn any buffer into a hex encoded binary string
 ---@param dat ffi.cdata*
 ---@return string hex
-function NibLib.bufToHexStr(dat)
-    local buf = NibLib.bufToHexBuf(dat)
+function NibLib.bufToHexStr(dat, size)
+    local buf = NibLib.bufToHexBuf(dat, size)
     local hex = ffi_string(buf, sizeof(buf))
     return hex
 end

@@ -35,17 +35,7 @@ local cast = ffi.cast
 
 local insert = table.insert
 
-local Tibs = import 'tibs'
-local List = Tibs.List
-local Map = Tibs.Map
-local Array = Tibs.Array
-local Trie = Tibs.Trie
-local Ref = Tibs.Ref
-local Scope = Tibs.Scope
-
 local NibLib = import "nib-lib"
-
-local NibsList, NibsMap, NibsArray, NibsTrie
 
 local U64 = NibLib.U64
 local I64 = NibLib.I64
@@ -55,10 +45,10 @@ local U16Ptr = NibLib.U16Ptr
 local U32Ptr = NibLib.U32Ptr
 local U64Ptr = NibLib.U64Ptr
 
-local Slice8 = NibLib.U8Arr
-local Slice16 = NibLib.U16Arr
-local Slice32 = NibLib.U32Arr
-local Slice64 = NibLib.U64Arr
+local U8Arr = NibLib.U8Arr
+local U16Arr = NibLib.U16Arr
+local U32Arr = NibLib.U32Arr
+local U64Arr = NibLib.U64Arr
 
 local converter = ffi.new 'union {double f;uint64_t i;}'
 ffi.cdef [[
@@ -150,7 +140,7 @@ end
 ---@return ffi.cdata* buffer
 local function combine(size, parts)
     ---@type ffi.cdata*
-    local buf = Slice8(size)
+    local buf = U8Arr(size)
     local offset = 0
     local function write(part)
         local t = type(part)
@@ -357,48 +347,72 @@ function generate_array_index(offsets)
     local index, width
     if last < 0x100 then
         width = 1
-        index = Slice8(count, offsets)
+        index = U8Arr(count, offsets)
     elseif last < 0x10000 then
         width = 2
-        index = Slice16(count, offsets)
+        index = U16Arr(count, offsets)
     elseif last < 0x100000000 then
         width = 4
-        index = Slice32(count, offsets)
+        index = U32Arr(count, offsets)
     else
         width = 8
-        index = Slice64(count, offsets)
+        index = U64Arr(count, offsets)
     end
     local more, head = encode_pair(width, count)
     return more + sizeof(index), { index, head }
 end
 
----@param read ByteProvider
----@param offset number
----@return number
----@return number
----@return number
-local function decode_pair(read, offset)
-    local data = read(assert(tonumber(offset)), 9)
-    local pair = cast(nibs4ptr, data)
-    ---@cast pair {big:integer,small:integer}
-    if pair.big == 12 then
-        pair = cast(nibs8ptr, data)
-        ---@cast pair {prefix:integer,small:integer,big:integer}
-        return offset + 2, pair.small, pair.big
-    elseif pair.big == 13 then
-        pair = cast(nibs16ptr, data)
-        ---@cast pair {prefix:integer,small:integer,big:integer}
-        return offset + 3, pair.small, pair.big
-    elseif pair.big == 14 then
-        pair = cast(nibs32ptr, data)
-        ---@cast pair {prefix:integer,small:integer,big:integer}
-        return offset + 5, pair.small, pair.big
-    elseif pair.big == 15 then
-        pair = cast(nibs64ptr, data)
-        ---@cast pair {prefix:integer,small:integer,big:integer}
-        return offset + 9, pair.small, pair.big
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
+local function tonumberMaybe(n)
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
+end
+
+---@param data integer[] U8Arr reverse nibs serialized binary data
+---@param offset integer 0 based offset into U8Arr
+---@return integer offset after decoding
+---@return integer little type or width
+---@return integer big value or count or size
+local function decode_pair(data, offset)
+    p("decode pair", offset)
+    local byte = data[offset - 1]
+    local little = rshift(byte, 4)
+    local big = band(byte, 0xf)
+    if big < 12 then
+        p { bits = 4, little = little, big = big, offset = offset }
+        return offset - 1, little, big
+    elseif big == 12 then
+        big = cast(U8Ptr, data + offset - 2)[0]
+        p { bits = 8, little = little, big = big, offset = offset }
+        return offset - 2, little, big
+    elseif big == 13 then
+        big = cast(U16Ptr, data + offset - 3)[0]
+        p { bits = 16, little = little, big = big, offset = offset }
+        return offset - 3, little, big
+    elseif big == 14 then
+        big = cast(U32Ptr, data + offset - 5)[0]
+        p { bits = 32, little = little, big = big, offset = offset }
+        return offset - 5, little, big
     else
-        return offset + 1, pair.small, pair.big
+        big = cast(U64Ptr, data + offset - 9)[0]
+        p { bits = 64, little = little, big = big, offset = offset }
+        return offset - 9, little, big
+    end
+end
+
+---@param data integer[]
+---@param width integer
+---@param offset integer
+---@return integer
+local function decode_pointer(data, width, offset)
+    p("decode pointer", { offset = offset, width = width })
+    if width == 1 then
+        return data[offset]
+    else
+        error "TODO: decode bigger pointers"
     end
 end
 
@@ -408,615 +422,375 @@ end
 local function decode_zigzag(num)
     local i = I64(num)
     local o = bxor(rshift(i, 1), -band(i, 1))
-    return NibLib.tonumberMaybe(o)
+    return tonumberMaybe(o)
 end
 
 --- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
----@param val number
----@return integer
+---@param val integer
+---@return number
 local function decode_float(val)
+    p("decode_float", val)
     converter.i = val
     return converter.f
 end
 
-local function decode_simple(big)
-    if big == FALSE then
-        return false
-    elseif big == TRUE then
-        return true
-    elseif big == NULL then
-        return nil
+---@param data integer[]
+---@param length integer
+---@return string
+local function to_hex(data, length)
+    local parts = {}
+    local i = 0
+    while i < length do
+        local b = data[i]
+        i = i + 1
+        parts[i] = bit.tohex(b, 2)
     end
-    error(string.format("Invalid simple type %d", big))
+    return table.concat(parts, ' ')
 end
 
----@param read ByteProvider
----@param offset number
----@param length number
----@return ffi.ctype*
-local function decode_bytes(read, offset, length)
-    return NibLib.strToBuf(read(offset, length))
+local function decode_bytes(data, offset, big)
+    p("decode_bytes", { offset = offset, big = big })
+    local buf = U8Arr(big)
+    copy(buf, data + offset - big, big)
+    return buf
 end
 
----@param read ByteProvider
----@param offset number
----@param length number
----@return string
-local function decode_string(read, offset, length)
-    return read(offset, length)
+local function decode_utf8(data, offset, big)
+    p("decode_utf8", { offset = offset, big = big })
+    return ffi_string(data + offset - big, big)
 end
 
----@param read ByteProvider
----@param offset number
----@param length number
----@return string
-local function decode_hexstring(read, offset, length)
-    return NibLib.strToHexStr(read(offset, length))
+local function tohexcode(b)
+    return b + (b < 10 and 0x30 or 0x57)
 end
 
-local function decode_pointer(read, offset, width)
-    local str = read(offset, width)
-    if width == 1 then return cast(U8Ptr, str)[0] end
-    if width == 2 then return cast(U16Ptr, str)[0] end
-    if width == 4 then return cast(U32Ptr, str)[0] end
-    if width == 8 then return cast(U64Ptr, str)[0] end
-    error("Illegal pointer width " .. width)
+local function decode_hexstring(data, offset, big)
+    p("decode_hexstring", { offset = offset, big = big })
+    local buf = U8Arr(big * 2)
+    local ptr = data + offset - big
+    for i = 0, big - 1 do
+        local b = ptr[i]
+        buf[i * 2] = tohexcode(rshift(b, 4))
+        buf[i * 2 + 1] = tohexcode(band(b, 15))
+    end
+    return ffi_string(buf, big * 2)
 end
 
-local function skip(read, offset)
-    local little, big
-    offset, little, big = decode_pair(read, offset)
-    if little < 8 then
-        return offset
+--- Reverse a list in-place
+---@param list any[]
+local function reverse(list)
+    local len = #list
+    for i = 1, rshift(len, 1) do
+        local j = len - i + 1
+        list[j], list[i] = list[i], list[j]
+    end
+end
+
+local function Symbol(name)
+    return setmetatable({}, {
+        __name = name,
+        __tostring = function() return "$" .. name end,
+    })
+end
+
+local DATA = Symbol "DATA"
+local OFFSETS = Symbol "OFFSETS"
+local KEYS = Symbol "KEYS"
+local FIRST = Symbol "FIRST"
+local LAST = Symbol "LAST"
+local SCOPE_OFFSET = Symbol "SCOPE_OFFSET"
+local WIDTH = Symbol "WIDTH"
+local COUNT = Symbol "COUNT"
+local INDEX_FIRST = Symbol "INDEX_FIRST"
+
+--- Skip a value
+---@param data integer[] U8Arr
+---@param offset integer 0 based offset into data pointing to final byte of value
+---@return integer new offset into next value
+local function skip_value(data, offset)
+    p("skip", { offset = offset })
+    local o, l, b = decode_pair(data, offset)
+    if l < 8 then
+        -- inline values are done after parsing the nibs pair
+        return o
     else
-        return offset + big
+        -- container values also need the contents skipped
+        return o - b
     end
 end
 
-local get
+---@alias Nibs.Value boolean|number|string|ffi.cdata*|Nibs.List|Nibs.Array|Nibs.Map|nil
 
----@class NibsMetaEntry
----@field read ByteProvider
----@field scope DecodeScope? optional ref scope chain
----@field alpha number start of data as offset
----@field omega number end of data as offset to after data
----@field width number? width of index entries
----@field count number? count of index entries
+local decode
 
--- Weakmap for associating private metadata to tables.
----@type table<table,NibsMetaEntry>
-local NibsMeta = setmetatable({}, { __mode = "k" })
+---@param data integer[]
+---@param id integer
+---@param scope_offset integer
+---@return Nibs.Value
+local function decode_ref(data, id, scope_offset)
+    p("decode_ref", { id = id, scope_offset = scope_offset })
+    local offset, _, big = decode_pair(data, scope_offset)
+    local first = offset - big
+    offset = skip_value(data, offset)
+    local o, w, c = decode_pair(data, offset)
+    local width = w
+    local index_first = o - w * c
+    p { index_first = index_first, count = count, w = w }
 
----@class NibsList
-NibsList = {}
-NibsList.__name = "NibsList"
-NibsList.__is_array_like = true
-
----@param read ByteProvider
----@param offset number
----@param length number
----@param scope DecodeScope?
----@return NibsList
-function NibsList.new(read, offset, length, scope)
-    local self = setmetatable({}, NibsList)
-    NibsMeta[self] = {
-        read = read,
-        scope = scope,
-        alpha = offset,          -- Start of list values
-        omega = offset + length, -- End of list values
-    }
-    return self
+    local ptr = decode_pointer(data, width, index_first + width * id)
+    p{ptr=ptr}
+    return decode(data, first + ptr, scope_offset)
 end
 
-function NibsList:__len()
-    local meta = NibsMeta[self]
-    local offset = meta.alpha
-    local read = meta.read
-    local count = rawget(self, "len")
-    if not count then
-        count = 0
-        while offset < meta.omega do
-            offset = skip(read, offset)
-            count = count + 1
+---@class Nibs.List
+Nibs.List = { __name = "Nibs.List", __is_array_like = true }
+
+function Nibs.List:__len()
+    ---@type integer[]|nil array of offsets to last header byte of each value
+    local offsets = rawget(self, OFFSETS)
+    if not offsets then
+        ---@type integer[]  data
+        local data = rawget(self, DATA)
+        ---@type integer offset at end of value list
+        local last = rawget(self, LAST)
+        ---@type integer offset of start value list
+        local first = rawget(self, FIRST)
+        --- Current offset to read from
+        local offset = last
+        offsets = {}
+        while offset > first do
+            offsets[#offsets + 1] = offset
+            offset = skip_value(data, offset)
         end
-        rawset(self, "len", count)
+        reverse(offsets)
+        rawset(self, OFFSETS, offsets)
+    end
+    return #offsets
+end
+
+function Nibs.List:__index(key)
+    assert(#self)
+    ---@type integer[]
+    local offsets = rawget(self, OFFSETS)
+    local data = rawget(self, DATA)
+    local scope_offset = rawget(self, SCOPE_OFFSET)
+    local offset = offsets[key]
+    if not offset then return end
+    local value = decode(data, offset, scope_offset)
+    rawset(self, key, value)
+    return value
+end
+
+function Nibs.List:__ipairs()
+    local i = 0
+    local len = #self
+    return function()
+        if i >= len then return end
+        i = i + 1
+        return i, self[i]
+    end
+end
+
+Nibs.List.__pairs = Nibs.List.__ipairs
+
+---@class Nibs.Array
+Nibs.Array = { __name = "Nibs.Array", __is_array_like = true, __is_indexed = true }
+
+function Nibs.Array:__len()
+    ---@type integer
+    local count = rawget(self, COUNT)
+    if not count then
+        ---@type integer[]
+        local data = rawget(self, DATA)
+        ---@type integer
+        local last = rawget(self, LAST)
+        -- Read the array index header
+        local o, w, c = decode_pair(data, last)
+        rawset(self, WIDTH, w)
+        rawset(self, INDEX_FIRST, o - w * c + 1)
+        count = c
+        rawset(self, COUNT, count)
     end
     return count
 end
 
-function NibsList:__index(idx)
-    local meta = NibsMeta[self]
-    local offset = meta.alpha
-    local read = meta.read
-    local count = 1
-    while offset < meta.omega and count < idx do
-        offset = skip(read, offset)
-        count = count + 1
-    end
-    if count == idx then
-        local value = get(read, offset, meta.scope)
-        rawset(self, idx, value)
-        return value
-    end
-end
-
-function NibsList.__newindex()
-    error "NibsList is read-only"
-end
-
-function NibsList:__ipairs()
-    local meta = NibsMeta[self]
-    local offset = meta.alpha
-    local read = meta.read
-    local count = 0
-    return function()
-        if offset < meta.omega then
-            count = count + 1
-            local value = rawget(self, count)
-            if value then
-                offset = skip(read, offset)
-            else
-                value, offset = get(read, offset, meta.scope)
-                rawset(self, count, value)
-            end
-            return count, value
-        end
-    end
-end
-
-NibsList.__pairs = NibsList.__ipairs
-
----@class NibsMap
-NibsMap = {}
-NibsMap.__name = "NibsMap"
-NibsMap.__is_array_like = false
-
----@param read ByteProvider
----@param offset number
----@param length number
----@param scope DecodeScope?
----@return NibsMap
-function NibsMap.new(read, offset, length, scope)
-    local self = setmetatable({}, NibsMap)
-    NibsMeta[self] = {
-        read = read,
-        scope = scope,
-        alpha = offset,          -- Start of map values
-        omega = offset + length, -- End of map values
-    }
-    return self
-end
-
-function NibsMap.__len()
-    return 0
-end
-
-function NibsMap:__pairs()
-    local meta = NibsMeta[self]
-    local offset = meta.alpha
-    local read = meta.read
-    return function()
-        if offset < meta.omega then
-            local key, value
-            key, offset = get(read, offset, meta.scope)
-            value = rawget(self, key)
-            if value then
-                offset = skip(read, offset)
-            else
-                value, offset = get(read, offset, meta.scope)
-                rawset(self, key, value)
-            end
-            return key, value
-        end
-    end
-end
-
-function NibsMap:__index(idx)
-    local meta = NibsMeta[self]
-    local offset = meta.alpha
-    local read = meta.read
-    while offset < meta.omega do
-        local key
-        key, offset = get(read, offset, meta.scope)
-        if key == idx then
-            local value = get(read, offset, meta.scope)
-            rawset(self, idx, value)
-            return value
-        else
-            offset = skip(read, offset)
-        end
-    end
-end
-
-function NibsMap.__newindex()
-    error "NibsMap is read-only"
-end
-
----@class NibsArray
-NibsArray = {}
-NibsArray.__name = "NibsArray"
-NibsArray.__is_array_like = true
-NibsArray.__is_indexed = true
-
----@param read ByteProvider
----@param offset number
----@param length number
----@param scope DecodeScope?
----@return NibsArray
-function NibsArray.new(read, offset, length, scope)
-    local self = setmetatable({}, NibsArray)
-    local alpha, width, count = decode_pair(read, offset)
-    local omega = offset + length
-    NibsMeta[self] = {
-        read = read,
-        scope = scope,
-        alpha = alpha, -- Start of array index
-        omega = omega, -- End of array values
-        width = width, -- Width of index entries
-        count = count, -- Count of index entries
-    }
-    return self
-end
-
-function NibsArray:__index(idx)
-    local meta = NibsMeta[self]
-    if idx < 1 or idx > meta.count or math.floor(idx) ~= idx then return end
-    local offset = meta.alpha + (idx - 1) * meta.width
-    local ptr = decode_pointer(meta.read, offset, meta.width)
-    offset = meta.alpha + (meta.width * meta.count) + ptr
-    local value = get(meta.read, offset, meta.scope)
-    return value
-end
-
-function NibsArray.__newindex()
-    error "NibsArray is read-only"
-end
-
-function NibsArray:__len()
-    local meta = NibsMeta[self]
-    return meta.count
-end
-
-function NibsArray:__ipairs()
-    local i = 0
+function Nibs.Array:__index(k)
     local count = #self
+    if type(k) ~= "number" or math.floor(k) ~= k or k < 1 or k > count then return end
+    --- @type integer[] reverse nibs encoded binary data
+    local data = rawget(self, DATA)
+    --- @type integer offset to start of index
+    local index_first = rawget(self, INDEX_FIRST)
+    --- @type integer width of index pointers
+    local width = rawget(self, WIDTH)
+    local offset = decode_pointer(data, width, index_first + width * (k - 1))
+    local first = rawget(self, FIRST)
+    local scope_offset = rawget(self, SCOPE_OFFSET)
+    local v = decode(data, first + offset, scope_offset)
+    rawset(self, k, v)
+    return v
+end
+
+function Nibs.Array:__ipairs()
+    local i = 0
+    local len = #self
     return function()
-        if i < count then
-            i = i + 1
-            return i, self[i]
-        end
+        if i >= len then return end
+        i = i + 1
+        return i, self[i]
     end
 end
 
-NibsArray.__pairs = NibsArray.__ipairs
+---@class Nibs.Map
+Nibs.Map = { __name = "Nibs.Map", __is_array_like = false }
 
----@class NibsTrie
-NibsTrie = {}
-NibsTrie.__name = "NibsTrie"
-NibsTrie.__is_array_like = false
-NibsTrie.__is_indexed = true
-
----@param read ByteProvider
----@param offset number
----@param length number
----@param scope DecodeScope?
----@return NibsTrie
-function NibsTrie.new(read, offset, length, scope)
-    local self = setmetatable({}, NibsTrie)
-    local alpha, width, count = decode_pair(read, offset)
-    local seed = decode_pointer(read, alpha, width)
-    local omega = offset + length
-    NibsMeta[self] = {
-        read = read,
-        scope = scope,
-        alpha = alpha, -- Start of trie index
-        omega = omega, -- End of trie values
-        seed = seed,   -- Seed for HAMT
-        width = width, -- Width of index entries
-        count = count, -- Count of index entries
-    }
-    return self
-end
-
-function NibsTrie:__index(idx)
-    local meta = NibsMeta[self]
-    local read = meta.read
-    local width = assert(meta.width)
-    local encoded = Nibs.encode(idx)
-
-    local target = HamtIndex.walk(read, meta.alpha, meta.count, width, NibLib.strToBuf(encoded))
-    if not target then return end
-
-    target = tonumber(target)
-
-    local offset = meta.alpha + meta.width * meta.count + target
-    local key, value
-    key, offset = get(read, offset, meta.scope)
-    if key ~= idx then return end
-
-    value = get(read, offset, meta.scope)
-    return value
-end
-
-function NibsTrie.__newindex()
-    error "NibsTrie is read-only"
-end
-
-function NibsTrie.__len()
+function Nibs.Map:__len()
+    ---@type table<any,integer>|nil array of offsets to last header byte of each value
+    local offsets = rawget(self, OFFSETS)
+    if not offsets then
+        ---@type integer[]  data
+        local data = rawget(self, DATA)
+        ---@type integer offset at end of value list
+        local last = rawget(self, LAST)
+        ---@type integer offset of start value list
+        local first = rawget(self, FIRST)
+        ---@type integer|nil scope index
+        local scope_offset = rawget(self, SCOPE_OFFSET)
+        --- Current offset to read from
+        local offset = last
+        ---@type any[]
+        local keys = {}
+        offsets = {}
+        while offset > first do
+            local o = offset
+            offset = skip_value(data, offset)
+            ---@type any
+            local key = decode(data, offset, scope_offset)
+            assert(key ~= nil)
+            keys[#keys + 1] = key
+            offsets[key] = o
+            -- TODO: we shouldn't need this skip, we should get offset from decode
+            offset = skip_value(data, offset)
+        end
+        reverse(keys)
+        rawset(self, KEYS, keys)
+        rawset(self, OFFSETS, offsets)
+    end
     return 0
 end
 
-function NibsTrie:__pairs()
-    local meta = NibsMeta[self]
-    local offset = meta.alpha + meta.width * meta.count
-    return function()
-        if offset < meta.omega then
-            local key, value
-            key, offset = get(meta.read, offset, meta.scope)
-            value, offset = get(meta.read, offset, meta.scope)
-            -- TODO: remove this sanity check once we're confident in __index
-            local check = self[key]
-            if not (type(value) == "table" or type(value) == "cdata" or check == value) then
-                error "Mismatch"
-            end
+function Nibs.Map:__pairs()
+    assert(#self)
+    ---@type integer[]
+    local data = rawget(self, DATA)
+    ---@type table<any,integer>
+    local offsets = rawget(self, OFFSETS)
+    ---@type any[]
+    local keys = rawget(self, KEYS)
+    ---@type integer|nil
+    local scope_offset = rawget(self, SCOPE_OFFSET)
+    local i = 0
+    local len = #keys
+    return function ()
+        if i < len then
+            i = i + 1
+            local key = keys[i]
+            local offset = offsets[key]
+            local value = decode(data, offset, scope_offset)
             return key, value
         end
     end
 end
 
----@class DecodeScope
----@field alpha number
----@field omega number
-
----@param read ByteProvider
----@param offset number
----@param big number
----@return any
----@return number
-local function decode_scope(read, offset, big)
-    return get(read, offset, {
-        alpha = skip(read, offset),
-        omega = offset + big,
-    })
+function Nibs.Map.__ipairs()
+    return function () end
 end
 
----@param read ByteProvider
----@param scope? DecodeScope
----@param id integer
----@return any
-local function decode_ref(read, scope, id)
-    assert(scope, "Ref found outside of scope")
-    local offset, width, count = decode_pair(read, scope.alpha)
-    assert(offset < scope.omega)
-    local ptr_offset = offset + id * width
-    assert(ptr_offset < scope.omega)
-    local ptr = decode_pointer(read, ptr_offset, width)
-    local start = offset + width * count + ptr
-    assert(start < scope.omega)
-    return (get(read, start, scope))
+function Nibs.Map:__index(key)
+    assert(#self)
+    ---@type integer[]
+    local data = rawget(self, DATA)
+    ---@type table<any,integer>
+    local offsets = rawget(self, OFFSETS)
+    ---@type integer|nil
+    local scope_offset = rawget(self, SCOPE_OFFSET)
+    local offset = offsets[key]
+    if not offset then return end
+    -- TODO: consider memoizing this
+    local value = decode(data, offset, scope_offset)
+    return value
 end
 
----Read a nibs value at offset
----@param read ByteProvider
----@param offset number
----@param scope DecodeScope?
----@return any, number
-function get(read, offset, scope)
-    local start = offset
+--- Mount a nibs binary value for lazy reading
+--- when accessing properties on maps, lists, and arrays, the value
+--- is decoded on the fly and memoized for faster access.
+--- @param data string|integer[] binary reverse nibs encoded value
+--- @param length integer|nil length of binary data
+--- @param scope_offset integer|nil scope to use for references
+--- @return Nibs.Value
+function Nibs.decode(data, length, scope_offset)
+    if type(data) == "string" then
+        if not length then length = #data end
+        ---@type integer[]
+        local buf = U8Arr(length)
+        copy(buf, data, length)
+        data = buf
+    end
+    assert(length, "unknown value end")
+    print(string.format("decode %s", to_hex(data, length)))
+    local offset = length
     local little, big
-    offset, little, big = decode_pair(read, offset)
+    offset, little, big = decode_pair(data, offset)
     if little == ZIGZAG then
-        return decode_zigzag(big), offset
+        return decode_zigzag(big)
     elseif little == FLOAT then
-        return decode_float(big), offset
+        return decode_float(big)
     elseif little == SIMPLE then
-        return decode_simple(big), offset
+        if big == FALSE then
+            return false
+        elseif big == TRUE then
+            return true
+        elseif big == NULL then
+            return nil
+        else
+            error(string.format("Unknown SIMPLE %d", big))
+        end
     elseif little == REF then
-        return decode_ref(read, scope, big), offset
+        assert(scope_offset, "missing scope index")
+        return decode_ref(data, big, scope_offset)
     elseif little == BYTES then
-        return decode_bytes(read, offset, big), offset + big
+        return decode_bytes(data, offset, big)
     elseif little == UTF8 then
-        return decode_string(read, offset, big), offset + big
+        return decode_utf8(data, offset, big)
     elseif little == HEXSTRING then
-        return decode_hexstring(read, offset, big), offset + big
+        return decode_hexstring(data, offset, big)
     elseif little == LIST then
-        return NibsList.new(read, offset, big, scope), offset + big
+        return setmetatable({
+            [DATA] = data,
+            [FIRST] = offset - big,
+            [LAST] = offset,
+            [SCOPE_OFFSET] = scope_offset,
+        }, Nibs.List)
     elseif little == MAP then
-        return NibsMap.new(read, offset, big, scope), offset + big
+        return setmetatable({
+            [DATA] = data,
+            [FIRST] = offset - big,
+            [LAST] = offset,
+            [SCOPE_OFFSET] = scope_offset,
+        }, Nibs.Map)
     elseif little == ARRAY then
-        return NibsArray.new(read, offset, big, scope), offset + big
-    elseif little == TRIE then
-        return NibsTrie.new(read, offset, big, scope), offset + big
+        return setmetatable({
+            [DATA] = data,
+            [FIRST] = offset - big,
+            [LAST] = offset,
+            [SCOPE_OFFSET] = scope_offset,
+        }, Nibs.Array)
     elseif little == SCOPE then
-        return decode_scope(read, offset, big), offset + big
+        return decode(data, offset, length)
     else
-        error(string.format('Unexpected nibs type: %s at %08x', little, start))
+        error(string.format("Unknown type 0x%x", little))
     end
 end
-
-Nibs.get = get
-
----Decode a nibs string from memory
----@param str string
----@return any
-function Nibs.decode(str)
-    local val, offset = Nibs.get(function(offset, length)
-        return string.sub(str, offset + 1, offset + length)
-    end, 0)
-    assert(offset == #str, "extra data in input string")
-    return val
-end
-
----Turn lists and maps into arrays and tries if they are over some limit
----@param value Value
----@param index_limit number
-function Nibs.autoIndex(value, index_limit)
-    index_limit = index_limit or 10
-    -- TODO: index if the serialized size is above some threshold,
-    -- this is what matters for reducing chunk fetches
-    -- which matters more than overall data size
-
-    ---@param o Value
-    local function walk(o)
-        if type(o) ~= "table" then return o end
-        local mt = getmetatable(o)
-        if mt == Ref then
-            return o
-        elseif mt == Scope then
-            local last = #o
-            o[last] = walk(o[last])
-            return o
-        end
-        if NibLib.isArrayLike(o) then
-            local r = #o < index_limit and o or Array.new()
-            for i = 1, #o do
-                r[i] = walk(o[i])
-            end
-            return r
-        end
-        local count = 0
-        for _ in pairs(o) do count = count + 1 end
-        local r = count < index_limit and o or Trie.new()
-        for k, v in pairs(o) do
-            r[walk(k)] = walk(v)
-        end
-        return r
-    end
-
-    return walk(value)
-end
-
----Walk through a value and replace values found in the reference table with refs.
----@param value Value
----@param refs Value[]
-function Nibs.addRefs(value, refs)
-    if #refs == 0 then return value end
-    ---@param o Value
-    ---@param skipCheck boolean?
-    ---@return Value
-    local function walk(o, skipCheck)
-        if not skipCheck then
-            for i, r in ipairs(refs) do
-                if r == o then
-                    return Ref.new(i - 1)
-                end
-            end
-        end
-        if type(o) == "table" then
-            if getmetatable(o) == Scope then return o end
-            if NibLib.isArrayLike(o) then
-                local a = List.new()
-                for i, v in ipairs(o) do
-                    a[i] = walk(v)
-                end
-                return a
-            end
-            local m = Map.new()
-            for k, v in pairs(o) do
-                m[walk(k)] = walk(v)
-            end
-            return m
-        end
-        return o
-    end
-
-    local scope = {}
-
-    insert(scope, walk(value))
-
-    for i = 1, #refs do
-        insert(scope, walk(refs[i], true))
-    end
-
-    return Scope.new(scope)
-end
-
----Walk through a value and find duplicate values (sorted by frequency)
----@param value Value
----@retun Value[]
-function Nibs.findDuplicates(value)
-    -- Wild guess, but real data with lots of dups over 1mb is 1 for reference
-    local pointer_cost = 1
-    local small_string = pointer_cost + 1
-    local small_number = lshift(1, lshift(pointer_cost, 3) - 1)
-    local function potentiallyBig(val)
-        local t = type(val)
-        if t == "string" then
-            return #val > small_string
-        elseif t == "number" then
-            return math.floor(val) ~= val or val <= -small_number or val > small_number
-        end
-        return false
-    end
-
-    local seen = {}
-    local duplicates = {}
-    local total_encoded_size = 0
-    ---@param o Value
-    ---@return Value
-    local function walk(o)
-        if type(o) == "table" then
-            -- Don't walk into nested scopes
-            if getmetatable(o) == Scope then return o end
-            for k, v in pairs(o) do
-                walk(k)
-                walk(v)
-            end
-        elseif o and potentiallyBig(o) then
-            local old = seen[o]
-            if not old then
-                seen[o] = 1
-            else
-                if old == 1 then
-                    total_encoded_size = total_encoded_size + #Nibs.encode(o)
-                    table.insert(duplicates, o)
-                end
-                seen[o] = old + 1
-            end
-        end
-    end
-
-    -- Extract all duplicate values that can be potentially saved
-    walk(value)
-
-    -- Update pointer cost based on real data we now have
-    -- note this is still not 100% accurate as we still need to prune any
-    -- potential refs that are not worth adding and that pruning may
-    -- drop this down a level.
-    pointer_cost = total_encoded_size < 0x100 and 1
-        or total_encoded_size < 0x10000 and 2
-        or total_encoded_size < 0x100000000 and 4
-        or 8
-
-    -- Sort by frequency
-    table.sort(duplicates, function(a, b)
-        return seen[a] > seen[b]
-    end)
-
-    -- Remove any entries that cost more than they save
-    local trimmed = {}
-    local i = 0
-    for _, v in ipairs(duplicates) do
-        local cost = #Nibs.encode(v)
-        local refCost = i < 12 and 1
-            or i < 0x100 and 2
-            or i < 0x10000 and 3
-            or i < 0x100000000 and 5
-            or 9
-        local count = seen[v]
-        if refCost * count + pointer_cost < cost * count then
-            i = i + 1
-            trimmed[i] = v
-        end
-    end
-
-    -- This final list is guranteed to not contain any values that bloat the final size
-    -- by turning into refs, but it had a chance to miss some it should have included.
-    return trimmed
-end
-
-function Nibs.deduplicate(val)
-    return Nibs.addRefs(val, Nibs.findDuplicates(val))
-end
+decode = Nibs.decode
 
 return Nibs
