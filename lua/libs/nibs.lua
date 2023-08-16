@@ -421,7 +421,6 @@ local function decode_pair(first, last)
     local byte = last[0]
     local little = rshift(byte, 4)
     local big = band(byte, 0xf)
-    p(little,big)
     if big < 12 then
         return last, little, big
     elseif big == 12 then
@@ -502,7 +501,6 @@ end
 ---@return integer[] new_last after consuming value
 ---@return Nibs.Value decoded_value
 local function decode_value(first, last, data, scope)
-    p("decode_value", first,last,scope)
     assert(last > first)
 
     -- Read the value header and update the upper boundary
@@ -690,7 +688,6 @@ function Nibs.Map:__pairs()
         local mid = offsets[i - 1]
         local last = offsets[i]
         assert(i and first and mid and last)
-        p(offsets)
         local _, key = decode_value(first, mid, data, scope)
         local _, value = decode_value(mid, last, data, scope)
         rawset(self, key, value)
