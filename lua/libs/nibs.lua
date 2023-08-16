@@ -379,7 +379,6 @@ end
 ---@param val integer
 ---@return number
 local function decode_float(val)
-    p("decode_float", val)
     converter.i = val
     return converter.f
 end
@@ -501,7 +500,6 @@ end
 ---@return integer[] new_last after consuming value
 ---@return Nibs.Value decoded_value
 local function decode_value(first, last, scope)
-    print("decode_value", first, last, scope)
     assert(last > first)
 
     -- Read the value header and update the upper boundary
@@ -530,7 +528,6 @@ local function decode_value(first, last, scope)
         end
     elseif type_tag == REF then
         assert(scope, "missing scope array")
-        p("scope", scope)
         return last, scope[int_val + 1]
     elseif type_tag < 8 then
         error(string.format("Unknown inline type %d", type_tag))
@@ -563,7 +560,6 @@ local function decode_value(first, last, scope)
 end
 
 function decode_list(first, last, scope)
-    print("decode_list", first, last, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
@@ -572,7 +568,6 @@ function decode_list(first, last, scope)
 end
 
 function decode_map(first, last, scope)
-    print("decode_map", first, last, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
@@ -581,7 +576,6 @@ function decode_map(first, last, scope)
 end
 
 function decode_array(first, last, scope)
-    print("decode_array", first, last, scope)
     local n, l, b = decode_pair(first, last)
     return first, setmetatable({
         [START] = first,
@@ -593,7 +587,6 @@ function decode_array(first, last, scope)
 end
 
 function decode_scope(first, last, scope)
-    print("decode_scope", first, last, scope)
     local index = skip_value(first, last)
     assert(index >= first)
     local _, value
@@ -700,7 +693,19 @@ function Nibs.Map.__ipairs()
 end
 
 function Nibs.Map:__index(key)
-    error "TODO: Nibs.Map:__index"
+    local offsets = get_offsets(self)
+    local scope = rawget(self, CURRENT_SCOPE)
+    for i = 0, #offsets - 1, 2 do
+        local first = offsets[i]
+        local mid = offsets[i + 1]
+        local _, k = decode_value(first, mid, scope)
+        if k == key then
+            local last = offsets[i + 2]
+            local _, value = decode_value(mid, last, scope)
+            rawset(self, key, value)
+            return value
+        end
+    end
 end
 
 ---@class Nibs.Array
@@ -750,7 +755,6 @@ end
 --- @param data string|integer[] binary reverse nibs encoded value
 --- @param length? integer length of binary data
 function Nibs.decode(data, length)
-    p("decode", data, length)
     if type(data) == "string" then
         length = length or #data
         local buf = U8Arr(length)
@@ -759,9 +763,7 @@ function Nibs.decode(data, length)
     end
     assert(length, "unknown length")
     assert(length > 0, "empty data")
-    print("\n\nINITIAL DATA: ", data, length, "\n\n")
     local offset, value = decode_value(data, data + length)
-    p("data", data, "offset", offset, "value", value)
     assert(offset - data == 0)
     return value
 end
