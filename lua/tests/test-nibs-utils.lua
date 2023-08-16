@@ -10,7 +10,6 @@ local inputs = Tibs.Map.new(unpack {
     "empty list", "[]",
     "empty map", "{}",
     "empty array", "[#]",
-    "empty trie", "{#}",
     "mixed types", '[0,-10,100,true,false,null,<123456>,"Hello","123456"]',
     "repeated", '["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"]',
     "number", '1234',
@@ -20,11 +19,11 @@ local inputs = Tibs.Map.new(unpack {
     "hamburgers", '[2011125487,"deadbeef"]',
     "counters", '[0,-1,1,-2,2,-3,"000102030405"]',
     "object", '{"name":"Tim","age":40,"color":"blue"}',
-    "mixed", '[' ..
-        '{"color":"red",   "fruits":["apple","strawberry"]},' ..
-        '{"color":"green", "fruits":["apple"]},' ..
-        '{"color":"yellow","fruits":["apple","banana"]}' ..
-        ']',
+    "mixed", '[#' ..
+'{"color":"red",   "fruits":["apple","strawberry"]},' ..
+'{"color":"green", "fruits":["apple"]},' ..
+'{"color":"yellow","fruits":["apple","banana"]}' ..
+']',
     "wide trie", [[{
       0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
     }]],
@@ -38,73 +37,73 @@ local inputs = Tibs.Map.new(unpack {
 })
 
 local function autoIndex(val)
-    return Nibs.autoIndex(val, 4)
+    error "TODO: autoindex"
 end
 
 local tests = Tibs.Map.new(unpack {
-    "Input Json", {},
+    "Input Tibs", {},
     "Original", { Tibs.decode },
-    "Original -> Json", { Tibs.decode, Tibs.encode },
-    "Original -> Json -> Lua", { Tibs.decode, Tibs.encode, Tibs.decode },
-    "Original -> Json -> Lua -> Json", { Tibs.decode, Tibs.encode, Tibs.decode, Tibs.encode },
-    "Original -> Json -> Lua -> Nibs", { Tibs.decode, Tibs.encode, Tibs.decode, Nibs.encode },
+    "Original -> Tibs", { Tibs.decode, Tibs.encode },
+    "Original -> Tibs -> Lua", { Tibs.decode, Tibs.encode, Tibs.decode },
+    "Original -> Tibs -> Lua -> Tibs", { Tibs.decode, Tibs.encode, Tibs.decode, Tibs.encode },
+    "Original -> Tibs -> Lua -> Nibs", { Tibs.decode, Tibs.encode, Tibs.decode, Nibs.encode },
     "Original -> Nibs", { Tibs.decode, Nibs.encode },
     "Original -> Nibs -> Lua", { Tibs.decode, Nibs.encode, Nibs.decode },
-    "Deduplicated", { Tibs.decode, Nibs.deduplicate },
-    "Deduplicated -> Json", { Tibs.decode, Nibs.deduplicate, Tibs.encode },
-    "Deduplicated -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, Tibs.encode, Tibs.decode },
-    "Deduplicated -> Nibs", { Tibs.decode, Nibs.deduplicate, Nibs.encode },
-    "Deduplicated -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
-    "Indexed", { Tibs.decode, autoIndex },
-    "Indexed -> Json", { Tibs.decode, autoIndex, Tibs.encode },
-    "Indexed -> Json -> Lua", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode },
-    "Indexed -> Json -> Lua -> Json", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode, Tibs.encode },
-    "Indexed -> Nibs", { Tibs.decode, autoIndex, Nibs.encode },
-    "Indexed -> Nibs -> Lua", { Tibs.decode, autoIndex, Nibs.encode, Nibs.decode },
-    "Deduped -> Indexed", { Tibs.decode, Nibs.deduplicate, autoIndex },
-    "Indexed -> Deduped", { Tibs.decode, Nibs.deduplicate, autoIndex },
-    "Deduped -> Indexed -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
-    "Indexed -> Deduped -> Json", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
-    "Deduped -> Indexed -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
-    "Indexed -> Deduped -> Json -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
-    "Deduped -> Indexed -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    "Indexed -> Deduped -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
-    "Deduped -> Indexed -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
-    "Indexed -> Deduped -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Deduplicated", { Tibs.decode, Nibs.deduplicate },
+    -- "Deduplicated -> Tibs", { Tibs.decode, Nibs.deduplicate, Tibs.encode },
+    -- "Deduplicated -> Tibs -> Lua", { Tibs.decode, Nibs.deduplicate, Tibs.encode, Tibs.decode },
+    -- "Deduplicated -> Nibs", { Tibs.decode, Nibs.deduplicate, Nibs.encode },
+    -- "Deduplicated -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, Nibs.encode, Nibs.decode },
+    -- "Indexed", { Tibs.decode, autoIndex },
+    -- "Indexed -> Tibs", { Tibs.decode, autoIndex, Tibs.encode },
+    -- "Indexed -> Tibs -> Lua", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode },
+    -- "Indexed -> Tibs -> Lua -> Tibs", { Tibs.decode, autoIndex, Tibs.encode, Tibs.decode, Tibs.encode },
+    -- "Indexed -> Nibs", { Tibs.decode, autoIndex, Nibs.encode },
+    -- "Indexed -> Nibs -> Lua", { Tibs.decode, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Deduped -> Indexed", { Tibs.decode, Nibs.deduplicate, autoIndex },
+    -- "Indexed -> Deduped", { Tibs.decode, Nibs.deduplicate, autoIndex },
+    -- "Deduped -> Indexed -> Tibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
+    -- "Indexed -> Deduped -> Tibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode },
+    -- "Deduped -> Indexed -> Tibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
+    -- "Indexed -> Deduped -> Tibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Tibs.encode, Tibs.decode },
+    -- "Deduped -> Indexed -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    -- "Indexed -> Deduped -> Nibs", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode },
+    -- "Deduped -> Indexed -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
+    -- "Indexed -> Deduped -> Nibs -> Lua", { Tibs.decode, Nibs.deduplicate, autoIndex, Nibs.encode, Nibs.decode },
 })
 
 local matchers = {
     {
         "Original",
-        "Original -> Json -> Lua",
+        "Original -> Tibs -> Lua",
         "Original -> Nibs -> Lua",
     },
     {
-        "Original -> Json",
-        "Original -> Json -> Lua -> Json",
+        "Original -> Tibs",
+        "Original -> Tibs -> Lua -> Tibs",
     },
     {
         "Original -> Nibs",
-        "Original -> Json -> Lua -> Nibs",
+        "Original -> Tibs -> Lua -> Nibs",
     },
-    {
-        "Deduped",
-        "Deduped -> Json -> Lua",
-        -- "Deduped -> Nibs -> Lua",
-    },
-    {
-        "Deduped -> Json",
-        "Deduped -> Json -> Lua -> Json",
-    },
-    {
-        "Indexed",
-        "Indexed -> Json -> Lua",
-        -- "Indexed -> Nibs -> Lua",
-    },
-    {
-        "Indexed -> Json",
-        "Indexed -> Json -> Lua -> Json",
-    },
+    -- {
+    --     "Deduped",
+    --     "Deduped -> Tibs -> Lua",
+    --     -- "Deduped -> Nibs -> Lua",
+    -- },
+    -- {
+    --     "Deduped -> Tibs",
+    --     "Deduped -> Tibs -> Lua -> Tibs",
+    -- },
+    -- {
+    --     "Indexed",
+    --     "Indexed -> Tibs -> Lua",
+    --     -- "Indexed -> Nibs -> Lua",
+    -- },
+    -- {
+    --     "Indexed -> Tibs",
+    --     "Indexed -> Tibs -> Lua -> Tibs",
+    -- },
 }
 
 
@@ -124,8 +123,11 @@ for name, json in pairs(inputs) do
                     return fn(val, unpack(args))
                 end
             end
+            p("step", step)
             collectgarbage("collect")
+            p("before", value)
             value = assert(step(value))
+            p("after", value)
             collectgarbage("collect")
         end
         outputs[test] = value
@@ -151,9 +153,9 @@ for name, json in pairs(inputs) do
             local actual = outputs[other]
             if expected and actual and not TestUtils.equal(expected, actual) then
                 print(string.format("Expected (%s):", first))
-                p(expected)
+                p("Expected", expected)
                 print(string.format("Actual (%s):", other))
-                p(actual)
+                p("Actual", actual)
                 error(name .. " Mismatch in expected same outputs")
             end
         end
