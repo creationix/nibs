@@ -140,6 +140,7 @@ for name, json in pairs(inputs) do
             extra_space = ""
         else
             if not big then
+                print("value:"..tostring(value))
                 p(value)
             end
             extra_space = "\n"
