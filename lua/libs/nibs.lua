@@ -1,4 +1,3 @@
-local import = _G.import or require
 
 -- Main types
 local ZIGZAG = 0
@@ -20,11 +19,15 @@ local FALSE = 0
 local TRUE = 1
 local NULL = 2
 
+local char = string.char
+local byte = string.byte
+
 local bit = require 'bit'
+local lshift = bit.lshift
 local rshift = bit.rshift
 local arshift = bit.arshift
 local band = bit.band
-local lshift = bit.lshift
+local bor = bit.bor
 local bxor = bit.bxor
 
 local ffi = require 'ffi'
@@ -32,23 +35,30 @@ local sizeof = ffi.sizeof
 local copy = ffi.copy
 local ffi_string = ffi.string
 local cast = ffi.cast
+local istype = ffi.istype
 
 local insert = table.insert
 
-local NibLib = import "nib-lib"
+local U8 = ffi.typeof 'uint8_t'
+local I8 = ffi.typeof 'int8_t'
+local U16 = ffi.typeof 'uint16_t'
+local I16 = ffi.typeof 'int16_t'
+local U32 = ffi.typeof 'uint32_t'
+local I32 = ffi.typeof 'int32_t'
+local U64 = ffi.typeof 'uint64_t'
+local I64 = ffi.typeof 'int64_t'
+local F32 = ffi.typeof 'float'
+local F64 = ffi.typeof 'double'
 
-local U64 = NibLib.U64
-local I64 = NibLib.I64
+local U8Ptr = ffi.typeof 'uint8_t*'
+local U16Ptr = ffi.typeof 'uint16_t*'
+local U32Ptr = ffi.typeof 'uint32_t*'
+local U64Ptr = ffi.typeof 'uint64_t*'
 
-local U8Ptr = NibLib.U8Ptr
-local U16Ptr = NibLib.U16Ptr
-local U32Ptr = NibLib.U32Ptr
-local U64Ptr = NibLib.U64Ptr
-
-local U8Arr = NibLib.U8Arr
-local U16Arr = NibLib.U16Arr
-local U32Arr = NibLib.U32Arr
-local U64Arr = NibLib.U64Arr
+local U8Arr = ffi.typeof 'uint8_t[?]'
+local U16Arr = ffi.typeof 'uint16_t[?]'
+local U32Arr = ffi.typeof 'uint32_t[?]'
+local U64Arr = ffi.typeof 'uint64_t[?]'
 
 local converter = ffi.new 'union {double f;uint64_t i;}'
 ffi.cdef [[
@@ -171,6 +181,77 @@ local encode_array
 local generate_array_index
 local encode_scope
 
+--- Returns true if a table should be treated like an array (ipairs/length/etc)
+--- This uses the __is_array_like metaproperty if it exists, otherwise, it
+--- iterates over the pairs keys checking if they look like an array (1...n)
+---@param val table
+---@return boolean is_array_like
+local function is_array_like(val)
+    local mt = getmetatable(val)
+    if mt then
+        if mt.__is_array_like ~= nil then
+            return mt.__is_array_like
+        end
+        if mt.__jsontype then -- dkjson has a __jsontype field
+            if mt.__jsontype == "array" then return true end
+            if mt.__jsontype == "object" then return false end
+        end
+    end
+    local i = 1
+    for key in pairs(val) do
+        if key ~= i then return false end
+        i = i + 1
+    end
+    return true
+end
+
+---@param b integer nibble value
+---@return integer ascii hex code
+local function tohexcode(b)
+    return b + (b < 10 and 0x30 or 0x57)
+end
+
+--- Convert ascii hex digit to integer
+--- Assumes input is valid character [0-9a-f]
+---@param code integer ascii code for hex digit
+---@return integer num value of hex digit (0-15)
+local function fromhexcode(code)
+    return code - (code >= 0x61 and 0x57 or 0x30)
+end
+
+--- Detect if a cdata is an integer
+---@param val ffi.cdata*
+---@return boolean is_int
+local function is_integer(val)
+    return istype(I64, val) or
+        istype(I32, val) or
+        istype(I16, val) or
+        istype(I8, val) or
+        istype(U64, val) or
+        istype(U32, val) or
+        istype(U16, val) or
+        istype(U8, val)
+end
+
+--- Detect if a cdata is a float
+---@param val ffi.cdata*
+---@return boolean is_float
+local function is_float(val)
+    return istype(F64, val) or
+        istype(F32, val)
+end
+
+--- Detect if a number is whole or not
+---@param num number|ffi.cdata*
+local function is_whole(num)
+    local t = type(num)
+    if t == 'cdata' then
+        return is_integer(num)
+    elseif t == 'number' then
+        return not (num ~= num or num == 1 / 0 or num == -1 / 0 or math.floor(num) ~= num)
+    end
+end
+
 ---@class Nibs
 local Nibs = {}
 
@@ -185,13 +266,29 @@ function Nibs.encode(val)
     return ffi_string(encoded, size)
 end
 
+
+--- Decode a hex encoded string into a binary buffer
+---@param hex string
+---@return ffi.cdata* buf
+local function decode_hex(hex)
+    local len = #hex / 2
+    local buf = U8Arr(len)
+    for i = 0, len - 1 do
+        buf[i] = bor(
+            lshift(fromhexcode(byte(hex, i * 2 + 1)), 4),
+            fromhexcode(byte(hex, i * 2 + 2))
+        )
+    end
+    return buf
+end
+
 ---@param val any
 ---@return integer size of encoded bytes
 ---@return any bytes as parts
 function encode_any(val)
     local t = type(val)
     if t == "number" then
-        if NibLib.isWhole(val) then
+        if is_whole(val) then
             return encode_pair(ZIGZAG, encode_zigzag(val))
         else
             return encode_pair(FLOAT, encode_float(val))
@@ -201,15 +298,15 @@ function encode_any(val)
         if len % 2 == 0 and string.match(val, "^[0-9a-f]+$") then
             len = len / 2
             local size, head = encode_pair(HEXSTRING, len)
-            return size + len, { NibLib.hexStrToBuf(val), head }
+            return size + len, { decode_hex(val), head }
         end
         local size, head = encode_pair(UTF8, len)
         return size + len, { val, head }
     elseif t == "cdata" then
-        if NibLib.isInteger(val) then
+        if is_integer(val) then
             -- Treat cdata integers as integers
             return encode_pair(ZIGZAG, encode_zigzag(val))
-        elseif NibLib.isFloat(val) then
+        elseif is_float(val) then
             -- Treat cdata floats as floats
             return encode_pair(FLOAT, encode_float(val))
         else
@@ -234,7 +331,7 @@ function encode_any(val)
             return encode_pair(REF, val[1])
         elseif mt and mt.__is_scope then
             return encode_scope(val)
-        elseif NibLib.isArrayLike(val) then
+        elseif is_array_like(val) then
             if mt and mt.__is_indexed then
                 return encode_array(val)
             end
@@ -459,12 +556,6 @@ end
 ---@return string utf8 decoded value
 local function decode_utf8(first, last)
     return first, ffi_string(first, last - first)
-end
-
----@param b integer nibble value
----@return integer ascii hex code
-local function tohexcode(b)
-    return b + (b < 10 and 0x30 or 0x57)
 end
 
 ---@param first integer[] pointer to start of slice
@@ -776,6 +867,140 @@ function Nibs.decode(data, length)
     local offset, value = decode_value(data, data + length, data)
     assert(offset - data == 0)
     return value
+end
+
+
+---@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
+
+-- Consume a single required digit [0-9]
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return integer|nil new_offset
+---@return nil|string error
+local function consume_digit(json, offset, limit)
+    if offset >= limit then
+        return nil, string.format("Unexpected EOS at %d", offset)
+    end
+    local c = json[offset]
+    if c < 0x30 or c > 0x39 then -- outside "0-9"
+        return nil, string.format("Unexpected %q at %d", char(c), offset)
+    end
+    return offset + 1
+end
+
+-- Consume a sequence of zero or more digits [0-9]
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@return integer new_offset
+local function consume_digits(json, offset, limit)
+    while offset < limit do
+        local c = json[offset]
+        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+        offset = offset + 1
+    end
+    return offset
+end
+
+---@param json integer[]
+---@param offset integer
+---@param limit integer
+---@param c1 integer
+---@param c2? integer
+---@return integer new_offset
+---@return boolean did_matche
+local function consume_optional(json, offset, limit, c1, c2)
+    local c = json[offset]
+    if offset < limit and (c == c1 or c == c2) then
+        return offset + 1, true
+    end
+    return offset, false
+end
+
+--- Parse a single JSON token, call in a loop for a streaming parser.
+--- @param json integer[] U8Array of JSON encoded data
+--- @param offset integer offset of where to start parsing
+--- @param limit integer offset to right after json string
+--- @return JsonToken|nil token name
+--- @return integer|nil token_offset offset of first character in token
+--- @return integer|nil token_limit offset to right after token
+local function next_json_token(json, offset, limit)
+    while offset < limit do
+        local c = json[offset]
+        if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
+            -- "\r" | "\n" | "\t" | " "
+            -- Skip whitespace
+            offset = offset + 1
+        elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
+            -- "[" | "]" "{" | "}" | ":" | ","
+            -- Pass punctuation through as-is
+            return char(c), offset, offset + 1
+        elseif c == 0x22 then -- double quote
+            -- Parse Strings
+            local first = offset
+            while true do
+                offset = offset + 1
+                if offset >= limit then
+                    error(string.format("Unexpected EOS at %d", offset))
+                end
+                c = json[offset]
+                if c == 0x22 then     -- double quote
+                    return "string", first, offset + 1
+                elseif c == 0x5c then -- backslash
+                    offset = offset + 1
+                end
+            end
+        elseif c == 0x74 and offset + 3 < limit            -- "t"
+            and json[offset + 1] == 0x72                   -- "r"
+            and json[offset + 2] == 0x75                   -- "u"
+            and json[offset + 3] == 0x65 then              -- "e"
+            return "true", offset, offset + 4
+        elseif c == 0x66 and offset + 4 < limit            -- "f"
+            and json[offset + 1] == 0x61                   -- "a"
+            and json[offset + 2] == 0x6c                   -- "l"
+            and json[offset + 3] == 0x73                   -- "s"
+            and json[offset + 4] == 0x65 then              -- "e"
+            return "false", offset, offset + 5
+        elseif c == 0x6e and offset + 3 < limit            -- "n"
+            and json[offset + 1] == 0x75                   -- "u"
+            and json[offset + 2] == 0x6c                   -- "l"
+            and json[offset + 3] == 0x6c then              -- "l"
+            return "null", offset, offset + 4
+        elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
+            local first = offset
+            offset = offset + 1
+
+            if c == 0x2d then -- "-" needs at least one digit after
+                offset = assert(consume_digit(json, offset, limit))
+            end
+            offset = consume_digits(json, offset, limit)
+
+            local matched
+            offset, matched = consume_optional(json, offset, limit, 0x2e) -- "."
+            if matched then
+                offset = assert(consume_digit(json, offset, limit))
+                offset = consume_digits(json, offset, limit)
+            end
+
+            offset, matched = consume_optional(json, offset, limit, 0x45, 0x65) -- "e"|"E"
+            if matched then
+                offset = consume_optional(json, offset, limit, 0x2b, 0x2d)      -- "+"|"-"
+                offset = assert(consume_digit(json, offset, limit))
+                offset = consume_digits(json, offset, limit)
+            end
+
+            return "number", first, offset
+        else
+            error(string.format("Unexpected %q at %d", string.char(c), offset))
+        end
+    end
+end
+Nibs.next_json_token = next_json_token
+
+---@param json string
+---@return Nibs.Value
+function Nibs.from_json(json)
 end
 
 return Nibs
