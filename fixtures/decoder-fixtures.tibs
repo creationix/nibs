@@ -126,8 +126,8 @@
         19 dc>, [#[#[#1]],[#[#2]],[#[#3]]],
     ],    
     "Refs": [
-      <dead a2 beef a2 03 06 12 31 f9>, "beef",
-      <dead a2 beef a2 03 06 12 30 f9>, "dead",
+      <dead a2 beef a2 03 06 12 31 fa>, "beef",
+      <dead a2 beef a2 03 06 12 30 fa>, "dead",
       <02 04 06 08 01 02 03 04 14 33 31 32 30 b4 0e fc>, [4,2,3,1],
       < 636f6c6f72 95
         667275697473 96
@@ -143,7 +143,7 @@
             31 32 62616e616e61 96 b8
           12 cc
         35 bc
-      4e fc >, [
+      4e fc>, [
           { "color": "red", "fruits": ["apple", "strawberry"] },
           { "color": "green", "fruits": ["apple"] },
           { "color": "yellow", "fruits": ["apple", "banana"] }

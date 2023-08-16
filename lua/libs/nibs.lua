@@ -501,8 +501,9 @@ end
 ---@return integer[] new_last after consuming value
 ---@return Nibs.Value decoded_value
 local function decode_value(first, last, scope)
-    p("decode_value", first, last, scope)
+    print("decode_value", first, last, scope)
     assert(last > first)
+
     -- Read the value header and update the upper boundary
     local type_tag, int_val
     do
@@ -511,8 +512,6 @@ local function decode_value(first, last, scope)
         assert(new_last >= first)
         last = new_last
     end
-
-    p("decode_value", { type_tag = type_tag, int_val = int_val })
 
     -- Process inline types (0-7)
     if type_tag == ZIGZAG then
@@ -531,6 +530,7 @@ local function decode_value(first, last, scope)
         end
     elseif type_tag == REF then
         assert(scope, "missing scope array")
+        p("scope", scope)
         return last, scope[int_val + 1]
     elseif type_tag < 8 then
         error(string.format("Unknown inline type %d", type_tag))
@@ -563,6 +563,7 @@ local function decode_value(first, last, scope)
 end
 
 function decode_list(first, last, scope)
+    print("decode_list", first, last, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
@@ -571,6 +572,7 @@ function decode_list(first, last, scope)
 end
 
 function decode_map(first, last, scope)
+    print("decode_map", first, last, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
@@ -579,6 +581,7 @@ function decode_map(first, last, scope)
 end
 
 function decode_array(first, last, scope)
+    print("decode_array", first, last, scope)
     local n, l, b = decode_pair(first, last)
     return first, setmetatable({
         [START] = first,
@@ -590,12 +593,12 @@ function decode_array(first, last, scope)
 end
 
 function decode_scope(first, last, scope)
+    print("decode_scope", first, last, scope)
     local index = skip_value(first, last)
     assert(index >= first)
-    scope = decode_array(first, index, scope)
-    local index2, value = decode_value(index, last, scope)
-    p("index2", index2, "index", index)
-    assert(index2 - index == 0)
+    local _, value
+    _, scope = decode_array(first, index, scope)
+    _, value = decode_value(index, last, scope)
     return first, value
 end
 
@@ -677,6 +680,7 @@ end
 function Nibs.Map:__pairs()
     local offsets = get_offsets(self)
     local i = 0
+    local scope = rawget(self, CURRENT_SCOPE)
     return function()
         if i >= #offsets then return end
         i = i + 2
@@ -684,8 +688,8 @@ function Nibs.Map:__pairs()
         local mid = offsets[i - 1]
         local last = offsets[i]
         assert(i and first and mid and last)
-        local _, key = decode_value(first, mid)
-        local _, value = decode_value(mid, last)
+        local _, key = decode_value(first, mid, scope)
+        local _, value = decode_value(mid, last, scope)
         rawset(self, key, value)
         return key, value
     end
@@ -755,6 +759,7 @@ function Nibs.decode(data, length)
     end
     assert(length, "unknown length")
     assert(length > 0, "empty data")
+    print("\n\nINITIAL DATA: ", data, length, "\n\n")
     local offset, value = decode_value(data, data + length)
     p("data", data, "offset", offset, "value", value)
     assert(offset - data == 0)
