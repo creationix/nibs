@@ -1,7 +1,7 @@
-name: Run Lua Tests
+name: Run Lua Reverse Tests
 on: [push]
 jobs:
-  Run-Lua-Tests:
+  Run-Lua-Reverse-Tests:
     runs-on: ubuntu-latest
     steps:
       - run: echo "🎉 The job was automatically triggered by a ${{ github.event_name }} event."
@@ -11,17 +11,16 @@ jobs:
         uses: actions/checkout@v2
       - run: echo "💡 The ${{ github.repository }} repository has been cloned to the runner."
       - run: echo "🖥️ The workflow is now ready to test your code on the runner."
-      - name: Install Luvit
-        run: |
-          curl -L https://github.com/luvit/lit/raw/master/get-lit.sh | sh
-      - name: Test utility functions
-        run: ./luvit lua/tests/test-lib.lua
-      - name: Test text format encoder and decoder
-        run: ./luvit lua/tests/test-text-format.lua
-      - name: Test encoding nibs values using fixtures
-        run: ./luvit lua/tests/test-nibs-encoder.lua
-      - name: Test decoding nibs values using fixtures
-        run: ./luvit lua/tests/test-nibs-decoder.lua
-      - name: Test nibs optimization utilities and all conversions
-        run: ./luvit lua/tests/test-nibs-utils.lua
+      - name: Install stock luajit
+        run: sudo apt-get install luajit
+      - name: Test reverse find-dups
+        run: cd reverse && luajit test-find-dups.lua
+      - name: Test reverse json-filter
+        run: cd reverse && luajit test-json-filter.lua
+      - name: Test reverse next-json-token
+        run: cd reverse && luajit test-next-json-token.lua
+      - name: Test reverse parse-bytes
+        run: cd reverse && luajit test-parse-bytes.lua
+      - name: Test reverse parse-string
+        run: cd reverse && luajit test-parse-string.lua
       - run: echo "🍏 This job's status is ${{ job.status }}."

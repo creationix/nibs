@@ -1,3 +1,5 @@
+local ffi = require 'ffi'
+local sizeof = ffi.sizeof
 local Utils = require 'test-utils'
 
 local NibLib = require 'nib-lib'
@@ -14,14 +16,16 @@ local allTests = assert(Tibs.decode(text))
 for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
     for section, tests in pairs(allTests) do
+        -- if section ~= "Refs" then goto continue end
         print("\n" .. colorize("highlight", section) .. "\n")
         for i = 1, #tests, 2 do
             local input = tests[i]
+
             local expected = tests[i + 1]
             collectgarbage("collect")
 
             -- Actual decoded value
-            local actual = Nibs.decode(NibLib.bufToStr(input))
+            local actual = Nibs.decode(input, sizeof(input))
             collectgarbage("collect")
 
             -- Compare with expected value
@@ -40,5 +44,6 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
                 return nil, "Encode Mismatch"
             end
         end
+        ::continue::
     end
 end
