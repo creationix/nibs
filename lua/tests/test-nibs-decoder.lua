@@ -21,15 +21,11 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
         for i = 1, #tests, 2 do
             local input = tests[i]
 
-            print(string.format("input: %s",
-                NibLib.bufToHexStr(input)))
             local expected = tests[i + 1]
-            print("expected: " .. Tibs.encode(expected))
             collectgarbage("collect")
 
             -- Actual decoded value
             local actual = Nibs.decode(input, sizeof(input))
-            print("actual: " .. Tibs.encode(actual))
             collectgarbage("collect")
 
             -- Compare with expected value
