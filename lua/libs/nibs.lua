@@ -1,19 +1,15 @@
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
 local SIMPLE = 2
 local REF = 3
-
 local BYTES = 8
 local UTF8 = 9
 local HEXSTRING = 10
 local LIST = 11
 local MAP = 12
 local ARRAY = 13
-
 local SCOPE = 15
-
 -- Simple subtypes
 local FALSE = 0
 local TRUE = 1
@@ -39,6 +35,10 @@ local istype = ffi.istype
 
 local insert = table.insert
 
+-----------------------------------
+------------ FFI TYPES ------------
+-----------------------------------
+
 local U8 = ffi.typeof 'uint8_t'
 local I8 = ffi.typeof 'int8_t'
 local U16 = ffi.typeof 'uint16_t'
@@ -61,6 +61,7 @@ local U32Arr = ffi.typeof 'uint32_t[?]'
 local U64Arr = ffi.typeof 'uint64_t[?]'
 
 local converter = ffi.new 'union {double f;uint64_t i;}'
+
 ffi.cdef [[
     #pragma pack(1)
     struct nibs4 { // for big under 12
@@ -93,12 +94,456 @@ ffi.cdef [[
     };
 ]]
 
-
 local nibs4 = ffi.typeof 'struct nibs4'
 local nibs8 = ffi.typeof 'struct nibs8'
 local nibs16 = ffi.typeof 'struct nibs16'
 local nibs32 = ffi.typeof 'struct nibs32'
 local nibs64 = ffi.typeof 'struct nibs64'
+
+-------------------------------------
+------------ MAIN EXPORT ------------
+-------------------------------------
+
+local Nibs = {}
+
+--------------------------------------------------
+------------ GENERIC HELPER FUNCTIONS ------------
+--------------------------------------------------
+
+--- Returns true if a table should be treated like an array (ipairs/length/etc)
+--- This uses the __is_array_like metaproperty if it exists, otherwise, it
+--- iterates over the pairs keys checking if they look like an array (1...n)
+---@param val table
+---@return boolean is_array_like
+local function is_array_like(val)
+    local mt = getmetatable(val)
+    if mt then
+        if mt.__is_array_like ~= nil then
+            return mt.__is_array_like
+        end
+        if mt.__jsontype then -- dkjson has a __jsontype field
+            if mt.__jsontype == "array" then return true end
+            if mt.__jsontype == "object" then return false end
+        end
+    end
+    local i = 1
+    for key in pairs(val) do
+        if key ~= i then return false end
+        i = i + 1
+    end
+    return true
+end
+
+-- Convert a nibble to an ascii hex digit
+---@param b integer nibble value
+---@return integer ascii hex code
+local function to_hex_code(b)
+    return b + (b < 10 and 0x30 or 0x57)
+end
+
+--- Convert ascii hex digit to a nibble
+--- Assumes input is valid character [0-9a-f]
+---@param code integer ascii code for hex digit
+---@return integer num value of hex digit (0-15)
+local function from_hex_code(code)
+    return code - (code >= 0x61 and 0x57 or 0x30)
+end
+
+--- Detect if a cdata is an integer
+---@param val ffi.cdata*
+---@return boolean is_int
+local function is_cdata_integer(val)
+    return istype(I64, val) or
+        istype(I32, val) or
+        istype(I16, val) or
+        istype(I8, val) or
+        istype(U64, val) or
+        istype(U32, val) or
+        istype(U16, val) or
+        istype(U8, val)
+end
+
+--- Detect if a cdata is a float
+---@param val ffi.cdata*
+---@return boolean is_float
+local function is_cdata_float(val)
+    return istype(F64, val) or
+        istype(F32, val)
+end
+
+--- Detect if a number is whole or not
+---@param num number|ffi.cdata*
+local function is_number_whole(num)
+    local t = type(num)
+    if t == 'cdata' then
+        return is_cdata_integer(num)
+    elseif t == 'number' then
+        return not (num ~= num or num == 1 / 0 or num == -1 / 0 or math.floor(num) ~= num)
+    end
+end
+
+--- Convert an I64 to a normal number if it's in the safe range
+---@param n integer cdata I64
+---@return integer|number maybeNum
+local function to_number_maybe(n)
+    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
+        and tonumber(n)
+        or n
+end
+
+---------------------------------------
+------------ LEXER HELPERS ------------
+---------------------------------------
+
+-- Consume a single required digit [0-9]
+---@param first integer[]
+---@param last integer[]
+---@return integer[] new_first
+local function consume_digit(first, last)
+    assert(first < last, "Unexpected EOS")
+    local c = first[0]
+    assert(c >= 0x30 and c <= 0x39, "Unexpected character")
+    return first + 1
+end
+
+-- Consume a sequence of zero or more digits [0-9]
+---@param first integer[]
+---@param last integer[]
+---@return integer[] new_first
+local function consume_digits(first, last)
+    while first < last do
+        local c = first[0]
+        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+        first = first + 1
+    end
+    return first
+end
+
+-- Consume a single optional character
+---@param first integer[]
+---@param last integer[]
+---@param c1 integer
+---@param c2? integer
+---@return integer[] new_first
+---@return boolean did_match
+local function consume_optional(first, last, c1, c2)
+    if first < last then
+        local c = first[0]
+        if c == c1 or c == c2 then
+            return first + 1, true
+        end
+    end
+    return first, false
+end
+
+--- Is a byte a hex digit in ASCII [0-9a-fA-F]
+---@param code integer
+---@return boolean
+local function is_hex_code(code)
+    return (code <= 0x39 and code >= 0x30)
+        or (code >= 0x61 and code <= 0x66)
+        or (code >= 0x41 and code <= 0x46)
+end
+
+-- Is an entire slice of bytes an ASCII integer
+--- @param first integer[]
+--- @param last integer[]
+local function is_slice_integer(first, last)
+    first = consume_optional(first, last, 0x2d) "-"
+    first = consume_digit(first, last)
+    first = consume_digits(first, last)
+    return first == last
+end
+
+------------------------------------
+------------ TIBS LEXER ------------
+------------------------------------
+
+-- Parse an ASCII number into a lua number
+---@param first integer[]
+---@param last integer[]
+---@return number|integer
+local function parse_number(first, last)
+    if is_slice_integer(first, last) then
+        -- sign is reversed since we need to use the negative range of I64 for full precision
+        -- notice that the big value accumulated is always negative.
+        local sign = I64(-1)
+        local big = I64(0)
+        while first < last do
+            local c = first[0]
+            if c == 0x2d then -- "-"
+                sign = I64(1)
+            else
+                big = big * 10LL - I64(c - 0x30)
+            end
+            first = first + 1
+        end
+        return to_number_maybe(big * sign)
+    end
+    return tonumber(ffi_string(first, last - first), 10)
+end
+Nibs.parse_number = parse_number
+
+local highPair = nil
+---@param c integer
+local function utf8_encode(c)
+    -- Encode surrogate pairs as a single utf8 codepoint
+    if highPair then
+        local lowPair = c
+        c = ((highPair - 0xd800) * 0x400) + (lowPair - 0xdc00) + 0x10000
+    elseif c >= 0xd800 and c <= 0xdfff then --surrogate pair
+        highPair = c
+        return
+    end
+    highPair = nil
+
+    if c <= 0x7f then
+        return char(c)
+    elseif c <= 0x7ff then
+        return char(
+            bor(0xc0, rshift(c, 6)),
+            bor(0x80, band(c, 0x3f))
+        )
+    elseif c <= 0xffff then
+        return char(
+            bor(0xe0, rshift(c, 12)),
+            bor(0x80, band(rshift(c, 6), 0x3f)),
+            bor(0x80, band(c, 0x3f))
+        )
+    elseif c <= 0x10ffff then
+        return char(
+            bor(0xf0, rshift(c, 18)),
+            bor(0x80, band(rshift(c, 12), 0x3f)),
+            bor(0x80, band(rshift(c, 6), 0x3f)),
+            bor(0x80, band(c, 0x3f))
+        )
+    else
+        error "Invalid codepoint"
+    end
+end
+
+local json_escapes = {
+    [0x62] = "\b",
+    [0x66] = "\f",
+    [0x6e] = "\n",
+    [0x72] = "\r",
+    [0x74] = "\t",
+}
+
+--- Parse a JSON string into a lua string
+--- @param first integer[]
+--- @param last integer[]
+--- @return string
+local function parse_string(first, last)
+    -- Trim off leading and trailing double quotes
+    last = last - 1
+    first = first + 1
+    local start = first
+
+    -- Fast path for strings with no escapes or surrogate pairs
+    local is_simple_string = true
+    while first < last do
+        -- TODO: look for unescaped surrogate pairs and convert to normal UTF8
+        local c = first[0]
+        if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then -- "\\" or first byte of surrogate pair
+            is_simple_string = false
+            break
+        end
+        first = first + 1
+    end
+
+    if is_simple_string then
+        first = start
+        return ffi_string(first, last - first)
+    end
+
+    local parts = {}
+    local allowHigh
+
+    local function flush()
+        if offset > start then
+            parts[#parts + 1] = ffi_string(json + start, offset - start)
+        end
+        start = offset
+    end
+
+    local function write_char_code(c)
+        local utf8
+        utf8 = utf8_encode(c)
+        if utf8 then
+            parts[#parts + 1] = utf8
+        else
+            allowHigh = true
+        end
+    end
+
+    while offset < limit do
+        allowHigh = false
+        local c = json[offset]
+        if c >= 0xd8 and c <= 0xdf and offset + 1 < limit then -- Manually handle native surrogate pairs
+            flush()
+            write_char_code(bor(
+                lshift(c, 8),
+                json[offset + 1]
+            ))
+            offset = offset + 2
+            start = offset
+        elseif c == 0x5c then -- "\\"
+            flush()
+            offset = offset + 1
+            if offset >= limit then
+                parts[#parts + 1] = "�"
+                start = offset
+                break
+            end
+            c = json[offset]
+            if c == 0x75 then -- "u"
+                offset = offset + 1
+                -- Count how many hex digits follow the "u"
+                local hex_count = (
+                    (offset < limit and ishex(json[offset])) and (
+                        (offset + 1 < limit and ishex(json[offset + 1])) and (
+                            (offset + 2 < limit and ishex(json[offset + 2])) and (
+                                (offset + 3 < limit and ishex(json[offset + 3])) and (
+                                    4
+                                ) or 3
+                            ) or 2
+                        ) or 1
+                    ) or 0
+                )
+                -- Emit � if there are less than 4
+                if hex_count < 4 then
+                    parts[#parts + 1] = "�"
+                    offset = offset + hex_count
+                    start = offset
+                else
+                    write_char_code(bor(
+                        lshift(fromhex(json[offset]), 12),
+                        lshift(fromhex(json[offset + 1]), 8),
+                        lshift(fromhex(json[offset + 2]), 4),
+                        fromhex(json[offset + 3])
+                    ))
+                    offset = offset + 4
+                    start = offset
+                end
+            else
+                local escape = json_escapes[c]
+                if escape then
+                    parts[#parts + 1] = escape
+                    offset = offset + 1
+                    start = offset
+                else
+                    -- Other escapes are included as-is
+                    start = offset
+                    offset = offset + 1
+                end
+            end
+        else
+            offset = offset + 1
+        end
+        if highPair and not allowHigh then
+            -- If the character after a surrogate pair is not the other half
+            -- clear it and decode as �
+            highPair = nil
+            parts[#parts + 1] = "�"
+        end
+    end
+    if highPair then
+        -- If the last parsed value was a surrogate pair half
+        -- clear it and decode as �
+        highPair = nil
+        parts[#parts + 1] = "�"
+    end
+    flush()
+    return table.concat(parts, '')
+end
+-- Export for unit testing
+Nibs.parse_string = parse_string
+
+---@alias LexerToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
+
+--- Parse a single JSON token, call in a loop for a streaming parser.
+---@param first integer[]
+---@param last integer[]
+--- @return LexerToken|nil token name
+--- @return integer[]|nil token_first offset of before token
+--- @return integer[]|nil token_last offset to after token
+local function next_json_token(first, last)
+    while first < last do
+        local c = first[0]
+        if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
+            -- "\r" | "\n" | "\t" | " "
+            -- Skip whitespace
+            first = first + 1
+        elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
+            -- "[" | "]" "{" | "}" | ":" | ","
+            -- Pass punctuation through as-is
+            return char(c), first, first + 1
+        elseif c == 0x22 then -- double quote
+            -- Parse Strings
+            local start = first
+            while true do
+                first = first + 1
+                assert(first < last, "Unexpected EOS")
+                c = first[0]
+                if c == 0x22 then     -- double quote
+                    return "string", start, first + 1
+                elseif c == 0x5c then -- backslash
+                    first = first + 1
+                end
+            end
+        elseif c == 0x74 and first + 3 < last -- "t"
+            and first[1] == 0x72              -- "r"
+            and first[2] == 0x75              -- "u"
+            and first[3] == 0x65 then         -- "e"
+            return "true", first, first + 4
+        elseif c == 0x66 and first + 4 < last -- "f"
+            and first[1] == 0x61              -- "a"
+            and first[2] == 0x6c              -- "l"
+            and first[3] == 0x73              -- "s"
+            and first[4] == 0x65 then         -- "e"
+            return "false", first, first + 5
+        elseif c == 0x6e and first + 3 < last -- "n"
+            and first[1] == 0x75              -- "u"
+            and first[2] == 0x6c              -- "l"
+            and first[3] == 0x6c then         -- "l"
+            return "null", first, first + 4
+        elseif c == 0x2d                      -- "-"
+            or (c >= 0x30 and c <= 0x39) then -- "0"-"9"
+            local start = first
+            first = first + 1
+
+            if c == 0x2d then -- "-" needs at least one digit after
+                first = consume_digit(first, last)
+            end
+            first = consume_digits(first, last)
+
+            local matched
+            first, matched = consume_optional(first, last, 0x2e) -- "."
+            if matched then
+                first = consume_digit(first, last)
+                first = consume_digits(first, last)
+            end
+
+            first, matched = consume_optional(first, last, 0x45, 0x65) -- "e"|"E"
+            if matched then
+                first = consume_optional(first, last, 0x2b, 0x2d)      -- "+"|"-"
+                first = consume_digit(first, last)
+                first = consume_digits(first, last)
+            end
+
+            return "number", start, first
+        else
+            error(string.format("Unexpected %q", string.char(c)))
+        end
+    end
+end
+
+Nibs.next_json_token = next_json_token
+
+--------------------------------------------------
+------------ ENCODER HELPER FUNCTIONS ------------
+--------------------------------------------------
 
 ---Encode a small/big pair into binary parts
 ---@param small integer any 4-bit unsigned integer
@@ -124,9 +569,11 @@ end
 ---@return integer
 local function encode_zigzag(num)
     local i = I64(num)
+    ---@diagnostic disable-next-line: return-type-mismatch, param-type-mismatch
     return U64(bxor(arshift(i, 63), lshift(i, 1)))
 end
 
+--- Convert a double precision floating point to an unsigned 64 bit integer by casting the bits
 ---@param val number
 ---@return integer
 local function encode_float(val)
@@ -137,6 +584,158 @@ local function encode_float(val)
     converter.f = val
     return converter.i
 end
+
+--------------------------------------
+------------ TIBS TO NIBS ------------
+--------------------------------------
+
+--- Scan a JSON string for duplicated strings and large numbers
+--- @param json integer[] input json document to parse
+--- @param offset integer
+--- @param limit integer
+--- @return (string|number)[]|nil
+function Nibs.find_dups(first, last)
+    local counts = {}
+    local depth = 0
+    while first < last do
+        local t, f, l = next_json_token(first, last)
+        if not t then break end
+        assert(f and l)
+        local possible_dup
+        if t == "{" or t == "[" then
+            depth = depth + 1
+        elseif t == "}" or t == "]" then
+            depth = depth - 1
+        elseif t == "string" and f + 4 < l then
+            possible_dup = parse_string(json, f, l)
+        elseif t == "number" and f + 2 < l then
+            possible_dup = parse_number(json, f, l)
+        end
+        if possible_dup then
+            local count = counts[possible_dup]
+            if count then
+                counts[possible_dup] = count + 1
+            else
+                counts[possible_dup] = 1
+            end
+        end
+        offset = l
+        if depth == 0 then break end
+    end
+
+    -- Extract all repeated values
+    local dup_counts = {}
+    local count = 0
+    for val, freq in pairs(counts) do
+        if freq > 1 then
+            count = count + 1
+            dup_counts[count] = { val, freq }
+        end
+    end
+
+    if count == 0 then return end
+
+    -- sort by frequency descending first, then by type, then ordered normally
+    table.sort(dup_counts, function(a, b)
+        if a[2] == b[2] then
+            local t1 = type(a[1])
+            local t2 = type(b[1])
+            if t1 == t2 then
+                return a[1] < b[1]
+            else
+                return t1 > t2
+            end
+        else
+            return a[2] > b[2]
+        end
+    end)
+
+    -- Fill in dups array and return it
+    local dups = {}
+    for i, p in ipairs(dup_counts) do
+        dups[i] = p[1]
+    end
+    return dups
+end
+
+---Convert a tibs encoded string into a nibs encoded binary buffer
+---@param tibs string
+---@return integer[] nibs bytes
+function Nibs.from_tibs(tibs)
+    error "TODO: Nibs.from_tibs"
+end
+
+-------------------------------------
+------------ LUA TO NIBS ------------
+-------------------------------------
+
+--------------------------------------------------
+------------ DECODER HELPER FUNCTIONS ------------
+--------------------------------------------------
+
+---@param first integer[] pointer to start of slice
+---@param last integer[] pointer to end of slice
+---@return integer[] new_last after consuming header
+---@return integer little type or width
+---@return integer big value or count or size
+local function decode_pair(first, last)
+    last = last - 1
+    assert(last >= first)
+    local byte = last[0]
+    local little = rshift(byte, 4)
+    local big = band(byte, 0xf)
+    if big < 12 then
+        return last, little, big
+    elseif big == 12 then
+        last = last - 1
+        assert(last >= first)
+        return last, little, cast(U8Ptr, last)[0]
+    elseif big == 13 then
+        last = last - 2
+        assert(last >= first)
+        return last, little, cast(U16Ptr, last)[0]
+    elseif big == 14 then
+        last = last - 4
+        assert(last >= first)
+        return last, little, cast(U32Ptr, last)[0]
+    else
+        last = last - 8
+        assert(last >= first)
+        return last, little, cast(U64Ptr, last)[0]
+    end
+end
+
+---Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
+---@param num integer
+---@return integer
+local function decode_zigzag(num)
+    local i = I64(num)
+    ---@diagnostic disable-next-line: param-type-mismatch
+    local o = bxor(rshift(i, 1), -band(i, 1))
+    return to_number_maybe(o)
+end
+
+--- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
+---@param val integer
+---@return number
+local function decode_float(val)
+    converter.i = val
+    return converter.f
+end
+
+--------------------------------------
+------------ NIBS TO TIBS ------------
+--------------------------------------
+
+-------------------------------------
+------------ NIBS TO LUA ------------
+-------------------------------------
+
+
+-----------------------------------------------------------
+
+
+
 
 ---Combine binary parts into a single binary string
 ---@param size integer total number of expected bytes
@@ -181,76 +780,6 @@ local encode_array
 local generate_array_index
 local encode_scope
 
---- Returns true if a table should be treated like an array (ipairs/length/etc)
---- This uses the __is_array_like metaproperty if it exists, otherwise, it
---- iterates over the pairs keys checking if they look like an array (1...n)
----@param val table
----@return boolean is_array_like
-local function is_array_like(val)
-    local mt = getmetatable(val)
-    if mt then
-        if mt.__is_array_like ~= nil then
-            return mt.__is_array_like
-        end
-        if mt.__jsontype then -- dkjson has a __jsontype field
-            if mt.__jsontype == "array" then return true end
-            if mt.__jsontype == "object" then return false end
-        end
-    end
-    local i = 1
-    for key in pairs(val) do
-        if key ~= i then return false end
-        i = i + 1
-    end
-    return true
-end
-
----@param b integer nibble value
----@return integer ascii hex code
-local function tohexcode(b)
-    return b + (b < 10 and 0x30 or 0x57)
-end
-
---- Convert ascii hex digit to integer
---- Assumes input is valid character [0-9a-f]
----@param code integer ascii code for hex digit
----@return integer num value of hex digit (0-15)
-local function fromhexcode(code)
-    return code - (code >= 0x61 and 0x57 or 0x30)
-end
-
---- Detect if a cdata is an integer
----@param val ffi.cdata*
----@return boolean is_int
-local function is_integer(val)
-    return istype(I64, val) or
-        istype(I32, val) or
-        istype(I16, val) or
-        istype(I8, val) or
-        istype(U64, val) or
-        istype(U32, val) or
-        istype(U16, val) or
-        istype(U8, val)
-end
-
---- Detect if a cdata is a float
----@param val ffi.cdata*
----@return boolean is_float
-local function is_float(val)
-    return istype(F64, val) or
-        istype(F32, val)
-end
-
---- Detect if a number is whole or not
----@param num number|ffi.cdata*
-local function is_whole(num)
-    local t = type(num)
-    if t == 'cdata' then
-        return is_integer(num)
-    elseif t == 'number' then
-        return not (num ~= num or num == 1 / 0 or num == -1 / 0 or math.floor(num) ~= num)
-    end
-end
 
 ---@class Nibs
 local Nibs = {}
@@ -266,7 +795,6 @@ function Nibs.encode(val)
     return ffi_string(encoded, size)
 end
 
-
 --- Decode a hex encoded string into a binary buffer
 ---@param hex string
 ---@return ffi.cdata* buf
@@ -275,8 +803,8 @@ local function decode_hex(hex)
     local buf = U8Arr(len)
     for i = 0, len - 1 do
         buf[i] = bor(
-            lshift(fromhexcode(byte(hex, i * 2 + 1)), 4),
-            fromhexcode(byte(hex, i * 2 + 2))
+            lshift(from_hex_code(byte(hex, i * 2 + 1)), 4),
+            from_hex_code(byte(hex, i * 2 + 2))
         )
     end
     return buf
@@ -288,7 +816,7 @@ end
 function encode_any(val)
     local t = type(val)
     if t == "number" then
-        if is_whole(val) then
+        if is_number_whole(val) then
             return encode_pair(ZIGZAG, encode_zigzag(val))
         else
             return encode_pair(FLOAT, encode_float(val))
@@ -303,10 +831,10 @@ function encode_any(val)
         local size, head = encode_pair(UTF8, len)
         return size + len, { val, head }
     elseif t == "cdata" then
-        if is_integer(val) then
+        if is_cdata_integer(val) then
             -- Treat cdata integers as integers
             return encode_pair(ZIGZAG, encode_zigzag(val))
-        elseif is_float(val) then
+        elseif is_cdata_float(val) then
             -- Treat cdata floats as floats
             return encode_pair(FLOAT, encode_float(val))
         else
@@ -454,32 +982,6 @@ function generate_array_index(offsets)
     return more + sizeof(index), { index, head }
 end
 
---- Convert an I64 to a normal number if it's in the safe range
----@param n integer cdata I64
----@return integer|number maybeNum
-local function tonumberMaybe(n)
-    return (n <= 0x1fffffffffffff and n >= -0x1fffffffffffff)
-        and tonumber(n)
-        or n
-end
-
----Convert an unsigned 64 bit integer to a signed 64 bit integer using zigzag decoding
----@param num integer
----@return integer
-local function decode_zigzag(num)
-    local i = I64(num)
-    local o = bxor(rshift(i, 1), -band(i, 1))
-    return tonumberMaybe(o)
-end
-
---- Convert an unsigned 64 bit integer to a double precision floating point by casting the bits
----@param val integer
----@return number
-local function decode_float(val)
-    converter.i = val
-    return converter.f
-end
-
 local function Symbol(name)
     return setmetatable({}, {
         __name = name,
@@ -507,37 +1009,6 @@ local CURRENT_SCOPE = Symbol "CURRENT_SCOPE"
 
 ---@alias Nibs.Value boolean|number|string|integer[]|Nibs.List|Nibs.Array|Nibs.Map|nil
 
----@param first integer[] pointer to start of slice
----@param last integer[] pointer to end of slice
----@return integer[] new_last after consuming header
----@return integer little type or width
----@return integer big value or count or size
-local function decode_pair(first, last)
-    last = last - 1
-    assert(last >= first)
-    local byte = last[0]
-    local little = rshift(byte, 4)
-    local big = band(byte, 0xf)
-    if big < 12 then
-        return last, little, big
-    elseif big == 12 then
-        last = last - 1
-        assert(last >= first)
-        return last, little, cast(U8Ptr, last)[0]
-    elseif big == 13 then
-        last = last - 2
-        assert(last >= first)
-        return last, little, cast(U16Ptr, last)[0]
-    elseif big == 14 then
-        last = last - 4
-        assert(last >= first)
-        return last, little, cast(U32Ptr, last)[0]
-    else
-        last = last - 8
-        assert(last >= first)
-        return last, little, cast(U64Ptr, last)[0]
-    end
-end
 
 ---@param first integer[] pointer to start of slice
 ---@param last integer[] pointer to end of slice
@@ -567,8 +1038,8 @@ local function decode_hexstring(first, last)
     local buf = U8Arr(len * 2)
     for i = 0, len - 1 do
         local b = first[i]
-        buf[i * 2] = tohexcode(rshift(b, 4))
-        buf[i * 2 + 1] = tohexcode(band(b, 15))
+        buf[i * 2] = to_hex_code(rshift(b, 4))
+        buf[i * 2 + 1] = to_hex_code(band(b, 15))
     end
     return first, ffi_string(buf, len * 2)
 end
@@ -868,135 +1339,6 @@ function Nibs.decode(data, length)
     assert(offset - data == 0)
     return value
 end
-
-
----@alias JsonToken "string"|"bytes"|"number"|"true"|"false"|"null"|"ref"|":"|","|"{"|"}"|"["|"]"
-
--- Consume a single required digit [0-9]
----@param json integer[]
----@param offset integer
----@param limit integer
----@return integer|nil new_offset
----@return nil|string error
-local function consume_digit(json, offset, limit)
-    if offset >= limit then
-        return nil, string.format("Unexpected EOS at %d", offset)
-    end
-    local c = json[offset]
-    if c < 0x30 or c > 0x39 then -- outside "0-9"
-        return nil, string.format("Unexpected %q at %d", char(c), offset)
-    end
-    return offset + 1
-end
-
--- Consume a sequence of zero or more digits [0-9]
----@param json integer[]
----@param offset integer
----@param limit integer
----@return integer new_offset
-local function consume_digits(json, offset, limit)
-    while offset < limit do
-        local c = json[offset]
-        if c < 0x30 or c > 0x39 then break end -- outside "0-9"
-        offset = offset + 1
-    end
-    return offset
-end
-
----@param json integer[]
----@param offset integer
----@param limit integer
----@param c1 integer
----@param c2? integer
----@return integer new_offset
----@return boolean did_matche
-local function consume_optional(json, offset, limit, c1, c2)
-    local c = json[offset]
-    if offset < limit and (c == c1 or c == c2) then
-        return offset + 1, true
-    end
-    return offset, false
-end
-
---- Parse a single JSON token, call in a loop for a streaming parser.
---- @param json integer[] U8Array of JSON encoded data
---- @param offset integer offset of where to start parsing
---- @param limit integer offset to right after json string
---- @return JsonToken|nil token name
---- @return integer|nil token_offset offset of first character in token
---- @return integer|nil token_limit offset to right after token
-local function next_json_token(json, offset, limit)
-    while offset < limit do
-        local c = json[offset]
-        if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
-            -- "\r" | "\n" | "\t" | " "
-            -- Skip whitespace
-            offset = offset + 1
-        elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c then
-            -- "[" | "]" "{" | "}" | ":" | ","
-            -- Pass punctuation through as-is
-            return char(c), offset, offset + 1
-        elseif c == 0x22 then -- double quote
-            -- Parse Strings
-            local first = offset
-            while true do
-                offset = offset + 1
-                if offset >= limit then
-                    error(string.format("Unexpected EOS at %d", offset))
-                end
-                c = json[offset]
-                if c == 0x22 then     -- double quote
-                    return "string", first, offset + 1
-                elseif c == 0x5c then -- backslash
-                    offset = offset + 1
-                end
-            end
-        elseif c == 0x74 and offset + 3 < limit            -- "t"
-            and json[offset + 1] == 0x72                   -- "r"
-            and json[offset + 2] == 0x75                   -- "u"
-            and json[offset + 3] == 0x65 then              -- "e"
-            return "true", offset, offset + 4
-        elseif c == 0x66 and offset + 4 < limit            -- "f"
-            and json[offset + 1] == 0x61                   -- "a"
-            and json[offset + 2] == 0x6c                   -- "l"
-            and json[offset + 3] == 0x73                   -- "s"
-            and json[offset + 4] == 0x65 then              -- "e"
-            return "false", offset, offset + 5
-        elseif c == 0x6e and offset + 3 < limit            -- "n"
-            and json[offset + 1] == 0x75                   -- "u"
-            and json[offset + 2] == 0x6c                   -- "l"
-            and json[offset + 3] == 0x6c then              -- "l"
-            return "null", offset, offset + 4
-        elseif c == 0x2d or (c >= 0x30 and c <= 0x39) then -- "-" | "0"-"9"
-            local first = offset
-            offset = offset + 1
-
-            if c == 0x2d then -- "-" needs at least one digit after
-                offset = assert(consume_digit(json, offset, limit))
-            end
-            offset = consume_digits(json, offset, limit)
-
-            local matched
-            offset, matched = consume_optional(json, offset, limit, 0x2e) -- "."
-            if matched then
-                offset = assert(consume_digit(json, offset, limit))
-                offset = consume_digits(json, offset, limit)
-            end
-
-            offset, matched = consume_optional(json, offset, limit, 0x45, 0x65) -- "e"|"E"
-            if matched then
-                offset = consume_optional(json, offset, limit, 0x2b, 0x2d)      -- "+"|"-"
-                offset = assert(consume_digit(json, offset, limit))
-                offset = consume_digits(json, offset, limit)
-            end
-
-            return "number", first, offset
-        else
-            error(string.format("Unexpected %q at %d", string.char(c), offset))
-        end
-    end
-end
-Nibs.next_json_token = next_json_token
 
 ---@param json string
 ---@return Nibs.Value
