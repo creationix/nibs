@@ -421,6 +421,7 @@ local function decode_pair(first, last)
     local byte = last[0]
     local little = rshift(byte, 4)
     local big = band(byte, 0xf)
+    p(little,big)
     if big < 12 then
         return last, little, big
     elseif big == 12 then
@@ -496,10 +497,12 @@ end
 
 ---@param first integer[] pointer to start of slice
 ---@param last integer[] pointer to end of slice
+---@param data integer[] original buffer (for gc ref)
 ---@param scope? Nibs.Array nearest nibs scope array
 ---@return integer[] new_last after consuming value
 ---@return Nibs.Value decoded_value
-local function decode_value(first, last, scope)
+local function decode_value(first, last, data, scope)
+    p("decode_value", first,last,scope)
     assert(last > first)
 
     -- Read the value header and update the upper boundary
@@ -547,51 +550,54 @@ local function decode_value(first, last, scope)
     elseif type_tag == HEXSTRING then
         return decode_hexstring(first, last)
     elseif type_tag == LIST then
-        return decode_list(first, last, scope)
+        return decode_list(first, last, data, scope)
     elseif type_tag == MAP then
-        return decode_map(first, last, scope)
+        return decode_map(first, last, data, scope)
     elseif type_tag == ARRAY then
-        return decode_array(first, last, scope)
+        return decode_array(first, last, data, scope)
     elseif type_tag == SCOPE then
-        return decode_scope(first, last, scope)
+        return decode_scope(first, last, data, scope)
     else
         error(string.format("Unknown container type %d", type_tag))
     end
 end
 
-function decode_list(first, last, scope)
+function decode_list(first, last, data, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
+        [DATA] = data,
         [CURRENT_SCOPE] = scope,
     }, Nibs.List)
 end
 
-function decode_map(first, last, scope)
+function decode_map(first, last, data, scope)
     return first, setmetatable({
         [START] = first,
         [END] = last,
+        [DATA] = data,
         [CURRENT_SCOPE] = scope,
     }, Nibs.Map)
 end
 
-function decode_array(first, last, scope)
+function decode_array(first, last, data, scope)
     local n, l, b = decode_pair(first, last)
     return first, setmetatable({
         [START] = first,
         [END] = n - l * b,
         [WIDTH] = l,
         [COUNT] = b,
+        [DATA] = data,
         [CURRENT_SCOPE] = scope,
     }, Nibs.Array)
 end
 
-function decode_scope(first, last, scope)
+function decode_scope(first, last, data, scope)
     local index = skip_value(first, last)
     assert(index >= first)
     local _, value
-    _, scope = decode_array(first, index, scope)
-    _, value = decode_value(index, last, scope)
+    _, scope = decode_array(first, index, data, scope)
+    _, value = decode_value(index, last, data, scope)
     return first, value
 end
 
@@ -644,9 +650,11 @@ function Nibs.List:__index(key)
     ---@type integer[]
     local first = offsets[key - 1]
     local last = offsets[key]
+    ---@type integer[]
+    local data = rawget(self, DATA)
     ---@type Nibs.Array|nil
     local scope = rawget(self, CURRENT_SCOPE)
-    local _, value = decode_value(first, last, scope)
+    local _, value = decode_value(first, last, data, scope)
     rawset(self, key, value)
     return value
 end
@@ -673,6 +681,7 @@ end
 function Nibs.Map:__pairs()
     local offsets = get_offsets(self)
     local i = 0
+    local data = rawget(self, DATA)
     local scope = rawget(self, CURRENT_SCOPE)
     return function()
         if i >= #offsets then return end
@@ -681,8 +690,9 @@ function Nibs.Map:__pairs()
         local mid = offsets[i - 1]
         local last = offsets[i]
         assert(i and first and mid and last)
-        local _, key = decode_value(first, mid, scope)
-        local _, value = decode_value(mid, last, scope)
+        p(offsets)
+        local _, key = decode_value(first, mid, data, scope)
+        local _, value = decode_value(mid, last, data, scope)
         rawset(self, key, value)
         return key, value
     end
@@ -694,14 +704,15 @@ end
 
 function Nibs.Map:__index(key)
     local offsets = get_offsets(self)
+    local data = rawget(self, DATA)
     local scope = rawget(self, CURRENT_SCOPE)
     for i = 0, #offsets - 1, 2 do
         local first = offsets[i]
         local mid = offsets[i + 1]
-        local _, k = decode_value(first, mid, scope)
+        local _, k = decode_value(first, mid, data, scope)
         if k == key then
             local last = offsets[i + 2]
-            local _, value = decode_value(mid, last, scope)
+            local _, value = decode_value(mid, last, data, scope)
             rawset(self, key, value)
             return value
         end
@@ -735,9 +746,11 @@ function Nibs.Array:__index(k)
         or nil, "invalid width")
     ---@type integer
     local offset = cast(Ptr, last + (k - 1) * width)[0]
+    ---@type integer[]
+    local data = rawget(self, DATA)
     ---@type Nibs.Array|nil
     local scope = rawget(self, CURRENT_SCOPE)
-    local _, value = decode_value(first, first + offset, scope)
+    local _, value = decode_value(first, first + offset, data, scope)
     rawset(self, k, value)
     return value
 end
@@ -763,7 +776,7 @@ function Nibs.decode(data, length)
     end
     assert(length, "unknown length")
     assert(length > 0, "empty data")
-    local offset, value = decode_value(data, data + length)
+    local offset, value = decode_value(data, data + length, data)
     assert(offset - data == 0)
     return value
 end
