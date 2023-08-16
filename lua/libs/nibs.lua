@@ -501,6 +501,8 @@ end
 ---@return integer[] new_last after consuming value
 ---@return Nibs.Value decoded_value
 local function decode_value(first, last, scope)
+    p("decode_value", first, last, scope)
+    assert(last > first)
     -- Read the value header and update the upper boundary
     local type_tag, int_val
     do
@@ -529,7 +531,7 @@ local function decode_value(first, last, scope)
         end
     elseif type_tag == REF then
         assert(scope, "missing scope array")
-        return scope[int_val]
+        return last, scope[int_val + 1]
     elseif type_tag < 8 then
         error(string.format("Unknown inline type %d", type_tag))
     end
@@ -592,7 +594,8 @@ function decode_scope(first, last, scope)
     assert(index >= first)
     scope = decode_array(first, index, scope)
     local index2, value = decode_value(index, last, scope)
-    assert(index2 == index)
+    p("index2", index2, "index", index)
+    assert(index2 - index == 0)
     return first, value
 end
 
@@ -743,12 +746,15 @@ end
 --- @param data string|integer[] binary reverse nibs encoded value
 --- @param length? integer length of binary data
 function Nibs.decode(data, length)
+    p("decode", data, length)
     if type(data) == "string" then
-        length = length or #string
+        length = length or #data
         local buf = U8Arr(length)
         copy(buf, data, length)
         data = buf
     end
+    assert(length, "unknown length")
+    assert(length > 0, "empty data")
     local offset, value = decode_value(data, data + length)
     p("data", data, "offset", offset, "value", value)
     assert(offset - data == 0)
