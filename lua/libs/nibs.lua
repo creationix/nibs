@@ -1,7 +1,5 @@
 local import = _G.import or require
 
-local HamtIndex = import "hamt-index"
-
 -- Main types
 local ZIGZAG = 0
 local FLOAT = 1
@@ -14,7 +12,6 @@ local HEXSTRING = 10
 local LIST = 11
 local MAP = 12
 local ARRAY = 13
-local TRIE = 14
 local SCOPE = 15
 
 -- Simple subtypes
@@ -41,13 +38,12 @@ local Tibs = import 'tibs'
 local List = Tibs.List
 local Map = Tibs.Map
 local Array = Tibs.Array
-local Trie = Tibs.Trie
 local Ref = Tibs.Ref
 local Scope = Tibs.Scope
 
 local NibLib = import "nib-lib"
 
-local NibsList, NibsMap, NibsArray, NibsTrie
+local NibsList, NibsMap, NibsArray
 
 local U64 = NibLib.U64
 local I64 = NibLib.I64
@@ -185,7 +181,6 @@ local encode_list
 local encode_map
 local encode_array
 local generate_array_index
-local encode_trie
 local encode_scope
 
 ---@class Nibs
@@ -257,10 +252,6 @@ function encode_any(val)
             end
             return encode_list(val)
         else
-            if mt and mt.__is_indexed then
-                collectgarbage("collect")
-                return encode_trie(val)
-            end
             return encode_map(val)
         end
     else
@@ -347,38 +338,6 @@ function encode_map(map)
     end
     local size, head = encode_pair(MAP, total)
     return size + total, { head, body }
-end
-
----@param map table<Value,Value>
----@return integer
----@return any
-function encode_trie(map)
-    local total = 0
-    local body = {}
-    local offsets = {}
-    for k, v in pairs(map) do
-        collectgarbage("collect")
-
-        local size, entry = combine(encode_any(k))
-        offsets[entry] = total
-        insert(body, entry)
-        total = total + size
-
-        size, entry = encode_any(v)
-        insert(body, entry)
-        total = total + size
-    end
-
-    local count, width, index = HamtIndex.encode(offsets)
-    total = total + count * width
-
-    local size, prefix, meta
-    size, meta = encode_pair(width, count)
-    total = total + size
-
-    size, prefix = encode_pair(TRIE, total)
-
-    return total + size, { prefix, meta, index, body }
 end
 
 ---@private
@@ -519,7 +478,6 @@ local get
 ---@field omega number end of data as offset to after data
 ---@field width number? width of index entries
 ---@field count number? count of index entries
----@field seed number? hash seed for trie hamt
 
 -- Weakmap for associating private metadata to tables.
 ---@type table<table,NibsMetaEntry>
@@ -728,79 +686,6 @@ end
 
 NibsArray.__pairs = NibsArray.__ipairs
 
----@class NibsTrie
-NibsTrie = {}
-NibsTrie.__name = "NibsTrie"
-NibsTrie.__is_array_like = false
-NibsTrie.__is_indexed = true
-
----@param read ByteProvider
----@param offset number
----@param length number
----@param scope DecodeScope?
----@return NibsTrie
-function NibsTrie.new(read, offset, length, scope)
-    local self = setmetatable({}, NibsTrie)
-    local alpha, width, count = decode_pair(read, offset)
-    local seed = decode_pointer(read, alpha, width)
-    local omega = offset + length
-    NibsMeta[self] = {
-        read = read,
-        scope = scope,
-        alpha = alpha, -- Start of trie index
-        omega = omega, -- End of trie values
-        seed = seed,   -- Seed for HAMT
-        width = width, -- Width of index entries
-        count = count, -- Count of index entries
-    }
-    return self
-end
-
-function NibsTrie:__index(idx)
-    local meta = NibsMeta[self]
-    local read = meta.read
-    local width = assert(meta.width)
-    local encoded = Nibs.encode(idx)
-
-    local target = HamtIndex.walk(read, meta.alpha, meta.count, width, NibLib.strToBuf(encoded))
-    if not target then return end
-
-    target = tonumber(target)
-
-    local offset = meta.alpha + meta.width * meta.count + target
-    local key, value
-    key, offset = get(read, offset, meta.scope)
-    if key ~= idx then return end
-
-    value = get(read, offset, meta.scope)
-    return value
-end
-
-function NibsTrie.__newindex()
-    error "NibsTrie is read-only"
-end
-
-function NibsTrie.__len()
-    return 0
-end
-
-function NibsTrie:__pairs()
-    local meta = NibsMeta[self]
-    local offset = meta.alpha + meta.width * meta.count
-    return function()
-        if offset < meta.omega then
-            local key, value
-            key, offset = get(meta.read, offset, meta.scope)
-            value, offset = get(meta.read, offset, meta.scope)
-            -- TODO: remove this sanity check once we're confident in __index
-            local check = self[key]
-            if not (type(value) == "table" or type(value) == "cdata" or check == value) then
-                error "Mismatch"
-            end
-            return key, value
-        end
-    end
-end
 
 ---@class DecodeScope
 ---@field alpha number
@@ -863,8 +748,6 @@ function get(read, offset, scope)
         return NibsMap.new(read, offset, big, scope), offset + big
     elseif little == ARRAY then
         return NibsArray.new(read, offset, big, scope), offset + big
-    elseif little == TRIE then
-        return NibsTrie.new(read, offset, big, scope), offset + big
     elseif little == SCOPE then
         return decode_scope(read, offset, big), offset + big
     else
@@ -885,7 +768,7 @@ function Nibs.decode(str)
     return val
 end
 
----Turn lists and maps into arrays and tries if they are over some limit
+---Turn lists into arrays if they are over some limit
 ---@param value Value
 ---@param index_limit number
 function Nibs.autoIndex(value, index_limit)
@@ -912,9 +795,7 @@ function Nibs.autoIndex(value, index_limit)
             end
             return r
         end
-        local count = 0
-        for _ in pairs(o) do count = count + 1 end
-        local r = count < index_limit and o or Trie.new()
+        local r = Map.new()
         for k, v in pairs(o) do
             r[walk(k)] = walk(v)
         end
