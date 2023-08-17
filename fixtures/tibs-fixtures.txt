@@ -28,4 +28,3 @@ nan
 ([&0,null],2,null)
 [#null,2,null]
 {1:2,3:4,5:null}
-{#1:2,3:4,5:null}

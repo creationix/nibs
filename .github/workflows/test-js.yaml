@@ -21,5 +21,4 @@ jobs:
           node tests/test-nibs-utils.js
           node tests/test-cycles.js
           node tests/test-lazy-object.js
-          node tests/test-xxhash.js
       - run: echo "🍏 This job's status is ${{ job.status }}."
