@@ -2,7 +2,7 @@
     "empty_list": [],
     "empty_map": {},
     "empty_array": [#],
-    "mixedtypes": [0,-10,100,true,false,null,<123456>,"Hello","123456"],
+    "mixedtypes": [0,-10,100,true,false,null,|123456|,"Hello","123456"],
     "repeated": ["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"],
     "number": 1234,
     "string": "Hello",
@@ -34,4 +34,5 @@
       { &0: "🟦", &1: [ "blueberry", "blackberry", "fig", "currant" ] },
       { &0: "🟪", &1: [ "blueberry", "grape", "blackberry", "dragonfruit", "prickly pear", "plum" ] },
     ], "color", "fruits", "apple" ),
+    "braces": [[[[[[[[{||:||}]]]]]]]],
 }

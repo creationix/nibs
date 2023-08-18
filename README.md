@@ -133,13 +133,13 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`0` | `<30>` | `<00>`
-`-1` | `<2d31>` | `<01>`
-`1` | `<31>` | `<02>`
-`-2` | `<2d32>` | `<03>`
-`2` | `<32>` | `<04>`
-`42` | `<3432>` | `<0c 54>`
-`1000` | `<31303030>` | `<0d d007>`
+`0` | `|30|` | `|00|`
+`-1` | `|2d31|` | `|01|`
+`1` | `|31|` | `|02|`
+`-2` | `|2d32|` | `|03|`
+`2` | `|32|` | `|04|`
+`42` | `|3432|` | `|0c 54|`
+`1000` | `|31303030|` | `|0d d007|`
 
 ### `1` - Floating Point Numbers
 
@@ -184,9 +184,9 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`false` | `<66616c7365>` | `<20>`
-`true` | `<74727565>` | `<21>`
-`null` | `<6e756c6c>` | `<22>`
+`false` | `|66616c7365|` | `|20|`
+`true` | `|74727565|` | `|21|`
+`null` | `|6e756c6c|` | `|22|`
 
 ### `8` - Bytes
 
@@ -196,10 +196,10 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`<>` | | `<80>`
-`<deadbeef>` | | `<84 deadbeef>`
-`<0123456789abcdef>` | | `<88 0123456789abcdef>`
-`<00112233445566778899aabbccddeeff>` | | `<8c10 00112233445566778899aabbccddeeff>`
+`||` | | `|80|`
+`|deadbeef|` | | `|84 deadbeef|`
+`|0123456789abcdef|` | | `|88 0123456789abcdef|`
+`|00112233445566778899aabbccddeeff|` | | `|8c10 00112233445566778899aabbccddeeff|`
 
 
 ### `9` - Utf8 Unicode Strings
@@ -210,9 +210,9 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`"🏵ROSETTE"` | `<22 f09f8fb5 524f5345545445 22>` | `<9b f09f8fb5 524f5345545445>`
-`"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 22>` | `<9c 18 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa>`
-`"👶"` | `<22 f09f91b6 22>` | `<94 f09f91b6>`
+`"🏵ROSETTE"` | `|22 f09f8fb5 524f5345545445 22|` | `|9b f09f8fb5 524f5345545445|`
+`"🟥🟧🟨🟩🟦🟪"` | `|22 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 22|` | `|9c 18 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa|`
+`"👶"` | `|22 f09f91b6 22|` | `|94 f09f91b6|`
 
 ### `a` - Hex Strings
 
@@ -222,8 +222,8 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`"deadbeef"` | `<22 6465616462656566 22>` | `<a4 deadbeef>`
-`"0123456789abcdef"` | `<22 30313233343536373839616263646566 22>` | `<a8 0123456789abcdef>`
+`"deadbeef"` | `|22 6465616462656566 22|` | `|a4 deadbeef|`
+`"0123456789abcdef"` | `|22 30313233343536373839616263646566 22|` | `|a8 0123456789abcdef|`
 
 ### `b` - List
 
@@ -233,22 +233,20 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`[]` | `<5b 5d>` | `<b0>`
-`[1,2,3]` | `<5b 31 2c 32 2c 33 5d>` | `<b3 02 04 06>`
-`[[1],[2],[3]]` | `<5b 5b 31 5d 2c 5b 32 5d 2c 5b 33 5d 5d>` | `<b6 b1 02 b1 04 b1 06>`
+`[]` | `|5b 5d|` | `|b0|`
+`[1,2,3]` | `|5b 31 2c 32 2c 33 5d|` | `|b3 02 04 06|`
+`[[1],[2],[3]]` | `|5b 5b 31 5d 2c 5b 32 5d 2c 5b 33 5d 5d|` | `|b6 b1 02 b1 04 b1 06|`
 
 The last example in detail is:
 
 ```tibs
-<
-b6 // List(6)
-  b1 // List(1)
-    02 // ZigZag(2)
-  b1 // List(1)
-    04 // ZigZag(4)
-  b1 // List(1)
-    06 // ZigZag(6)
->
+| b6     | // List(6)
+|   b1   | // List(1)
+|     02 | // ZigZag(2)
+|   b1   | // List(1)
+|     04 | // ZigZag(4)
+|   b1   | // List(1)
+|     06 | // ZigZag(6)
 ```
 
 ### `c` - Map
@@ -259,19 +257,17 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`{"name":"Nibs"}` | `<7b 22 6e616d65 22 3a 22 4e696273 22 7d>` | `<ca 94 6e616d65 94 4e696273>`
-`{"name":"Nibs",true:false}` | N/A | `<cc 0c 20 94 6e616d65 94 4e696273 21 20>`
+`{"name":"Nibs"}` | `|7b 22 6e616d65 22 3a 22 4e696273 22 7d|` | `|ca 94 6e616d65 94 4e696273|`
+`{"name":"Nibs",true:false}` | N/A | `|cc 0c 20 94 6e616d65 94 4e696273 21 20|`
 
 ```tibs
-<
-cc 0c // Map-8(12)
-  94 // Utf8(4)
-    6e616d // `n`,`a`,`m`,`e`
-  94 // Utf8(4)
-    4e696273 // `N`,`i`,`b`,`s`
-  21 // Simple(1)
-  20 // Simple(0)
->
+| cc 0c        | // Map-8(12)
+|   94         | // Utf8(4)
+|     6e616d   | // `n`,`a`,`m`,`e`
+|   94         | // Utf8(4)
+|     4e696273 | // `N`,`i`,`b`,`s`
+|   21         | // Simple(1)
+|   20         | // Simple(0)
 ```
 
 > [!NOTE]
@@ -290,19 +286,17 @@ Examples:
 
 Value | JSON | Nibs
 ----- | ---- | ----
-`[#1,2,3]` | N/A | `<d7 13 00 01 02 02 04 06>`
+`[#1,2,3]` | N/A | `|d7 13 00 01 02 02 04 06|`
 
 ```tibs
-<
-d7 // Array(7)
-  13 // ArrayIndex(width=1,count=3)
-    00 // Pointer(0)
-    01 // Pointer(1)
-    02 // Pointer(2)
-  02 // ZigZag(2)
-  04 // ZigZag(4)
-  06 // ZigZag(6)
->
+| d7     | // Array(7)
+|   13   | // ArrayIndex(width=1,count=3)
+|     00 | // Pointer(0)
+|     01 | // Pointer(1)
+|     02 | // Pointer(2)
+|   02   | // ZigZag(2)
+|   04   | // ZigZag(4)
+|   06   | // ZigZag(6)
 ```
 
 > [!NOTE]
@@ -362,23 +356,21 @@ The Tibs representation for this is:
 The Nibs representation is:
 
 ```tibs
-<
-0e fc // Scope-8(14)
-  b4 // List(4)
-    33 // Ref(3) -> Pointer(8) -> 4
-    31 // Ref(1) -> Pointer(6) -> 2
-    32 // Ref(2) -> Pointer(7) -> 3
-    30 // Ref(0) -> Pointer(5) -> 1
-  14 // ArrayIndex(width=1,count=4)
-    00 // Pointer(0) -> 1
-    01 // Pointer(1) -> 2
-    02 // Pointer(2) -> 3
-    03 // Pointer(3) -> 4
-  02 // ZigZag(2) = 1
-  04 // ZigZag(4) = 2
-  06 // ZigZag(6) = 3
-  08 // ZigZag(8) = 4
->
+| 0e fc  | // Scope-8(14)
+|   b4   | // List(4)
+|     33 | // Ref(3) -> Pointer(8) -> 4
+|     31 | // Ref(1) -> Pointer(6) -> 2
+|     32 | // Ref(2) -> Pointer(7) -> 3
+|     30 | // Ref(0) -> Pointer(5) -> 1
+|   14   | // ArrayIndex(width=1,count=4)
+|     00 | // Pointer(0) -> 1
+|     01 | // Pointer(1) -> 2
+|     02 | // Pointer(2) -> 3
+|     03 | // Pointer(3) -> 4
+|   02   | // ZigZag(2) = 1
+|   04   | // ZigZag(4) = 2
+|   06   | // ZigZag(6) = 3
+|   08   | // ZigZag(8) = 4
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
@@ -390,17 +382,15 @@ Another example is the following (note one ref isn't used)
 ```
 
 ```tibs
-<
-fa // Scope(10)
-  31 // Ref(1) -> "beef"
-  12 // ArrayIndex(width=1,count=2)
-    00 // pointer to header for `dead`
-    03 // pointer to header for `beef`
-  a2 // HexString(2)
-    dead
-  a2 // HexString(2)
-    beef
->
+| fa       | // Scope(10)
+|   31     | // Ref(1) -> "beef"
+|   12     | // ArrayIndex(width=1,count=2)
+|     00   | // pointer to header for `dead`
+|     03   | // pointer to header for `beef`
+|   a2     | // HexString(2)
+|     dead |
+|   a2     | // HexString(2)
+|     beef |
 ```
 
 The larger ref example from above:
@@ -418,33 +408,33 @@ The larger ref example from above:
 Would encode like this:
 
 ```tibs
-< 4e fc // Ref-8(78)
-    35 bc // List-8(53)
-      14 cc // Map-8(20)
-        30 // Ref(0)
-        93 726564 // "red"
-        31 // Ref(1)
-        0c bc // List-8(12)
-          32 // Ref(2)
-          9a 73747261776265727279 // "strawberry"
-      ca // Map(10)
-        30 // Ref(0)
-        95 677265656e // "green"
-        31 // Ref(1)
-        b1 // List(1)
-          32 // Ref(2)
-      12 cc // Map-8(18)
-        30 // Ref(0)
-        96 79656c6c6f77 // "yellow"
-        31 // Ref(1)
-        b8 // List(8)
-          32 // Ref(2)
-          96 62616e616e61 // "banana"
-    13 // ArrayIndex(width=1,count=3)
-      00 // Ptr(0) (header of "color")
-      06 // Ptr(6) (header of "fruits")
-      0c // Ptr(13) (header of "apple")
-    95 636f6c6f72 // "color"
-    96 667275697473 // "fruits"
-    95 6170706c65 > // "apple"
+| 4e fc                           | // Ref-8(78)
+|   35 bc                         | // List-8(53)
+|     14 cc                       | // Map-8(20)
+|       30                        | // Ref(0)
+|       93 726564                 | // "red"
+|       31                        | // Ref(1)
+|       0c bc                     | // List-8(12)
+|         32                      | // Ref(2)
+|         9a 73747261776265727279 | // "strawberry"
+|     ca                          | // Map(10)
+|       30                        | // Ref(0)
+|       95 677265656e             | // "green"
+|       31                        | // Ref(1)
+|       b1                        | // List(1)
+|         32                      | // Ref(2)
+|     12 cc                       | // Map-8(18)
+|       30                        | // Ref(0)
+|       96 79656c6c6f77           | // "yellow"
+|       31                        | // Ref(1)
+|       b8                        | // List(8)
+|         32                      | // Ref(2)
+|         96 62616e616e61         | // "banana"
+|   13                            | // ArrayIndex(width=1,count=3)
+|     00                          | // Ptr(0) (header of "color")
+|     06                          | // Ptr(6) (header of "fruits")
+|     0c                          | // Ptr(13) (header of "apple")
+|   95 636f6c6f72                 | // "color"
+|   96 667275697473               | // "fruits"
+|   95 6170706c65                 | // "apple"
 ```

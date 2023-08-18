@@ -14,7 +14,7 @@
 inf
 -inf
 nan
-<0123456789abcdef>
+|0123456789abcdef|
 "hello world"
 "\r\n\r\n"
 "\\\t\"\t"
