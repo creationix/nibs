@@ -26,4 +26,12 @@
         "four":  { "name": "Four",  "value": 2000 },
         "five":  { "name": "five",  "value": 1000 }
     },
+    "fruit-refs": ( [
+      { &0: "🟥", &1: [ "cherry", "plum", "raspberry", "pomegranate", &2, "strawberry" ] },
+      { &0: "🟧", &1: [ "orange", "kumquat", "gac", "kiwano", "clementine", "mango", "tamarillo" ] },
+      { &0: "🟨", &1: [ &2, "banana", "lemon", "pinapple", "angelcot"  ] },
+      { &0: "🟩", &1: [ &2, "pear", "lime", "honeydew", "grape", "fig" ] }
+      { &0: "🟦", &1: [ &3, &4, "black mission fig", "currant" ] },
+      { &0: "🟪", &1: [ &3, &4, "dragonfruit", "prickly pear", "plum" ] },
+    ], "color", "fruits", "apple", "blueberry", "blackberry" ),
 }
