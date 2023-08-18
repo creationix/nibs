@@ -131,7 +131,7 @@ int64_t decodeZigZag(uint64_t i) {
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `0` | `<30>` | `<00>`
 `-1` | `<2d31>` | `<01>`
@@ -159,7 +159,7 @@ This means that in practice it will nearly always use the largest representation
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `3.1415926535897930` | `332e313431353932363533353839373933` | `1f 182d4454fb210940`
 `inf` | | `1f 000000000000f07f`
@@ -182,7 +182,7 @@ enum SubType {
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `false` | `<66616c7365>` | `<20>`
 `true` | `<74727565>` | `<21>`
@@ -194,7 +194,7 @@ Bytes are a container for raw octets.
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `<>` | | `<80>`
 `<deadbeef>` | | `<84 deadbeef>`
@@ -208,7 +208,7 @@ Most strings are stored as utf-8 encoded unicode wrapped in nibs.  Codepoints hi
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `"🏵ROSETTE"` | `<22 f09f8fb5 524f5345545445 22>` | `<9b f09f8fb5 524f5345545445>`
 `"🟥🟧🟨🟩🟦🟪"` | `<22 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa 22>` | `<9c 18 f09f9fa5 f09f9fa7 f09f9fa8 f09f9fa9 f09f9fa6 f09f9faa>`
@@ -220,7 +220,7 @@ Hex Strings are an optimization for common string values that are an even number
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `"deadbeef"` | `<22 6465616462656566 22>` | `<a4 deadbeef>`
 `"0123456789abcdef"` | `<22 30313233343536373839616263646566 22>` | `<a8 0123456789abcdef>`
@@ -231,7 +231,7 @@ The `list` type is a ordered list of values.  It's encoded as zero or more nibs 
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `[]` | `<5b 5d>` | `<b0>`
 `[1,2,3]` | `<5b 31 2c 32 2c 33 5d>` | `<b3 02 04 06>`
@@ -239,14 +239,16 @@ Value | JSON | Nibs
 
 The last example in detail is:
 
-```lua
-b6 --> List(6)
-  b1 --> List(1)
-    02 --> ZigZag(2)
-  b1 --> List(1)
-    04 --> ZigZag(4)
-  b1 --> List(1)
-    06 --> ZigZag(6)
+```tibs
+<
+b6 // List(6)
+  b1 // List(1)
+    02 // ZigZag(2)
+  b1 // List(1)
+    04 // ZigZag(4)
+  b1 // List(1)
+    06 // ZigZag(6)
+>
 ```
 
 ### `c` - Map
@@ -255,19 +257,21 @@ Map is the same as list, except the items are considered alternating keys and va
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `{"name":"Nibs"}` | `<7b 22 6e616d65 22 3a 22 4e696273 22 7d>` | `<ca 94 6e616d65 94 4e696273>`
 `{"name":"Nibs",true:false}` | N/A | `<cc 0c 20 94 6e616d65 94 4e696273 21 20>`
 
-```lua
-cc 0c --> Map-8(12)
-  94 --> Utf8(4)
-    6e616d --> `n`,`a`,`m`,`e`
-  94 --> Utf8(4)
-    4e696273 --> `N`,`i`,`b`,`s`
-  21 --> Simple(1)
-  20 --> Simple(0)
+```tibs
+<
+cc 0c // Map-8(12)
+  94 // Utf8(4)
+    6e616d // `n`,`a`,`m`,`e`
+  94 // Utf8(4)
+    4e696273 // `N`,`i`,`b`,`s`
+  21 // Simple(1)
+  20 // Simple(0)
+>
 ```
 
 > [!NOTE]
@@ -284,19 +288,21 @@ The 4 sections are (`values`, `index`, `index-header`, `value-header`).
 
 Examples:
 
-Value | JSON | Nibs 
+Value | JSON | Nibs
 ----- | ---- | ----
 `[#1,2,3]` | N/A | `<d7 13 00 01 02 02 04 06>`
 
-```lua
-d7 --> Array(7)
-  13 --> ArrayIndex(width=1,count=3)
-    00 --> Pointer(0)
-    01 --> Pointer(1)
-    02 --> Pointer(2)
-  02 --> ZigZag(2)
-  04 --> ZigZag(4)
-  06 --> ZigZag(6)
+```tibs
+<
+d7 // Array(7)
+  13 // ArrayIndex(width=1,count=3)
+    00 // Pointer(0)
+    01 // Pointer(1)
+    02 // Pointer(2)
+  02 // ZigZag(2)
+  04 // ZigZag(4)
+  06 // ZigZag(6)
+>
 ```
 
 > [!NOTE]
@@ -314,7 +320,7 @@ The 5 sections are (`targets`, `index`, `index-header`, `value`, `value-header`)
 
 For example, consider the following value:
 
-```js
+```tibs
 // Original Value
 [ { color: "red", fruits: ["apple", "strawberry"] },
   { color: "green", fruits: ["apple"] },
@@ -323,14 +329,14 @@ For example, consider the following value:
 
 A good refs table for this would be to pull out the repeated strings since their refs overhead is smaller then their encoding costs:
 
-```js
+```tibs
 // Refs Table
 [ "color", "fruits", "apple" ]
 ```
 
 Then the encoded value would look more like this with the refs applied.
 
-```js
+```tibs
 // encoding with refs and refsscope
 (
   "color", "fruits", "apple",
@@ -347,7 +353,7 @@ Another example is encoding `[4,2,3,1]` using the refs `[1,2,3,4]`
 
 The Tibs representation for this is:
 
-```js
+```tibs
 ( 1, 2, 3, 4,
   [ &3, &1, &2, &0 ]
 )
@@ -355,47 +361,51 @@ The Tibs representation for this is:
 
 The Nibs representation is:
 
-```lua
-0e fc --> Scope-8(14)
-  b4 --> List(4)
-    33 --> Ref(3) -> Pointer(8) -> 4
-    31 --> Ref(1) -> Pointer(6) -> 2
-    32 --> Ref(2) -> Pointer(7) -> 3
-    30 --> Ref(0) -> Pointer(5) -> 1
-  14 --> ArrayIndex(width=1,count=4)
-    00 --> Pointer(0) -> 1
-    01 --> Pointer(1) -> 2
-    02 --> Pointer(2) -> 3
-    03 --> Pointer(3) -> 4
-  02 --> ZigZag(2) = 1
-  04 --> ZigZag(4) = 2
-  06 --> ZigZag(6) = 3
-  08 --> ZigZag(8) = 4
+```tibs
+<
+0e fc // Scope-8(14)
+  b4 // List(4)
+    33 // Ref(3) -> Pointer(8) -> 4
+    31 // Ref(1) -> Pointer(6) -> 2
+    32 // Ref(2) -> Pointer(7) -> 3
+    30 // Ref(0) -> Pointer(5) -> 1
+  14 // ArrayIndex(width=1,count=4)
+    00 // Pointer(0) -> 1
+    01 // Pointer(1) -> 2
+    02 // Pointer(2) -> 3
+    03 // Pointer(3) -> 4
+  02 // ZigZag(2) = 1
+  04 // ZigZag(4) = 2
+  06 // ZigZag(6) = 3
+  08 // ZigZag(8) = 4
+>
 ```
 
 Note that refs are always zero indexed even if your language normally starts indices at 1.
 
 Another example is the following (note one ref isn't used)
 
-```js
+```tibs
 ( "dead", "beef", &1 )
 ```
 
-```lua
-fa --> Scope(10)
-  31 --> Ref(1) -> "beef"
-  12 --> ArrayIndex(width=1,count=2)
-    00 --> pointer to header for `dead`
-    03 --> pointer to header for `beef`
-  a2 --> HexString(2)
+```tibs
+<
+fa // Scope(10)
+  31 // Ref(1) -> "beef"
+  12 // ArrayIndex(width=1,count=2)
+    00 // pointer to header for `dead`
+    03 // pointer to header for `beef`
+  a2 // HexString(2)
     dead
-  a2 --> HexString(2)
+  a2 // HexString(2)
     beef
+>
 ```
 
 The larger ref example from above:
 
-```js
+```tibs
 // encoding with refs and refsscope
 (
   "color", "fruits", "apple",
@@ -407,34 +417,34 @@ The larger ref example from above:
 
 Would encode like this:
 
-```lua
-4e fc --> Ref-8(78)
-  35 bc --> List-8(53)
-    14 cc --> Map-8(20)
-      30 --> Ref(0)
-      93 726564 --> "red"
-      31 --> Ref(1)
-      0c bc --> List-8(12)
-        32 --> Ref(2)
-        9a 73747261776265727279 --> "strawberry"
-    ca --> Map(10)
-      30 --> Ref(0)
-      95 677265656e --> "green"
-      31 --> Ref(1)
-      b1 --> List(1)
-        32 --> Ref(2)
-    12 cc --> Map-8(18)
-      30 --> Ref(0)
-      96 79656c6c6f77 --> "yellow"
-      31 --> Ref(1)
-      b8 --> List(8)
-        32 --> Ref(2)
-        96 62616e616e61 --> "banana"
-  13 --> ArrayIndex(width=1,count=3)
-    00 --> Ptr(0) (header of "color")
-    06 --> Ptr(6) (header of "fruits")
-    0c --> Ptr(13) (header of "apple")
-  95 636f6c6f72 --> "color"
-  96 667275697473 --> "fruits"
-  95 6170706c65 --> "apple"
+```tibs
+< 4e fc // Ref-8(78)
+    35 bc // List-8(53)
+      14 cc // Map-8(20)
+        30 // Ref(0)
+        93 726564 // "red"
+        31 // Ref(1)
+        0c bc // List-8(12)
+          32 // Ref(2)
+          9a 73747261776265727279 // "strawberry"
+      ca // Map(10)
+        30 // Ref(0)
+        95 677265656e // "green"
+        31 // Ref(1)
+        b1 // List(1)
+          32 // Ref(2)
+      12 cc // Map-8(18)
+        30 // Ref(0)
+        96 79656c6c6f77 // "yellow"
+        31 // Ref(1)
+        b8 // List(8)
+          32 // Ref(2)
+          96 62616e616e61 // "banana"
+    13 // ArrayIndex(width=1,count=3)
+      00 // Ptr(0) (header of "color")
+      06 // Ptr(6) (header of "fruits")
+      0c // Ptr(13) (header of "apple")
+    95 636f6c6f72 // "color"
+    96 667275697473 // "fruits"
+    95 6170706c65 > // "apple"
 ```
