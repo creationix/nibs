@@ -4,21 +4,39 @@
     "empty_array": [#],
     "mixedtypes": [0,-10,100,true,false,null,|123456|,"Hello","123456"],
     "repeated": ["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"],
-    "number": 1234,
+    "integer": 1234,
+    "integers": [1,10,100,1000,10000,100000,1000000,10000000],
+    "float": 0.1,
+    "floats": [0.1,inf,-inf,nan,1.7976931348623157e+308,2.2250738585072014e-308],
     "string": "Hello",
     "array": [1,2,3,4],
     "small-object": {0:1,2:3,4:5},
+
+    // These both contain |deadbeef| in their serializations
     "hamburgers": [2011125487,"deadbeef"],
-    "counters": [0,-1,1,-2,2,-3,"000102030405"],
-    "object": {"name":"Tim","age":40,"color":"blue"},
+
+    // These all contain |000102030405| in their serializations
+    "counters": [0,-1,1,-2,2,-3,"000102030405",|000102030405|],
+
+    // Basic object sample with a few primitive types
+    "object": {
+      "name": "Nibs", "number": 42, "color": "0088ff",
+      "fast": true, "bloated": false, "empty": null, "pi": 3.14159
+    },
+
+    // Original ref/scope example from README with dups
     "mixed": [
         {"color":"red",   "fruits":["apple","strawberry"]},
         {"color":"green", "fruits":["apple"]},
         {"color":"yellow","fruits":["apple","banana"]}
     ],
+
+    // Wide map, used to be for trie type, but now is just mini map test
     "wide map": {
       0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
     },
+
+    // Test with lots of dups for the de-duplicator to find
     "test": {
         "one":   { "name": "one",   "value": 1000, "beef": false },
         "two":   { "name": "Two",   "value": 2000, "dead": true },
@@ -26,13 +44,29 @@
         "four":  { "name": "Four",  "value": 2000 },
         "five":  { "name": "five",  "value": 1000 }
     },
+
+    // This test has some duplicates already turned to refs, but others are left duplicated on purpose
     "fruit-refs": ( [
-      { &0: "🟥", &1: [ "cherry", "plum", "raspberry", "pomegranate", &2, "strawberry", "pluot", "pear", "watermelon" ] },
-      { &0: "🟧", &1: [ "orange", "kumquat", "gac", "kiwano", "clementine", "mango", "tamarillo" ] },
-      { &0: "🟨", &1: [ &2, "banana", "lemon", "pinapple", "angelcot"  ] },
-      { &0: "🟩", &1: [ &2, "pear", "lime", "honeydew", "grape", "fig", "watermelon" ] }
-      { &0: "🟦", &1: [ "blueberry", "blackberry", "fig", "currant" ] },
-      { &0: "🟪", &1: [ "blueberry", "grape", "blackberry", "dragonfruit", "prickly pear", "plum" ] },
+      { &0: "🟥", &1: [
+        "cherry", "plum", "raspberry", "pomegranate", &2, "strawberry", "pluot", "pear", "watermelon" 
+      ] },
+      { &0: "🟧", &1: [
+        "orange", "kumquat", "gac", "kiwano", "clementine", "mango", "tamarillo"
+      ] },
+      { &0: "🟨", &1: [
+        &2, "banana", "lemon", "pinapple", "angelcot"
+      ] },
+      { &0: "🟩", &1: [
+        &2, "pear", "lime", "honeydew", "grape", "fig", "watermelon"
+      ] }
+      { &0: "🟦", &1: [
+        "blueberry", "blackberry", "fig", "currant"
+      ] },
+      { &0: "🟪", &1: [
+        "blueberry", "grape", "blackberry", "dragonfruit", "prickly pear", "plum"
+      ] },
     ], "color", "fruits", "apple" ),
+
+    // Test lots of braces and empty byte arrays
     "braces": [[[[[[[[{||:||}]]]]]]]],
 }

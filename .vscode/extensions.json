@@ -1,7 +1,7 @@
 {
     "recommendations": [
         "sumneko.lua",
-        "dwenegar.vscode-luacheck",
+        "rog2.luacheck",
         "creationix.nibs-vscode-ext"
     ]
 }

@@ -40,9 +40,10 @@ function Tibs.lexer(tibs)
     return false
   end
 
-  -- Get the next character that is not whitespace or comment
-  ---@return integer|nil next_char
-  local function next_non_whitespace()
+  ---@return LexerToken|nil token
+  ---@return integer|nil first
+  ---@return integer|string|nil last or error
+  return function()
     while first <= last do
       local c = byte(tibs, first)
       if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
@@ -60,19 +61,8 @@ function Tibs.lexer(tibs)
           end
           first = first + 1
         end
-      else
-        return c
-      end
-    end
-  end
-
-  ---@return LexerToken|nil token
-  ---@return integer|nil first
-  ---@return integer|string|nil last or error
-  return function()
-    for c in next_non_whitespace do
-      if c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c or c == 0x28 or c == 0x29 then
-        -- "[" | "]" "{" | "}" | ":" | ","
+      elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c or c == 0x28 or c == 0x29 then
+        -- "[" | "]" "{" | "}" | ":" | "," | "(" | ")"
         -- Pass punctuation through as-is
         local start = first
         first = first + 1
@@ -83,8 +73,8 @@ function Tibs.lexer(tibs)
       elseif c == 0x22 then -- double quote
         -- Parse Strings
         local start = first
-        while true do
-          first = first + 1
+        first = first + 1
+        while first <= last do
           if first > last then return "error", first, first end
           c = byte(tibs, first)
           if c == 0x22 then -- double quote
@@ -92,8 +82,14 @@ function Tibs.lexer(tibs)
             return "string", start, first - 1
           elseif c == 0x5c then -- backslash
             first = first + 1
+          elseif c == 0x0d or c == 0x0a then -- "\r" | "\n"
+            -- newline is not allowed
+            break
+          else -- other characters
+            first = first + 1
           end
         end
+        return "error", first, first
       elseif c == 0x2d                      -- "-"
           or (c >= 0x30 and c <= 0x39) then -- "0"-"9"
         local start = first
@@ -107,16 +103,21 @@ function Tibs.lexer(tibs)
           consume_digits()
         end
         return "number", start, first - 1
-      elseif c == 0x3c then -- "<"
+      elseif c == 0x7c then -- "|"
         local start = first
         first = first + 1
-        for c2 in next_non_whitespace do
-          if (c2 >= 0x30 and c2 <= 0x39)
-              or (c2 >= 0x41 and c2 <= 0x41)
-              or (c2 >= 0x61 and c2 <= 0x66) then
+        while first <= last do
+          c = byte(tibs, first)
+          if c == 0x09 or c == 0x20 then
+            -- "\t" | " "
+            -- Skip horizontal whitespace
+            first = first + 1
+          elseif (c >= 0x30 and c <= 0x39)
+              or (c >= 0x41 and c <= 0x41)
+              or (c >= 0x61 and c <= 0x66) then
             -- hex digit
             first = first + 1
-          elseif c2 == 0x3e then -- ">"
+          elseif c == 0x7c then -- "|"
             first = first + 1
             return "bytes", start, first - 1
           else
