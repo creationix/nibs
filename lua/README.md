@@ -6,13 +6,11 @@ Nibs is a new binary serialization format with the following set of priorities:
 
 [![Run Lua Tests](https://github.com/creationix/nibs/actions/workflows/test-lua.yaml/badge.svg)](https://github.com/creationix/nibs/actions/workflows/test-lua.yaml)
 
-[![Run Lua Reverse Tests](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yaml/badge.svg)](https://github.com/creationix/nibs/actions/workflows/test-lua-reverse.yaml)
-
 ## Fast Random Access Reads
 
 This format is designed to be read in-place (similar to cap'n proto) so that arbitrarily large documents can be read with minimal memory or compute requirements.  For example a 1 TiB mega nibs document could be read from a virtual block device where blocks are fetched from the network on-demand and the initial latency to start walking the data structure would be nearly instant.  Large documents could also be written to local NVMe drives and loaded to RAM using memmap.
 
-To enable this random access, all values are either inline (just the nibs pair) or contain a postfix length so that a single indirection can jump to the next value.  Also some types like the `Array` type enable O(1) lookup of arrays of any size with an inline index of fixed-width pointers that is read instead of scanning to the Nth entry.
+To enable this random access, all values are either inline (just the nibs pair) or contain a prefix length so that a single indirection can jump to the next value.  Also some types like the `Array` type enable O(1) lookup of arrays of any size with an inline index of fixed-width pointers that is read instead of scanning to the Nth entry.
 
 ## Self Documenting
 
@@ -68,7 +66,8 @@ xxxx 1100 yyyyyyyy
 xxxx 1101 yyyyyyyy yyyyyyyy
 xxxx 1110 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
 xxxx 1111 yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
-          yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy```
+          yyyyyyyy yyyyyyyy yyyyyyyy yyyyyyyy
+```
 
 Here the `x`s are a `u4` and the `y`s are semantically a `u64` using zero extension on the smaller numbers.
 
