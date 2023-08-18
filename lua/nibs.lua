@@ -81,7 +81,7 @@ function Tibs.lexer(tibs)
             first = first + 1
             return "string", start, first - 1
           elseif c == 0x5c then -- backslash
-            first = first + 1
+            first = first + 2
           elseif c == 0x0d or c == 0x0a then -- "\r" | "\n"
             -- newline is not allowed
             break
@@ -192,18 +192,53 @@ function Tibs.format_syntax_error(tibs, index, filename)
   return "Lexer error: Unexpected EOS"
 end
 
-local filename = "fixtures/encoder-fixtures.tibs"
-local fd = assert(io.open(filename))
-local tibs = assert(fd:read "*a")
-fd:close()
 
-for t, f, l in Nibs.Tibs.lexer(tibs) do
-  -- print(string.format("%s %d %d", t, f, l))
-  if t == "error" then
-    error(Tibs.format_syntax_error(tibs, f, filename))
-  end
-  print(string.format("% 6s % 4d % 4d %s", t, f, l, tibs:sub(f, l)))
+local ffi = require 'ffi'
+ffi.cdef[[
+    typedef long time_t;
+    typedef long suseconds_t;
+    struct timeval {
+        time_t       tv_sec;   /* seconds since Jan. 1, 1970 */
+        suseconds_t  tv_usec;  /* and microseconds */
+    };
+    struct timezone {
+        int     tz_minuteswest; /* of Greenwich */
+        int     tz_dsttime;     /* type of dst correction to apply */
+    };
+    int gettimeofday(struct timeval *tv, struct timezone *tz);
+]]
+
+local function hrtime()
+    local tm = ffi.new("struct timeval")
+    ffi.C.gettimeofday(tm, nil)
+    return tonumber(tm.tv_sec) * 1000000 + tonumber(tm.tv_usec)
 end
-print("DONE")
+
+---@param filename string
+---@param log_it? boolean
+local function parse(filename, log_it)
+  local fd = assert(io.open(filename))
+  local tibs = assert(fd:read "*a")
+  fd:close()
+
+  local before = hrtime()
+  for t, f, l in Nibs.Tibs.lexer(tibs) do
+    -- print(string.format("%s %d %d", t, f, l))
+    if t == "error" then
+      error(Tibs.format_syntax_error(tibs, f, filename))
+    end
+    if log_it then
+      print(string.format("% 6s % 4d % 4d %s", t, f, l, tibs:sub(f, l)))
+    end
+  end
+  local after = hrtime()
+  print(string.format("lexer: %dus", after - before))
+end
+
+parse("fixtures/encoder-fixtures.tibs", true)
+parse("fixtures/encoder-fixtures.tibs", false)
+-- parse("bench/data-formatted.json", false)
+
+
 
 return Nibs
