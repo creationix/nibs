@@ -17,5 +17,10 @@ test-nibs-reader:
 test-nibs-utils:
 	luvit tests/test-nibs-utils.lua
 
+lex.so: lex.c
+	$(CC) -Os -shared -fPIC lex.c -o lex.so
+
+
 # publish: test
 # 	lit publish nibs.lua
+
