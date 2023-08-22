@@ -32,11 +32,11 @@ local function parse(filename, log_it)
   local before = hrtime()
   for t, f, l in Tibs.lexer(tibs) do
     -- print(string.format("%s %d %d", t, f, l))
-    if t == "error" then
-      error(Tibs.format_syntax_error(tibs, f, filename))
+    if t == "error" or t == 0 then
+      error(Tibs.format_syntax_error(tibs, f+1, filename))
     end
     if log_it then
-      print(string.format("% 6s % 4d % 4d %s", t, f, l, tibs:sub(f, l)))
+      print(string.format("% 6s % 4d % 4d %s", t, f, l, tibs:sub(f + 1, l)))
     end
   end
   local after = hrtime()
@@ -69,35 +69,40 @@ ffi.cdef[[
     TOKEN_EOF,
   };
 
-  enum token_type tibs_next_token(const char* input, int len, int pos, int* out_pos, int* out_len);
-]]
+  struct lexer_state {
+    const char* first;
+    const char* current;
+    const char* last;
+  };
 
-local token_names = {
-  "string", "bytes", "number", "true", "false", "null", "nan", "inf", "ninf", "ref", 
-  ":", ",", "{", "}", "[", "]", "(", ")"
-}
-token_names[0] = "error"
+  enum token_type tibs_next_token(struct lexer_state* S);
+]]
 
 function Tibs.lexer(json)
   local data = ffi.cast("const char*", json)
   local len = #json
-  local pos = 0
+  local S = ffi.new "struct lexer_state"
+  S.first = data
+  S.current = S.first
+  S.last = data + len
   return function ()
-    local out_pos = ffi.new "int[1]"
-    local out_len = ffi.new "int[1]"
     -- print(string.format("pos=%d len=%s", pos, len))
-    local token_index = L.tibs_next_token(data, len, pos, out_pos, out_len)
+    local token_index = L.tibs_next_token(S)
+    -- print(string.format("token_index=%d first=%d current=%d last=%d",
+    --   tonumber(token_index),
+    --   S.first - data,
+    --   S.current - data,
+    --   S.last - data
+    -- ))
+    if token_index == ffi.C.TOKEN_EOF then return end
     -- print(string.format("token_index=%d, out_pos=%d out_len=%d", tonumber(token_index), out_pos[0], out_len[0]))
-    pos = out_pos[0] + out_len[0]
+    local p = S.first - data
+    local l = S.current - data
     -- print(string.format("pos=%d", pos))
-    local token = token_names[tonumber(token_index)]
-    if not token then return end
-    local first = out_pos[0] + 1
-    local last = out_pos[0] + out_len[0]
-    return token, first, last
+    return token_index, p, l
   end
 end
 
 parse("../fixtures/encoder-fixtures.tibs", true)
--- -- parse("../fixtures/encoder-fixtures.tibs", false)
--- parse("../bench/data-formatted.json", false)
+parse("../fixtures/encoder-fixtures.tibs", false)
+parse("../bench/data-formatted.json", false)

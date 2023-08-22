@@ -25,13 +25,13 @@ enum token_type {
   TOKEN_EOF,
 };
 
-struct token_result {
-  enum token_type type;
-  int pos;
-  int len;
+struct lexer_state {
+  const char* first;
+  const char* current;
+  const char* last;
 };
 
-enum token_type tibs_next_token(const char* input, int len, int pos, int* out_pos, int* out_len);
+enum token_type tibs_next_token(struct lexer_state* S);
 
 // Consume a sequence of zero or more digits [0-9]
 static void consume_digits(const char** firstp, const char* last) {
@@ -65,24 +65,24 @@ static bool consume_optionals(const char** firstp,
   return false;
 }
 
-enum token_type tibs_next_token(const char* input, int len, int pos, int* out_pos, int* out_len) {
-  const char* first = input + pos;
-  const char* last = input + len;
-  while (first < last) {
-    switch (*first++) {
+enum token_type tibs_next_token(struct lexer_state* S) {
+  const char* last = S->last;
+  while (S->current < last) {
+    switch (S->current[0]) {
       // Skip whitespace
       case '\r':
       case '\n':
       case '\t':
       case ' ':
+        S->current++;
         continue;
 
       // Skip comments
       case '/':
-        if (first < last && *first == '/') {
-          first++;
-          while (first < last) {
-            char c = *first++;
+        if (S->current < last && S->current[1] == '/') {
+          S->current += 2;
+          while (S->current < last) {
+            char c = S->current++[0];
             if (c == '\r' || c == '\n') {
               break;
             }
@@ -92,53 +92,44 @@ enum token_type tibs_next_token(const char* input, int len, int pos, int* out_po
         break;
 
       case '[': {
-        const char* start = first - 1;
-        if (first < last && *first == '#') {
-          first = first + 1;
+        S->first = S->current;
+        if (S->current < last && S->current[1] == '#') {
+          S->current += 2;
+        } else {
+          S->current++;
         }
-        *out_pos = start - input;
-        *out_len = first - start;
         return TOKEN_LBRACKET;
       }
       case ']':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_RBRACKET;
       case '{':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_LBRACE;
       case '}':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_RBRACE;
       case ':':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_COLON;
       case ',':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_COMMA;
       case '(':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_LPAREN;
       case ')':
-        *out_pos = first - input - 1;
-        *out_len = 1;
+        S->first = S->current++;
         return TOKEN_RPAREN;
       case '"': {
         // Parse Strings
-        const char* start = first - 1;
-        while (first < last) {
-          char c = *first++;
+        S->first = S->current++;
+        while (S->current < last) {
+          char c = S->current++[0];
           if (c == '"') {
-            *out_pos = start - input;
-            *out_len = first - start;
             return TOKEN_STRING;
           } else if (c == '\\') {
-            first++;
+            S->current++;
           } else if (c == '\r' || c == '\n') {
             // newline is not allowed
             break;
@@ -146,31 +137,14 @@ enum token_type tibs_next_token(const char* input, int len, int pos, int* out_po
         }
         break;
       }
-      case '|': {
-        const char* start = first - 1;
-        while (first < last) {
-          char c = *first++;
-          if (c == '|') {
-            *out_pos = start - input;
-            *out_len = first - start;
-            return TOKEN_BYTES;
-          }
-          if (c == '\r' || c == '\n') {
-            // newline is not allowed
-            break;
-          }
-        }
-      }
       case '-':
-        if (first + 3 < last && first[0] == 'i' && first[1] == 'n' &&
-            first[2] == 'f') {
-          first += 3;
-          *out_pos = first - input - 4;
-          *out_len = 4;
+        if (S->current + 3 < last &&
+            S->current[1] == 'i' && S->current[2] == 'n' &&
+            S->current[3] == 'f') {
+          S->first = S->current;
+          S->current += 4;
           return TOKEN_NINF;
         }
-        if (first >= last || *first < '0' || *first > '9')
-          break;
       case '0':
       case '1':
       case '2':
@@ -180,75 +154,80 @@ enum token_type tibs_next_token(const char* input, int len, int pos, int* out_po
       case '6':
       case '7':
       case '8':
-      case '9': {
-        const char* start = first - 1;
-        consume_digits(&first, last);
-        if (consume_optional(&first, last, '.')) {
-          consume_digits(&first, last);
+      case '9':
+        S->first = S->current++;
+
+        consume_digits(&S->current, last);
+        if (consume_optional(&S->current, last, '.')) {
+          consume_digits(&S->current, last);
         }
-        if (consume_optionals(&first, last, 'e', 'E')) {
-          consume_optionals(&first, last, '+', '-');
-          consume_digits(&first, last);
+        if (consume_optionals(&S->current, last, 'e', 'E')) {
+          consume_optionals(&S->current, last, '+', '-');
+          consume_digits(&S->current, last);
         }
-        *out_pos = start - input;
-        *out_len = first - start;
         return TOKEN_NUMBER;
-      }
+      case 'i':
+        if (S->current + 3 < last && S->current[1] == 'n' &&
+            S->current[2] == 'f') {
+          S->first = S->current;
+          S->current += 3;
+          return TOKEN_INF;
+        }
+      case 'n':
+        if (S->current + 3 < last && S->current[1] == 'u' &&
+            S->current[2] == 'l' && S->current[3] == 'l') {
+          S->first = S->current;
+          S->current += 4;
+          return TOKEN_NULL;
+        }
+        if (S->current + 2 < last && S->current[1] == 'a' &&
+            S->current[2] == 'n') {
+          S->first = S->current;
+          S->current += 3;
+          return TOKEN_NAN;
+        }
+      case '|':
+        S->first = S->current++;
+        while (S->current < last) {
+          char c = S->current++[0];
+          if (c == '|') {
+            return TOKEN_BYTES;
+          }
+          if (c == '\r' || c == '\n') {
+            // newline is not allowed
+            break;
+          }
+        }
+
       case 't':
-        if (first + 3 < last && first[0] == 'r' && first[1] == 'u' &&
-            first[2] == 'e') {
-          first += 3;
-          *out_pos = first - input - 4;
-          *out_len = 4;
+        if (S->current + 3 < last && S->current[1] == 'r' &&
+            S->current[2] == 'u' && S->current[3] == 'e') {
+          S->first = S->current;
+          S->current += 4;
           return TOKEN_TRUE;
         }
         break;
       case 'f':
-        if (first + 4 < last && first[0] == 'a' && first[1] == 'l' &&
-            first[2] == 's' && first[3] == 'e') {
-          first += 4;
-          *out_pos = first - input - 5;
-          *out_len = 5;
+        if (S->current + 4 < last && S->current[1] == 'a' &&
+            S->current[2] == 'l' && S->current[3] == 's' &&
+            S->current[4] == 'e') {
+          S->first = S->current;
+          S->current += 5;
           return TOKEN_FALSE;
         }
-      case 'n':
-        if (first + 3 < last && first[0] == 'u' && first[1] == 'l' &&
-            first[2] == 'l') {
-          first += 3;
-          *out_pos = first - input - 4;
-          *out_len = 4;
-          return TOKEN_NULL;
+        case '&': {
+          S->first = S->current++;
+          consume_digits(&(S->current), last);
+          if (S->current > S->first) {
+            return TOKEN_REF;
+          }
         }
-        if (first + 2 < last && first[0] == 'a' && first[1] == 'n') {
-          first += 2;
-          *out_pos = first - input - 3;
-          *out_len = 3;
-          return TOKEN_NAN;
-        }
-      case 'i':
-        if (first + 2 < last && first[0] == 'n' && first[1] == 'f') {
-          first += 2;
-          *out_pos = first - input - 3;
-          *out_len = 3;
-          return TOKEN_INF;
-        }
-      case '&': {
-        const char* start = first - 1;
-        consume_digits(&first, last);
-        if (first > start + 1) {
-          *out_pos = start - input;
-          *out_len = first - start;
-          return TOKEN_REF;
-        }
-      }
     };
 
     // Error
-    *out_pos = first - input - 1;
-    *out_len = 1;
+    S->first = S->current++;
     return TOKEN_ERROR;
   }
-  *out_pos = first - input;
-  *out_len = 0;
+  S->first = S->current;
   return TOKEN_EOF;
 }
