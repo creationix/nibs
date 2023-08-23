@@ -18,7 +18,10 @@ test-nibs-utils:
 	luvit tests/test-nibs-utils.lua
 
 lex.so: lex.c
-	$(CC) -Os -shared -fPIC lex.c -o lex.so
+	$(CC) -shared -fPIC lex.c -o lex.so
+
+clean:
+	rm -f lex.so
 
 
 # publish: test

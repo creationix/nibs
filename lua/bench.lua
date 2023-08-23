@@ -22,87 +22,31 @@ local function hrtime()
   return tonumber(tm.tv_sec) * 1000000 + tonumber(tm.tv_usec)
 end
 
----@param filename string
----@param log_it? boolean
-local function parse(filename, log_it)
+local p = require('deps/pretty-print').prettyPrint
+
+local function bench(filename)
   local fd = assert(io.open(filename))
   local tibs = assert(fd:read "*a")
-  fd:close()
-
-  local before = hrtime()
-  for t, f, l in Tibs.lexer(tibs) do
-    -- print(string.format("%s %d %d", t, f, l))
-    if t == "error" or t == 0 then
-      error(Tibs.format_syntax_error(tibs, f+1, filename))
-    end
-    if log_it then
-      print(string.format("% 6s % 4d % 4d %s", t, f, l, tibs:sub(f + 1, l)))
-    end
-  end
-  local after = hrtime()
-  print(string.format("lexer: %.1fms", (after - before)/1000))
+  assert(fd:close())
+  local doc, err = Tibs.parse(tibs, filename)
+  p { doc = doc, err = err }
 end
 
 
-local L = ffi.load("./lex.so")
-ffi.cdef[[
-  enum token_type {
-    TOKEN_ERROR = 0,
-    TOKEN_STRING,
-    TOKEN_BYTES,
-    TOKEN_NUMBER,
-    TOKEN_TRUE,
-    TOKEN_FALSE,
-    TOKEN_NULL,
-    TOKEN_NAN,
-    TOKEN_INF,
-    TOKEN_NINF,
-    TOKEN_REF,
-    TOKEN_COLON,
-    TOKEN_COMMA,
-    TOKEN_LBRACE,
-    TOKEN_RBRACE,
-    TOKEN_LBRACKET,
-    TOKEN_RBRACKET,
-    TOKEN_LPAREN,
-    TOKEN_RPAREN,
-    TOKEN_EOF,
-  };
+bench("../fixtures/encoder-fixtures.tibs")
 
-  struct lexer_state {
-    const char* first;
-    const char* current;
-    const char* last;
-  };
-
-  enum token_type tibs_next_token(struct lexer_state* S);
-]]
-
-function Tibs.lexer(json)
-  local data = ffi.cast("const char*", json)
-  local len = #json
-  local S = ffi.new "struct lexer_state"
-  S.first = data
-  S.current = S.first
-  S.last = data + len
-  return function ()
-    -- print(string.format("pos=%d len=%s", pos, len))
-    local token_index = L.tibs_next_token(S)
-    -- print(string.format("token_index=%d first=%d current=%d last=%d",
-    --   tonumber(token_index),
-    --   S.first - data,
-    --   S.current - data,
-    --   S.last - data
-    -- ))
-    if token_index == ffi.C.TOKEN_EOF then return end
-    -- print(string.format("token_index=%d, out_pos=%d out_len=%d", tonumber(token_index), out_pos[0], out_len[0]))
-    local p = S.first - data
-    local l = S.current - data
-    -- print(string.format("pos=%d", pos))
-    return token_index, p, l
-  end
-end
-
-parse("../fixtures/encoder-fixtures.tibs", true)
-parse("../fixtures/encoder-fixtures.tibs", false)
-parse("../bench/data-formatted.json", false)
+-- for _ = 1, 10 do
+--   parse(c_lexer, "../fixtures/encoder-fixtures.tibs", false)
+--   parse(c_lexer, "../fixtures/decoder-fixtures.tibs", false)
+-- end
+--   print("\nC")
+--   parse(c_lexer, "../../www.justsunnies.com.json", false)
+--   parse(c_lexer, "../bench/data.json", false)
+--   parse(c_lexer, "../bench/data-formatted.json", false)
+--   print("\nL")
+--   parse(l_lexer, "../fixtures/encoder-fixtures.tibs", false)
+--   parse(l_lexer, "../fixtures/decoder-fixtures.tibs", false)
+--   parse(l_lexer, "../../www.justsunnies.com.json", false)
+--   parse(l_lexer, "../bench/data.json", false)
+--   parse(l_lexer, "../bench/data-formatted.json", false)
+-- end
