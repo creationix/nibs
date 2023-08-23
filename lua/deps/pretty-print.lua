@@ -25,12 +25,6 @@ limitations under the License.
   author = { name = "Tim Caswell" }
 ]]
 
-local success, uv = pcall(require, 'uv')
-if not success then
-  success, uv = pcall(require, 'luv')
-end
-assert(success, uv)
-local getenv = require('os').getenv
 
 local prettyPrint, dump, strip, color, colorize, loadColors
 local theme = {}
@@ -130,8 +124,8 @@ function loadColors(index)
   quote2   = colorize('quotes', "'")
   dquote   = colorize('quotes', '"', 'string')
   dquote2  = colorize('quotes', '"')
-  obrace   = colorize('braces', '{')
-  cbrace   = colorize('braces', ' }')
+  obrace   = colorize('braces', '{ ')
+  cbrace   = colorize('braces', '}')
   obracket = colorize('property', '[')
   cbracket = colorize('property', ']')
   comma    = colorize('sep', ', ')
@@ -232,8 +226,6 @@ function dump(value, recurse, nocolor)
     stack[#stack] = nil
   end
 
-  local META = {}
-
   local function process(localValue)
     local typ = type(localValue)
     if typ == 'string' then
@@ -253,38 +245,41 @@ function dump(value, recurse, nocolor)
       if m and m.__name then
         write(colorize('sep', m.__name))
       end
+
       write(obrace)
 
+      -- Count number of pairs
+      local total = 0
+      for _ in pairs(localValue) do total = total + 1 end
+
       local i = 0
-      local arr = not m or m.__is_array_like ~= false
-      for k, v in (m and m.__is_array_like == true and ipairs or pairs)(localValue) do
+      for k, v in pairs(localValue) do
         i = i + 1
-        if k ~= i then arr = false end
         indent()
-        if i > 1 then
-          write(comma)
-        else
-          write(" ")
-        end
-        if arr then
-          -- if the key matches the numerical index, print without key
+        if k == i then
           process(v)
         else
           if type(k) == "string" and string.find(k, "^[%a_][%a%d_]*$") then
             write(colorize("property", k))
+            write(equals)
           else
             write(obracket)
             process(k)
             write(cbracket)
+            write(equals)
           end
-          write(equals)
           if type(v) == "table" then
             process(v)
-          elseif v ~= META then
+          else
             indent()
             process(v)
             unindent()
           end
+        end
+        if i < total then
+          write(comma)
+        else
+          write(" ")
         end
         unindent()
       end
@@ -299,78 +294,29 @@ function dump(value, recurse, nocolor)
   return nocolor and strip(s) or s
 end
 
-local function console_write(fs, s)
-  s = s .. '\n'
-  if uv.guess_handle(uv.fileno(fs)) == 'tty' then
-    repeat
-      local n, e = uv.try_write(fs, s)
-      if n then
-        s = s:sub(n + 1)
-        n = 0
-      else
-        if e:match('^EAGAIN') then
-          n = 0
-        else
-          assert(n, e)
-        end
-      end
-    until n == #s
-  else
-    uv.write(fs, s)
-  end
-end
-
--- Print replacement that goes through libuv.  This is useful on windows
--- to use libuv's code to translate ansi escape codes to windows API calls.
-function _G.print(...)
-  local n = select('#', ...)
-  local arguments = { ... }
-  for i = 1, n do
-    arguments[i] = tostring(arguments[i])
-  end
-  console_write(stdout, table.concat(arguments, "\t"))
-end
-
 function prettyPrint(...)
   local n = select('#', ...)
   local arguments = { ... }
   for i = 1, n do
     arguments[i] = dump(arguments[i])
   end
-  console_write(stdout, table.concat(arguments, "\t"))
+  print(table.concat(arguments, "\t"))
 end
 
-if uv.guess_handle(0) == 'tty' then
-  stdin = assert(uv.new_tty(0, true))
-else
-  stdin = uv.new_pipe(false)
-  uv.pipe_open(stdin, 0)
-end
-
-if uv.guess_handle(1) == 'tty' then
-  stdout = assert(uv.new_tty(1, false))
-  width = uv.tty_get_winsize(stdout)
-  if width == 0 then width = 80 end
-  -- auto-detect when 16 color mode should be used
-  local term = getenv("TERM")
-  if term and (term == 'xterm' or term:find '-256color$') then
-    defaultTheme = 256
-  else
-    defaultTheme = 16
+width = 160
+-- Try to auto-detect the terminal width if possible
+pcall(function()
+  local fh = assert(io.popen "stty size")
+  local line = fh:read "*a"
+  if line then
+    local w = tonumber(line:match "[0-9]+ ([0-9]+)")
+    if w then width = w end
   end
-else
-  stdout = uv.new_pipe(false)
-  uv.pipe_open(stdout, 1)
-  width = 80
-end
-loadColors()
+  fh:close()
+end)
+defaultTheme = 256
 
-if uv.guess_handle(2) == 'tty' then
-  stderr = assert(uv.new_tty(2, false))
-else
-  stderr = uv.new_pipe(false)
-  uv.pipe_open(stderr, 2)
-end
+loadColors()
 
 return {
   loadColors = loadColors,

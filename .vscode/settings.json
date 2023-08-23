@@ -8,5 +8,8 @@
     "Lua.hint.setType": true,
     "Lua.workspace.library": [
         "${3rd}/luv/library"
-    ]
+    ],
+    "files.associations": {
+        "type_traits": "c"
+    }
 }
