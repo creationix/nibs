@@ -1,3 +1,5 @@
+local dump = require('deps/pretty-print').dump
+
 local ffi = require 'ffi'
 local typeof = ffi.typeof
 local cast = ffi.cast
@@ -53,7 +55,7 @@ function ByteWriter:ensure(needed)
   repeat
     self.capacity = lshift(self.capacity, 1)
   until needed <= self.capacity
-  print("new capacity", self.capacity)
+  -- print("new capacity", self.capacity)
   local new_data = U8Arr(self.capacity)
   ffi.copy(new_data, self.data, self.size)
   self.data = new_data
@@ -81,168 +83,180 @@ function ByteWriter:to_string()
 end
 
 ---@alias LexerSymbols "{"|"}"|"["|"]"|":"|","|"("|")
----@alias LexerToken "string"|"number"|"bytes"|"true"|"false"|"null"|"nan"|"inf"|"-inf"|"ref"|"error"|LexerSymbols
+---@alias LexerToken "string"|"number"|"bytes"|"true"|"false"|"null"|"nan"|"inf"|"-inf"|"ref"|"error"|"eos"|LexerSymbols
+
+-- Consume a sequence of zero or more digits [0-9]
+---@param data integer[]
+---@param offset integer
+---@param len integer
+---@return integer new_offset
+local function consume_digits(data, offset, len)
+  while offset < len do
+    local c = data[offset]
+    if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+    offset = offset + 1
+  end
+  return offset
+end
+
+-- Consume a single optional character
+---@param data integer[]
+---@param offset integer
+---@param len integer
+---@param c1 integer
+---@param c2? integer
+---@return integer new_offset
+---@return boolean did_match
+local function consume_optional(data, offset, len, c1, c2)
+  if offset < len then
+    local c = data[offset]
+    if c == c1 or c == c2 then
+      offset = offset + 1
+      return offset, true
+    end
+  end
+  return offset, false
+end
 
 ---@param data integer[]
+---@param offset integer
 ---@param len integer
----@return fun():LexerToken?,integer?,integer?
-local function tokenize(data, len)
-  local offset = 0
-
-  -- Consume a sequence of zero or more digits [0-9]
-  local function consume_digits()
-    while offset < len do
-      local c = data[offset]
-      if c < 0x30 or c > 0x39 then break end -- outside "0-9"
+---@return integer offset
+---@return LexerToken token
+---@return integer token_start
+local function next_token(data, offset, len)
+  while offset < len do
+    local c = data[offset]
+    if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
+      -- "\r" | "\n" | "\t" | " "
+      -- Skip whitespace
       offset = offset + 1
-    end
-  end
-
-  -- Consume a single optional character
-  ---@param c1 integer
-  ---@param c2? integer
-  ---@return boolean did_match
-  local function consume_optional(c1, c2)
-    if offset < len then
-      local c = data[offset]
-      if c == c1 or c == c2 then
+    elseif c == 0x2f and offset < len and data[offset] == 0x2f then
+      -- '//'
+      -- Skip comments
+      offset = offset + 2
+      while offset < len do
+        c = data[offset]
         offset = offset + 1
-        return true
+        if c == 0x0d or c == 0x0a then -- "\r" | "\n"
+          break
+        end
       end
-    end
-    return false
-  end
-
-  return function()
-    while offset < len do
-      local c = data[offset]
-      if c == 0x0d or c == 0x0a or c == 0x09 or c == 0x20 then
-        -- "\r" | "\n" | "\t" | " "
-        -- Skip whitespace
+    elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c or c == 0x28 or c == 0x29 then
+      -- "[" | "]" "{" | "}" | ":" | "," | "(" | ")"
+      -- Pass punctuation through as-is
+      local start = offset
+      offset = offset + 1
+      if c == 0x5b and offset < len and data[offset] == 0x23 then -- "#"
         offset = offset + 1
-      elseif c == 0x2f and offset < len and data[offset] == 0x2f then
-        -- '//'
-        -- Skip comments
-        offset = offset + 2
-        while offset < len do
-          c = data[offset]
+      end
+      return offset, char(c), start
+    elseif c == 0x74 and offset + 3 < len -- "t"
+        and data[offset + 1] == 0x72      -- "r"
+        and data[offset + 2] == 0x75      -- "u"
+        and data[offset + 3] == 0x65 then -- "e"
+      offset = offset + 4
+      return offset, "true", offset - 4
+    elseif c == 0x66 and offset + 4 < len -- "f"
+        and data[offset + 1] == 0x61      -- "a"
+        and data[offset + 2] == 0x6c      -- "l"
+        and data[offset + 3] == 0x73      -- "s"
+        and data[offset + 4] == 0x65 then -- "e"
+      offset = offset + 5
+      return offset, "false", offset - 5
+    elseif c == 0x6e and offset + 3 < len -- "n"
+        and data[offset + 1] == 0x75      -- "u"
+        and data[offset + 2] == 0x6c      -- "l"
+        and data[offset + 3] == 0x6c then -- "l"
+      offset = offset + 4
+      return offset, "null", offset - 4
+    elseif c == 0x6e and offset + 2 < len -- "n"
+        and data[offset + 1] == 0x61      -- "a"
+        and data[offset + 2] == 0x6e then -- "n"
+      offset = offset + 3
+      return offset, "nan", offset - 3
+    elseif c == 0x69 and offset + 2 < len -- "i"
+        and data[offset + 1] == 0x6e      -- "n"
+        and data[offset + 2] == 0x66 then -- "f"
+      offset = offset + 3
+      return offset, "inf", offset - 3
+    elseif c == 0x2d and offset + 3 < len -- "-"
+        and data[offset + 1] == 0x69      -- "i"
+        and data[offset + 2] == 0x6e      -- "n"
+        and data[offset + 3] == 0x66 then -- "f"
+      offset = offset + 4
+      return offset, "-inf", offset - 4
+    elseif c == 0x22 then -- double quote
+      -- Parse Strings
+      local start = offset
+      offset = offset + 1
+      while offset < len do
+        c = data[offset]
+        if c == 0x22 then -- double quote
           offset = offset + 1
-          if c == 0x0d or c == 0x0a then -- "\r" | "\n"
-            break
-          end
-        end
-      elseif c == 0x5b or c == 0x5d or c == 0x7b or c == 0x7d or c == 0x3a or c == 0x2c or c == 0x28 or c == 0x29 then
-        -- "[" | "]" "{" | "}" | ":" | "," | "(" | ")"
-        -- Pass punctuation through as-is
-        local start = offset
-        offset = offset + 1
-        if c == 0x5b and offset < len and data[offset] == 0x23 then -- "#"
+          return offset, "string", start
+        elseif c == 0x5c then              -- backslash
+          offset = offset + 2
+        elseif c == 0x0d or c == 0x0a then -- "\r" | "\n"
+          -- newline is not allowed
+          break
+        else -- other characters
           offset = offset + 1
         end
-        return char(c), start, offset
-      elseif c == 0x74 and offset + 3 < len -- "t"
-          and data[offset + 1] == 0x72      -- "r"
-          and data[offset + 2] == 0x75      -- "u"
-          and data[offset + 3] == 0x65 then -- "e"
-        offset = offset + 4
-        return "true", offset - 4, offset
-      elseif c == 0x66 and offset + 4 < len -- "f"
-          and data[offset + 1] == 0x61      -- "a"
-          and data[offset + 2] == 0x6c      -- "l"
-          and data[offset + 3] == 0x73      -- "s"
-          and data[offset + 4] == 0x65 then -- "e"
-        offset = offset + 5
-        return "false", offset - 5, offset
-      elseif c == 0x6e and offset + 3 < len -- "n"
-          and data[offset + 1] == 0x75      -- "u"
-          and data[offset + 2] == 0x6c      -- "l"
-          and data[offset + 3] == 0x6c then -- "l"
-        offset = offset + 4
-        return "null", offset - 4, offset
-      elseif c == 0x6e and offset + 2 < len -- "n"
-          and data[offset + 1] == 0x61      -- "a"
-          and data[offset + 2] == 0x6e then -- "n"
-        offset = offset + 3
-        return "nan", offset - 3, offset
-      elseif c == 0x69 and offset + 2 < len -- "i"
-          and data[offset + 1] == 0x6e      -- "n"
-          and data[offset + 2] == 0x66 then -- "f"
-        offset = offset + 3
-        return "inf", offset - 3, offset
-      elseif c == 0x2d and offset + 3 < len -- "-"
-          and data[offset + 1] == 0x69      -- "i"
-          and data[offset + 2] == 0x6e      -- "n"
-          and data[offset + 3] == 0x66 then -- "f"
-        offset = offset + 4
-        return "-inf", offset - 4, offset
-      elseif c == 0x22 then -- double quote
-        -- Parse Strings
-        local start = offset
-        offset = offset + 1
-        while offset < len do
-          c = data[offset]
-          if c == 0x22 then -- double quote
-            offset = offset + 1
-            return "string", start, offset
-          elseif c == 0x5c then              -- backslash
-            offset = offset + 2
-          elseif c == 0x0d or c == 0x0a then -- "\r" | "\n"
-            -- newline is not allowed
-            break
-          else -- other characters
-            offset = offset + 1
-          end
-        end
-        return "error", offset, offset
-      elseif c == 0x2d                      -- "-"
-          or (c >= 0x30 and c <= 0x39) then -- "0"-"9"
-        local start = offset
-        offset = offset + 1
-        consume_digits()
-        if consume_optional(0x2e) then -- "."
-          consume_digits()
-        end
-        if consume_optional(0x45, 0x65) then -- "e"|"E"
-          consume_optional(0x2b, 0x2d)       -- "+"|"-"
-          consume_digits()
-        end
-        return "number", start, offset
-      elseif c == 0x3c then -- "<"
-        local start = offset
-        offset = offset + 1
-        while offset < len do
-          c = data[offset]
-          if c == 0x09 or c == 0x0a or c == 0x0d or c == 0x20 then -- "\t" | "\n" | "\r" | " "
-            offset = offset + 1
-            -- Skip whitespace
-          elseif (c >= 0x30 and c <= 0x39)
-              or (c >= 0x41 and c <= 0x41)
-              or (c >= 0x61 and c <= 0x66) then
-            -- hex digit
-            offset = offset + 1
-          elseif c == 0x3e then -- ">"
-            offset = offset + 1
-            return "bytes", start, offset
-          else
-            break
-          end
-        end
-        return "error", offset, offset
-      elseif c == 0x26 then -- "&" then
-        -- parse refs
-        local start = offset
-        offset = offset + 1
-        if offset > len then
-          return "error", offset, offset
+      end
+      return offset, "error", offset
+    elseif c == 0x2d                      -- "-"
+        or (c >= 0x30 and c <= 0x39) then -- "0"-"9"
+      local start = offset
+      offset = offset + 1
+      offset = consume_digits(data, offset, len)
+      local matched
+      offset, matched = consume_optional(data, offset, len, 0x2e) -- "."
+      if matched then
+        offset = consume_digits(data, offset, len)
+      end
+      offset, matched = consume_optional(data, offset, len, 0x45, 0x65) -- "e"|"E"
+      if matched then
+        offset = consume_optional(data, offset, len, 0x2b, 0x2d)        -- "+"|"-"
+        offset = consume_digits(data, offset, len)
+      end
+      return offset, "number", start
+    elseif c == 0x3c then -- "<"
+      local start = offset
+      offset = offset + 1
+      while offset < len do
+        c = data[offset]
+        if c == 0x09 or c == 0x0a or c == 0x0d or c == 0x20 then -- "\t" | "\n" | "\r" | " "
+          offset = offset + 1
+          -- Skip whitespace
+        elseif (c >= 0x30 and c <= 0x39)
+            or (c >= 0x41 and c <= 0x41)
+            or (c >= 0x61 and c <= 0x66) then
+          -- hex digit
+          offset = offset + 1
+        elseif c == 0x3e then -- ">"
+          offset = offset + 1
+          return offset, "bytes", start
         else
-          consume_digits()
-          return "ref", start, offset
+          break
         end
-      else
-        return "error", offset, offset
       end
+      return offset, "error", offset
+    elseif c == 0x26 then -- "&" then
+      -- parse refs
+      local start = offset
+      offset = offset + 1
+      if offset > len then
+        return offset, "error", offset
+      else
+        offset = consume_digits(data, offset, len)
+        return offset, "ref", start
+      end
+    else
+      return offset, "error", offset
     end
   end
+  return offset, "eos", offset
 end
 
 local function is_cdata_integer(val)
@@ -257,10 +271,40 @@ local function is_cdata_integer(val)
 end
 
 ---@class Tibs.Map
-local MapMeta = {
+local Map = {
   __name = "Map",
   __is_array_like = false,
 }
+
+-- do -- WIP: Preserve insertion order
+--   ---@type table<Tibs.Map,any[]>
+--   local key_orders = setmetatable({}, { __mode = "k" })
+
+--   function Map:__newindex(k, v)
+--     local keys = key_orders[self]
+--     if not keys then
+--       keys = {}
+--       for key in next, self do
+--         keys[#keys + 1] = key
+--       end
+--       key_orders[self] = keys
+--     end
+--     keys[#keys + 1] = k
+--     rawset(self, k, v)
+--   end
+
+--   function Map:__pairs()
+--     local keys = key_orders[self] or {}
+--     local i = 0
+--     local len = #keys
+--     return function()
+--       if i >= len then return end
+--       i = i + 1
+--       local k = keys[i]
+--       return k, rawget(self, k)
+--     end
+--   end
+-- end
 
 ---@class Tibs.List
 local ListMeta = {
@@ -459,8 +503,6 @@ local json_escapes = {
   [0x74] = "\t",
 }
 
-
-
 local function parse_advanced_string(data, first, last)
   local writer = ByteWriter.new(last - first)
   local allowHigh
@@ -474,8 +516,7 @@ local function parse_advanced_string(data, first, last)
   end
 
   local function write_char_code(c)
-    local utf8
-    utf8 = utf8_encode(c)
+    local utf8 = utf8_encode(c)
     if utf8 then
       writer:write_string(utf8)
     else
@@ -573,10 +614,11 @@ local function parse_string(data, first, last)
   -- Quickly scan for any escape characters or surrogate pairs
   for i = first + 1, last - 1 do
     local c = data[i]
-    if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then -- "\\"
+    if c == 0x5c or (c >= 0xd8 and c <= 0xdf) then
       return parse_advanced_string(data, first, last)
     end
   end
+  -- Return as-is if it's simple
   return ffi_string(data + first + 1, last - first - 2)
 end
 
@@ -609,6 +651,7 @@ end
 --- @param data integer[]
 --- @param first integer
 --- @param last integer
+--- @return number num
 local function parse_number(data, first, last)
   if is_integer(data, first, last) then
     -- sign is reversed since we need to use the negative range of I64 for full precision
@@ -631,12 +674,12 @@ local function parse_number(data, first, last)
   end
 end
 
--- Parse a Tibs Bytes Literal
+-- Parse a Tibs Bytes Literal <xx xx ...>
 ---@param data integer[]
 ---@param first integer
 ---@param last integer
+---@return integer offset
 ---@return Tibs.Bytes? buf
----@return integer? error_offset
 local function parse_bytes(data, first, last)
   local nibble_count = 0
   local i = first + 1
@@ -650,19 +693,18 @@ local function parse_bytes(data, first, last)
       if is_hex_char(c) then
         nibble_count = nibble_count + 1
       else
-        return nil, i
+        return i
       end
     end
   end
 
   if nibble_count % 2 > 0 then
-    return nil, i
+    return i
   end
   local size = rshift(nibble_count, 1)
   local bytes = U8Arr(size)
   local offset = 0
   i = first + 1
-  -- local parts = {}
   while i < last - 1 do
     local c = data[i]
     i = i + 1
@@ -671,33 +713,28 @@ local function parse_bytes(data, first, last)
       c = data[i]
       i = i + 1
       bytes[offset] = bor(high, from_hex_char(c))
-      -- parts[#parts + 1] = string.format("%02x", bytes[offset])
       offset = offset + 1
     end
   end
-  -- print("bytes", table.concat(parts, " "))
-  return bytes
+
+  return last, bytes
 end
 
 -- Parse a Tibs Ref Literal
 ---@param data integer[]
 ---@param first integer
 ---@param last integer
----@return Tibs.Ref? ref
----@return string? error
+---@return Tibs.Ref
 local function parse_ref(data, first, last)
-  local id, err = parse_number(data, first + 1, last)
-  if err then return nil, err end
-  return (setmetatable({ id }, RefMeta))
+  return setmetatable({ parse_number(data, first + 1, last) }, RefMeta)
 end
 
 -- Format a Tibs Syntax Error
 ---@param tibs string
 ---@param error_offset integer?
 ---@param filename? string
----@return nil
 ---@return string error
-local function syntax_error(tibs, error_offset, filename)
+local function format_syntax_error(tibs, error_offset, filename)
   -- print(debug.traceback("", 2))
   local c = error_offset and char(byte(tibs, error_offset + 1))
   if c then
@@ -712,14 +749,121 @@ local function syntax_error(tibs, error_offset, filename)
       end
     end
     local col = index - offset
-    return nil, string.format(
+    return string.format(
       "Tibs syntax error: Unexpected %q (%s:%d:%d)",
       c, filename or "[input string]", row, col
     )
   end
-  return nil, "Lexer error: Unexpected EOS"
+  return "Lexer error: Unexpected EOS"
 end
 
+local parse_any
+
+---@param data integer[]
+---@param offset integer
+---@param len integer
+---@return integer offset
+---@return (Tibs.List|Tibs.Array|Tibs.Scope)? list
+local function parse_list(data, offset, len, TypeMeta, closer)
+  local list = setmetatable({}, TypeMeta)
+  local token, start, value
+  offset, token, start = next_token(data, offset, len)
+  local i = 0
+  while token ~= closer do
+    offset, value = parse_any(data, offset, len, token, start)
+    if offset < 0 then return offset end
+
+    i = i + 1
+    rawset(list, i, value)
+
+    offset, token, start = next_token(data, offset, len)
+    if token == "," then
+      offset, token, start = next_token(data, offset, len)
+    elseif token ~= closer then
+      return -offset
+    end
+  end
+
+  return offset, list
+end
+
+-- Parse a Tibs Map {x:y, ...}
+---@param data integer[]
+---@param offset integer
+---@param len integer
+---@return integer offset
+---@return Tibs.Map? map
+local function parse_map(data, offset, len)
+  local obj = setmetatable({}, Map)
+  local token, start, key, value
+  offset, token, start = next_token(data, offset, len)
+  while token ~= "}" do
+    offset, key = parse_any(data, offset, len, token, start)
+    if offset < 0 then return offset end
+
+    offset, token = next_token(data, offset, len)
+    if token ~= ":" then return -offset end
+
+    offset, token, start = next_token(data, offset, len)
+    offset, value = parse_any(data, offset, len, token, start)
+    if offset < 0 then return offset end
+
+    obj[key] = value
+
+    offset, token, start = next_token(data, offset, len)
+    if token == "," then
+      offset, token, start = next_token(data, offset, len)
+    elseif token ~= "}" then
+      return -offset
+    end
+  end
+
+  return offset, obj
+end
+
+---comment
+---@param data integer[]
+---@param offset integer
+---@param len integer
+---@param token LexerToken
+---@param start integer
+---@return integer offset negative when error
+---@return any? value unset when error
+function parse_any(data, offset, len, token, start)
+  if token == "number" then
+    return offset, parse_number(data, start, offset)
+  elseif token == "nan" then
+    return offset, 0 / 0
+  elseif token == "inf" then
+    return offset, 1 / 0
+  elseif token == "-inf" then
+    return offset, -1 / 0
+  elseif token == "true" then
+    return offset, true
+  elseif token == "false" then
+    return offset, false
+  elseif token == "null" then
+    return offset, nil
+  elseif token == "ref" then
+    return offset, parse_ref(data, start, offset)
+  elseif token == "bytes" then
+    return parse_bytes(data, start, offset)
+  elseif token == "string" then
+    return offset, parse_string(data, start, offset)
+  elseif token == "[" then
+    if offset - start > 1 then
+      return parse_list(data, offset, len, ArrayMeta, "]")
+    else
+      return parse_list(data, offset, len, ListMeta, "]")
+    end
+  elseif token == "{" then
+    return parse_map(data, offset, len)
+  elseif token == "(" then
+    return parse_list(data, offset, len, ScopeMeta, ")")
+  else
+    return -start
+  end
+end
 
 ---@param tibs string
 ---@param filename? string
@@ -727,140 +871,17 @@ end
 ---@return string? error
 function Tibs.decode(tibs, filename)
   local data = cast(U8Ptr, tibs)
+  local offset = 0
   local len = #tibs
-  local _next_token = tokenize(data, len)
-
-  local token, first, last
-
-  -- Consume the next lexer token
-  ---@return LexerToken?
-  ---@return integer? first
-  ---@return integer? last
-  local function next_token()
-    token, first, last = _next_token()
-    -- print(string.format("% 10s % 10d % 10d %s",
-    --   token, first, last,
-    --   require('deps/pretty-print').colorize("highlight", string.sub(tibs, first + 1, last))
-    -- ))
+  local token, start
+  offset, token, start = next_token(data, offset, len)
+  local value
+  offset, value = parse_any(data, offset, len, token, start)
+  if offset < 0 then
+    return nil, format_syntax_error(tibs, -offset, filename)
+  else
+    return value
   end
-
-
-
-  local parse_value
-
-  -- Parse a Tibs Map
-  ---@return Map? map
-  ---@return string? error
-  local function parse_map()
-    local obj = setmetatable({}, MapMeta)
-    while token ~= "}" do
-      -- Parse key
-      local key, value, err
-      key, err = parse_value()
-      if err then return nil, err end
-      if key == nil then return syntax_error(tibs, first, filename) end
-
-      -- Parse colon
-      next_token()
-      if token ~= ":" then return syntax_error(tibs, first, filename) end
-
-      -- Parse value
-      next_token()
-      value, err = parse_value()
-      if err then return nil, err end
-      rawset(obj, key, value)
-
-      -- Parse comma or end
-      next_token()
-      if token == "}" then break end
-      if token == "," then
-        next_token()
-      else
-        return syntax_error(tibs, first, filename)
-      end
-    end
-    return obj
-  end
-
-  -- Parse a Tibs List/Array
-  ---@param indexed? true
-  ---@return (List|Array)? array
-  ---@return string? error
-  local function parse_list_or_array(indexed)
-    local arr = setmetatable({}, indexed and ArrayMeta or ListMeta)
-    local length = 0
-    while token ~= "]" do
-      local value, err = parse_value()
-      if err then return nil, err end
-      length = length + 1
-      rawset(arr, length, value)
-      next_token()
-      if token == "]" then break end
-      if token == "," then
-        next_token()
-      else
-        return syntax_error(tibs, first, filename)
-      end
-    end
-    return arr
-  end
-
-  -- Parse a Tibs Scope
-  ---@return Tibs.Scope? scope
-  ---@return string? error
-  local function parse_scope()
-    local scope = setmetatable({}, ScopeMeta)
-    local length = 0
-    while token ~= ")" do
-      local value, err = parse_value()
-      if err then return nil, err end
-      length = length + 1
-      rawset(scope, length, value)
-      next_token()
-      if token == ")" then break end
-      if token == "," then
-        next_token()
-      end
-    end
-    return scope
-  end
-
-
-  ---@return Value parsed_value
-  ---@return nil|string syntax_error
-  function parse_value()
-    if token == "number" then return parse_number(data, first, last) end
-    if token == "nan" then return 0 / 0 end
-    if token == "inf" then return 1 / 0 end
-    if token == "-inf" then return -1 / 0 end
-    if token == "true" then return true end
-    if token == "false" then return false end
-    if token == "null" then return nil end
-    if token == "ref" then return parse_ref(data, first, last) end
-    if token == "bytes" then
-      local bytes, error_offset = parse_bytes(data, first, last)
-      if not bytes then return syntax_error(tibs, error_offset, filename) end
-      return bytes
-    end
-    if token == "string" then return parse_string(data, first, last) end
-    if token == "[" then
-      local indexed = last - first > 1
-      next_token()
-      return parse_list_or_array(indexed)
-    end
-    if token == "{" then
-      next_token()
-      return parse_map()
-    end
-    if token == "(" then
-      next_token()
-      return parse_scope()
-    end
-    return syntax_error(tibs, first, filename)
-  end
-
-  next_token()
-  return parse_value()
 end
 
 return Tibs
