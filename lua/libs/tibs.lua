@@ -316,7 +316,7 @@ do
     ---@param json string
     ---@return boolean|string|number|table|nil parsed value
     ---@return string? error
-    function Tibs.decode(json)
+    function Tibs.decode_old(json)
         assert(type(json) == "string", "JSON or Tibs string expected")
         local value, index = parseAny(json, 1)
         local b
@@ -913,7 +913,7 @@ do
     end
 
     local reentered = nil
-    function Tibs.encode(val)
+    function Tibs.old_encode(val)
 
         local typ = type(val)
         if typ == 'nil' or val == ngx_null or val == cjson_null or val == dkjson_null then

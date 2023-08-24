@@ -509,7 +509,8 @@ local json_escapes = {
 local function parse_advanced_string(data, first, last)
   local writer = ByteWriter.new(last - first)
   local allowHigh
-  local start = first
+  local start = first + 1
+  last = last - 1
 
   local function flush()
     if first > start then
@@ -624,6 +625,7 @@ local function parse_string(data, first, last)
   -- Return as-is if it's simple
   return ffi_string(data + first + 1, last - first - 2)
 end
+Tibs.parse_string = parse_string
 
 --- @param data integer[]
 --- @param first integer
@@ -676,6 +678,7 @@ local function parse_number(data, first, last)
     return tonumber(ffi_string(data + first, last - first), 10)
   end
 end
+Tibs.parse_number = parse_number
 
 -- Parse a Tibs Bytes Literal <xx xx ...>
 ---@param data integer[]

@@ -1,5 +1,16 @@
+-- Add .local prefix to paths
+package.cpath = string.format(
+  "%s/.local/lib/lua/5.1/?.so;%s",
+  os.getenv("HOME"),
+  package.cpath)
+package.path = string.format(
+  "%s/.local/share/lua/5.1/?.lua;%s",
+  os.getenv("HOME"),
+  package.path)
+
 local p = require('deps/pretty-print').prettyPrint
-local cjson = require 'deps/cjson'
+local cjson_ffi = require 'deps/cjson'
+local cjson_resty = require 'cjson'
 
 do -- Polyfill for luajit without __pairs and __ipairs extensions
   local triggered = false
@@ -66,9 +77,9 @@ end
 
 local function format_bytes(kb)
   if math.abs(kb) < 1024 then
-    return string.format("% 5dKB", kb)
+    return string.format("%d KiB", kb)
   else
-    return string.format("% 5.1fMB", kb / 1024)
+    return string.format("%.2f MiB", kb / 1024)
   end
 end
 
@@ -81,10 +92,14 @@ local function bench(filename)
     assert(fd:close())
     cached[filename] = tibs
   end
+  print(string.format("\n\n%s (%s)\n",
+    filename, format_bytes(#tibs/1024)))
+
 
   local function test(name, fn, ...)
-    print("Testing " .. name .. "...")
     collectgarbage "stop"
+    collectgarbage "collect"
+    collectgarbage "collect"
     collectgarbage "collect"
     collectgarbage "collect"
     local before_mem = collectgarbage "count"
@@ -94,20 +109,47 @@ local function bench(filename)
     local after_mem = collectgarbage "count"
     collectgarbage "collect"
     collectgarbage "collect"
+    collectgarbage "collect"
+    collectgarbage "collect"
     local after_mem2 = collectgarbage "count"
-    print(string.format("% 99s:  % 6.1fms %s %s",
-      filename, (after - before) / 1000,
+    print(string.format("% 30s % 7.1fms % 9s % 9s",
+      name,
+      (after - before) / 1000,
       format_bytes(after_mem - before_mem),
       format_bytes(after_mem2 - before_mem)
     ))
+    collectgarbage "collect"
+    collectgarbage "collect"
+    collectgarbage "collect"
+    collectgarbage "collect"
     collectgarbage "restart"
     return res
   end
 
-  local small = test("shrink", Tibs.trim, tibs, filename)
-  local doc = test("decode", Tibs.decode, tibs, filename)
-  local encoded = test("encode", Tibs.encode, doc)
+  print(string.format("% 30s % 9s % 9s % 9s",
+    "Action", "Duration", "Used","Kept"
+  ))
 
+
+  -- local small = test("Tibs.trim", Tibs.trim, tibs, filename)
+  -- local doc1 = test("cjson_ffi.decode", cjson_ffi.decode, tibs)
+  local doc2 = test("cjson_resty.decode", cjson_resty.decode, tibs)
+  local doc3 = test("Tibs.decode", Tibs.decode, tibs)
+  -- local enc1 = test("cjson_ffi.encode", cjson_ffi.encode, doc1, false)
+  local enc2 = test("cjson_resty.encode", cjson_resty.encode, doc2)
+  local enc3 = test("Tibs.encode", Tibs.encode, doc3)
+
+  if #enc2 ~= #enc3 then
+    print("\nencoded sizes mismatch:", #enc2, #enc3)
+    for i = 1, math.max(#enc2, #enc3) do
+      if enc2:byte(i) ~= enc3:byte(i) then
+        -- print("cjson_ffi   = " .. enc1:sub(i - 20, i + 20))
+        print("cjson_resty = " .. enc2:sub(i - 20, i + 20))
+        print("tibs        = " .. enc3:sub(i - 20, i + 20))
+        break
+      end
+    end
+  end
 end
 
 function Tibs.trim(str, filename)
@@ -123,15 +165,15 @@ function Tibs.trim(str, filename)
     if offset < 0 then error(Tibs.format_syntax_error(str, -offset, filename)) end
     if token == "error" then error(Tibs.format_syntax_error(str, offset, filename)) end
     if token == "eos" then break end
+    slice:write_bytes(data + start, offset - start)
   end
-  slice:write_bytes(data + start, offset - start)
   return slice:to_string()
 end
 
 local files = {
-  "../fixtures/encoder-fixtures.tibs",
-  "../fixtures/decoder-fixtures.tibs",
-
+  -- "../fixtures/encoder-fixtures.tibs",
+  -- "../fixtures/decoder-fixtures.tibs",
+  "./test1.json",
   "../bench/corgis/website/datasets/json/tate/tate.json",
   "../bench/corgis/website/datasets/json/airlines/airlines.json",
   "../bench/corgis/website/datasets/json/school_scores/school_scores.json",
@@ -182,7 +224,7 @@ local files = {
   "../bench/corgis/website/datasets/json/video_games/video_games.json",
 }
 
-for _ = 1, 10 do
+for _ = 1, 1 do
   for _, filename in ipairs(files) do
     bench(filename)
   end
