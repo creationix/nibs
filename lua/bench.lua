@@ -65,7 +65,7 @@ local function hrtime()
 end
 
 local function format_bytes(kb)
-  if kb < 1024 then
+  if math.abs(kb) < 1024 then
     return string.format("% 5dKB", kb)
   else
     return string.format("% 5.1fMB", kb / 1024)
@@ -81,43 +81,52 @@ local function bench(filename)
     assert(fd:close())
     cached[filename] = tibs
   end
-  collectgarbage "stop"
-  collectgarbage "collect"
-  collectgarbage "collect"
-  local before_mem = collectgarbage "count"
-  local before = hrtime()
-  local doc = assert(Tibs.decode(tibs, filename))
-  -- p(doc)
-  local after = hrtime()
-  local after_mem = collectgarbage "count"
-  collectgarbage "collect"
-  collectgarbage "collect"
-  local after_mem2 = collectgarbage "count"
-  print(string.format("% 99s -> table:  % 6.1fms %s %s",
-    filename, (after - before) / 1000,
-    format_bytes(after_mem - before_mem),
-    format_bytes(after_mem2 - before_mem)
-  ))
-  collectgarbage "collect"
-  collectgarbage "collect"
-  before_mem = collectgarbage "count"
-  before = hrtime()
-  local encoded = assert(Tibs.encode(doc))
-  -- local encoded = assert(cjson.encode(doc))
-  after = hrtime()
-  after_mem = collectgarbage "count"
-  -- print(encoded)
-  collectgarbage "collect"
-  collectgarbage "collect"
-  after_mem2 = collectgarbage "count"
-  print(string.format("% 99s -> string: % 6.1fms %s %s",
-    filename, (after - before) / 1000,
-    format_bytes(after_mem - before_mem),
-    format_bytes(after_mem2 - before_mem)
-  ))
-  collectgarbage "restart"
+
+  local function test(name, fn, ...)
+    print("Testing " .. name .. "...")
+    collectgarbage "stop"
+    collectgarbage "collect"
+    collectgarbage "collect"
+    local before_mem = collectgarbage "count"
+    local before = hrtime()
+    local res = fn(...)
+    local after = hrtime()
+    local after_mem = collectgarbage "count"
+    collectgarbage "collect"
+    collectgarbage "collect"
+    local after_mem2 = collectgarbage "count"
+    print(string.format("% 99s:  % 6.1fms %s %s",
+      filename, (after - before) / 1000,
+      format_bytes(after_mem - before_mem),
+      format_bytes(after_mem2 - before_mem)
+    ))
+    collectgarbage "restart"
+    return res
+  end
+
+  local small = test("shrink", Tibs.trim, tibs, filename)
+  local doc = test("decode", Tibs.decode, tibs, filename)
+  local encoded = test("encode", Tibs.encode, doc)
+
 end
 
+function Tibs.trim(str, filename)
+  local next_token = Tibs.next_token
+  local ByteWriter = Tibs.ByteWriter
+  local data = ffi.cast("uint8_t*", str)
+  local len = #str
+  local slice = ByteWriter.new(1024)
+  local offset = 0
+  local token, start
+  while true do
+    offset, token, start = next_token(data, offset, len)
+    if offset < 0 then error(Tibs.format_syntax_error(str, -offset, filename)) end
+    if token == "error" then error(Tibs.format_syntax_error(str, offset, filename)) end
+    if token == "eos" then break end
+  end
+  slice:write_bytes(data + start, offset - start)
+  return slice:to_string()
+end
 
 local files = {
   "../fixtures/encoder-fixtures.tibs",
