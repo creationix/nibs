@@ -1,5 +1,4 @@
-local Nibs = require 'nibs'
-local Tibs = Nibs.Tibs
+local Tibs = require 'tibs'
 
 local ffi = require 'ffi'
 ffi.cdef [[
@@ -23,19 +22,60 @@ local function hrtime()
 end
 
 local p = require('deps/pretty-print').prettyPrint
+local cjson = require 'deps/cjson'
+
+local function format_bytes(kb)
+  if kb < 1024 then
+    return string.format("%dKB", kb)
+  else
+    return string.format("%.1fMB", kb / 1024)
+  end
+end
 
 local function bench(filename)
   local fd = assert(io.open(filename))
   local tibs = assert(fd:read "*a")
   assert(fd:close())
-  local doc, err = Tibs.parse(tibs, filename)
-  p { doc = doc, err = err }
+  collectgarbage "stop"
+  collectgarbage "collect"
+  collectgarbage "collect"
+  local before_mem = collectgarbage "count"
+  local before = hrtime()
+  local doc = assert(Tibs.decode(tibs, filename))
+  local after = hrtime()
+  local after_mem = collectgarbage "count"
+  collectgarbage "collect"
+  collectgarbage "collect"
+  local after_mem2 = collectgarbage "count"
+  print(string.format("% 40s -> table:  % 5.1fms %s %s",
+    filename, (after - before) / 1000,
+    format_bytes(after_mem - before_mem),
+    format_bytes(after_mem2 - before_mem)
+  ))
+  before_mem = collectgarbage "count"
+  before = hrtime()
+  local encoded = assert(Tibs.encode(doc))
+  -- local encoded = assert(cjson.encode(doc))
+  after = hrtime()
+  after_mem = collectgarbage "count"
+  collectgarbage "collect"
+  collectgarbage "collect"
+  after_mem2 = collectgarbage "count"
+  print(string.format("% 40s -> string(%d): % 5.1fms %s %s",
+    filename, #encoded, (after - before) / 1000,
+    format_bytes(after_mem - before_mem),
+    format_bytes(after_mem2 - before_mem)
+  ))
+  collectgarbage "restart"
 end
 
 
-bench("../fixtures/encoder-fixtures.tibs")
-
--- for _ = 1, 10 do
+for _ = 1, 10 do
+  -- bench "../fixtures/encoder-fixtures.tibs"
+  -- bench "../fixtures/decoder-fixtures.tibs"
+  -- bench "../../www.justsunnies.com.json"
+  bench "../bench/data.json"
+end
 --   parse(c_lexer, "../fixtures/encoder-fixtures.tibs", false)
 --   parse(c_lexer, "../fixtures/decoder-fixtures.tibs", false)
 -- end
