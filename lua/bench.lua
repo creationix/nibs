@@ -9,7 +9,7 @@ package.path = string.format(
   package.path)
 
 local p = require('deps/pretty-print').prettyPrint
-local cjson_ffi = require 'deps/cjson'
+-- local cjson_ffi = require 'deps/cjson'
 local cjson_resty = require 'cjson'
 
 do -- Polyfill for luajit without __pairs and __ipairs extensions
