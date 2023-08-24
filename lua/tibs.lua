@@ -36,6 +36,7 @@ local Tibs = {}
 ---@field size integer
 ---@field data integer[]
 local ByteWriter = { __name = "ByteWriter" }
+Tibs.ByteWriter = ByteWriter
 ByteWriter.__index = ByteWriter
 
 ---@param initial_capacity? integer
@@ -258,6 +259,8 @@ local function next_token(data, offset, len)
   end
   return offset, "eos", offset
 end
+
+Tibs.next_token = next_token
 
 local function is_cdata_integer(val)
   return istype(I64, val) or
@@ -756,6 +759,7 @@ local function format_syntax_error(tibs, error_offset, filename)
   end
   return "Lexer error: Unexpected EOS"
 end
+Tibs.format_syntax_error = format_syntax_error
 
 local parse_any
 
