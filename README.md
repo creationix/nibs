@@ -90,8 +90,8 @@ enum Type {
     // Inline types.
     ZigZag    = 0, // big = zigzag encoded i64
     Float     = 1, // big = binary encoding of float
-    Simple    = 2, // big = subtype (false, true, null)
-    Ref       = 3, // big = reference offset into nearest parent RefScope array
+    Simple    = 2, // big = subtype (false, true, null, ...)
+    Ref       = 3, // big = reference offset into Scope
 
     // slots 4-7 reserved
 
@@ -176,7 +176,14 @@ enum SubType {
     True      = 1,
     Null      = 2,
 
-    // slots 3-7 reserved
+    // slot 3 reserved
+
+    ListStart = 4,
+    ListEnd   = 5,
+    MapStart  = 6,
+    MapEnd    = 7,
+
+    // slots 8-11 reserved
 };
 ```
 
@@ -187,6 +194,8 @@ Value | JSON | Nibs
 `false` | `|66616c7365|` | `|20|`
 `true` | `|74727565|` | `|21|`
 `null` | `|6e756c6c|` | `|22|`
+
+See `Streaming Containers` below for the last 4 types.
 
 ### `8` - Bytes
 
@@ -437,4 +446,46 @@ Would encode like this:
 |   95 636f6c6f72                 | // "color"
 |   96 667275697473               | // "fruits"
 |   95 6170706c65                 | // "apple"
+```
+
+
+## Streaming Containers
+
+The primary purpose for nibs is fast random access reads, but sometimes it's nice to use the same format for quick serilization/deserialization or streaming content of unknown length.
+
+Remember those 4 subtypes in `Simple` that we skipped over, those are for enabling streaming content.
+
+```c++
+enum Type {
+    ...
+    Simple    = 2, // big = subtype (false, true, null, ...)
+    ...
+};
+enum SubType {
+    ...
+    ListStart = 4,
+    ListEnd   = 5,
+    MapStart  = 6,
+    MapEnd    = 7,
+};
+```
+
+Streaming content is contagious in that these can only exist at the top level or inside other streaming.
+
+For fast serilization/deserilization of JSON-like data, use the streaming variants for Map and List.  This is both optimal for encoders and decoders which are doing a single linear pass through the data.
+
+```tibs
+// Original value
+[ 1, 2, 3]
+// Encoded normally
+<b3 02 04 06>
+// Encoded using streaming variant
+<24 02 04 06 25>
+
+// Original map
+{ "name": "Nibs" }
+// Encoded normally
+<ca 94 6e616d65 94 4e696273>
+// Encoded using streaming variant
+<26 94 6e616d65 94 4e696273 27>
 ```

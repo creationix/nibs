@@ -173,7 +173,6 @@ end
 local files = {
   -- "../fixtures/encoder-fixtures.tibs",
   -- "../fixtures/decoder-fixtures.tibs",
-  "./test1.json",
   "../bench/corgis/website/datasets/json/tate/tate.json",
   "../bench/corgis/website/datasets/json/airlines/airlines.json",
   "../bench/corgis/website/datasets/json/school_scores/school_scores.json",
