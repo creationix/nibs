@@ -127,6 +127,13 @@ local function decode_simple(val)
   end
 end
 
+---@param val integer
+---@param scope? Tibs.Array
+local function decode_ref(val, scope)
+  assert(scope)
+  return scope[val + 1]
+end
+
 local function decode_bytes(data, offset, len)
   local buf = U8Arr(len)
   copy(buf, data+offset, len)
@@ -185,20 +192,45 @@ function Nibs.parse_pair(data, offset, last)
 end
 local parse_pair = Nibs.parse_pair
 
+-- Skip a nibs value
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@return integer new_offset
+local function skip_value(data, offset, last)
+  local small, big
+  offset, small, big = parse_pair(data, offset, last)
+  offset = (small < 8) and offset or (offset + big)
+  assert(offset <= last)
+  return offset
+end
+
+-- Skip a nibs index
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@return integer new_offset
+local function skip_index(data, offset, last)
+  local small, big
+  offset, small, big = parse_pair(data, offset, last)
+  offset = offset + small * big
+  assert(offset <= last)
+  return offset
+end
 
 ---@generic T : Tibs.List|Tibs.Array
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope_offset integer?
+---@param scope? Tibs.Array
 ---@param meta T
 ---@return T
-local function parse_list(data, offset, last, scope_offset, meta)
+local function parse_list(data, offset, last, scope, meta)
   local list = setmetatable({}, meta)
   local i = 0
   while offset < last do
     local value
-    offset, value = parse_any(data, offset, last, scope_offset)
+    offset, value = parse_any(data, offset, last, scope)
     i = i + 1
     rawset(list, i, value)
   end
@@ -209,15 +241,15 @@ end
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope_offset integer?
+---@param scope? Tibs.Array
 ---@param meta T
 ---@return T
-local function parse_map(data, offset, last, scope_offset, meta)
+local function parse_map(data, offset, last, scope, meta)
   local map = setmetatable({}, meta)
   while offset < last do
     local key, value
-    offset, key = parse_any(data, offset, last, scope_offset)
-    offset, value = parse_any(data, offset, last, scope_offset)
+    offset, key = parse_any(data, offset, last, scope)
+    offset, value = parse_any(data, offset, last, scope)
     rawset(map, key, value)
   end
   return map
@@ -226,38 +258,23 @@ end
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope_offset integer?
----@return Tibs.Array
-local function parse_array(data, offset, last, scope_offset)
-  -- Skip the array index
-  local small, big
-  offset, small, big = parse_pair(data, offset, last)
-  offset = offset + small * big
-  -- Reuse array parser
-  return parse_list(data, offset, last, scope_offset, Array)
+---@param scope? Tibs.Array
+local function parse_scope(data, offset, last, scope)
+  local value_end = skip_value(data, offset, last)
+  scope = parse_list(data, skip_index(data, value_end, last), last, scope, Array)
+  local value
+  offset, value = parse_any(data, offset, value_end, scope)
+  assert(offset == value_end)
+  return value
 end
 
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope_offset integer?
----@return Tibs.Trie
-local function parse_trie(data, offset, last, scope_offset)
-  -- Skip the trie index
-  local small, big
-  offset, small, big = parse_pair(data, offset, last)
-  offset = offset + small * big
-  -- Reuse array parser
-  return parse_map(data, offset, last, scope_offset, Trie)
-end
-
----@param data integer[]
----@param offset integer
----@param last integer
----@param scope_offset integer?
+---@param scope? Tibs.Array
 ---@return integer new_offset
 ---@return any? value
-function Nibs.parse_any(data, offset, last, scope_offset)
+function Nibs.parse_any(data, offset, last, scope)
   local small, big
   offset, small, big = parse_pair(data, offset, last)
 
@@ -269,7 +286,7 @@ function Nibs.parse_any(data, offset, last, scope_offset)
   elseif small == SIMPLE then
     return offset, decode_simple(big)
   elseif small == REF then
-    error "TODO: REF"
+    return offset, decode_ref(big, scope)
   end
 
   -- Container Types
@@ -282,15 +299,15 @@ function Nibs.parse_any(data, offset, last, scope_offset)
   elseif small == HEXSTRING then
     return last, decode_hexstring(data, offset, big)
   elseif small == LIST then
-    return last, parse_list(data, offset, last, scope_offset, List)
+    return last, parse_list(data, offset, last, scope, List)
   elseif small == MAP then
-    return last, parse_map(data, offset, last, scope_offset, Map)
+    return last, parse_map(data, offset, last, scope, Map)
   elseif small == ARRAY then
-    return last, parse_array(data, offset, last, scope_offset)
+    return last, parse_list(data, skip_index(data, offset, last), last, scope, Array)
   elseif small == TRIE then
-    return last, parse_trie(data, offset, last, scope_offset)
+    return last, parse_map(data, skip_index(data, offset, last), last, scope, Trie)
   elseif small == SCOPE then
-    error "TODO: SCOPE"
+    return last, parse_scope(data, offset, last)
   end
   error(string.format("Unknown type tag: 0x%x", small))
 end
