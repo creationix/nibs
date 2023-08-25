@@ -12,8 +12,7 @@ local colorize = PrettyPrint.colorize
 
 _G.p = PrettyPrint.prettyPrint
 
-local NibLib = import 'nib-lib'
-local U8Ptr = NibLib.U8Ptr
+local U8Ptr = ffi.typeof "uint8_t*"
 
 local TestUtils = {}
 

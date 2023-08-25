@@ -279,36 +279,6 @@ local Map = {
   __is_array_like = false,
 }
 
--- do -- WIP: Preserve insertion order
---   ---@type table<Tibs.Map,any[]>
---   local key_orders = setmetatable({}, { __mode = "k" })
-
---   function Map:__newindex(k, v)
---     local keys = key_orders[self]
---     if not keys then
---       keys = {}
---       for key in next, self do
---         keys[#keys + 1] = key
---       end
---       key_orders[self] = keys
---     end
---     keys[#keys + 1] = k
---     rawset(self, k, v)
---   end
-
---   function Map:__pairs()
---     local keys = key_orders[self] or {}
---     local i = 0
---     local len = #keys
---     return function()
---       if i >= len then return end
---       i = i + 1
---       local k = keys[i]
---       return k, rawget(self, k)
---     end
---   end
--- end
-
 ---@class Tibs.List
 local ListMeta = {
   __name = "List",
