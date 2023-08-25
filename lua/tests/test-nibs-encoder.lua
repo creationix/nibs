@@ -1,7 +1,6 @@
 local Utils = require 'test-utils'
 local Nibs = require "nibs"
 local Tibs = require 'tibs'
-local NibLib = require 'nib-lib'
 
 local colorize = require('pretty-print').colorize
 local readFileSync = require('fs').readFileSync
@@ -16,17 +15,18 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
         print("\n" .. colorize("highlight", section) .. "\n")
         for i = 1, #tests, 2 do
             local input = tests[i]
-            local expected = NibLib.bufToStr(tests[i + 1])
+            local expected = tests[i + 1]
             local actual = Nibs.encode(input)
 
+            local same = Utils.equal(expected, actual)
             print(string.format("% 40s → %s",
                 Tibs.encode(input),
-                colorize(expected == actual and "success" or "failure", NibLib.strToHexStr(actual))))
-            if expected ~= actual then
+                colorize(same and "success" or "failure", Tibs.encode(actual))))
+            if not same then
                 collectgarbage("collect")
                 print(colorize("failure", string.format("% 40s | %s",
                     "Error, not as expected",
-                    colorize("success", NibLib.strToHexStr(expected)))))
+                    colorize("success", Tibs.encode(expected)))))
                 return nil, "Encode Mismatch"
             end
             collectgarbage("collect")
