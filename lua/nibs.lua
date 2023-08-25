@@ -2,7 +2,10 @@ local dump = require('deps/pretty-print').dump
 
 local Tibs = require 'tibs'
 local ByteWriter = Tibs.ByteWriter
-
+local List = Tibs.List
+local Map = Tibs.Map
+local Array = Tibs.Array
+local Trie = Tibs.Trie
 
 local ffi = require 'ffi'
 local typeof = ffi.typeof
@@ -10,6 +13,7 @@ local cast = ffi.cast
 local sizeof = ffi.sizeof
 local istype = ffi.istype
 local ffi_string = ffi.string
+local copy = ffi.copy
 
 local U8Ptr = typeof "uint8_t*"
 local U16Ptr = typeof "uint16_t*"
@@ -66,7 +70,8 @@ local LIST      = 0xb -- big = len (list of nibs values)
 local MAP       = 0xc -- big = len (list of alternating nibs keys and values)
 local ARRAY     = 0xd -- big = len (array index then list)
                       -- small2 = width, big2 = count
--- slot e reserved
+local TRIE      = 0xe -- big = len (trie index then map)
+                      -- small2 = width, big2 = count
 local SCOPE     = 0xf -- big = len (wrapped value, then array of refs)
 
 -- Simple subtypes
@@ -122,53 +127,141 @@ local function decode_simple(val)
   end
 end
 
+local function decode_bytes(data, offset, len)
+  local buf = U8Arr(len)
+  copy(buf, data+offset, len)
+  return buf
+end
+
+local function decode_utf8(data, offset, len)
+  return ffi_string(data + offset, len)
+end
+
+-- Convert a nibble to an ascii hex digit
+---@param b integer nibble value
+---@return integer ascii hex code
+local function to_hex_code(b)
+  return b + (b < 10 and 0x30 or 0x57)
+end
+
+local function decode_hexstring(data, offset, len)
+  local size = lshift(len, 1)
+  local buf = U8Arr(size)
+  for i = 0, size - 1, 2 do
+    local c = data[offset]
+    offset = offset + 1
+    buf[i] = to_hex_code(rshift(c, 4))
+    buf[i + 1] = to_hex_code(band(c, 0xf))
+  end
+  return ffi_string(buf, size)
+end
 
 ---@param data integer[]
 ---@param offset integer
----@param len integer
+---@param last integer
 ---@return integer new_offset
 ---@return integer small
 ---@return integer big
-function Nibs.parse_pair(data, offset, len)
-  assert(offset < len)
+function Nibs.parse_pair(data, offset, last)
+  assert(offset < last)
   ---@type {u4:integer,tag:integer,u8:integer,u16:integer,u32:integer,u64:integer}
   local pair = cast(NibsPairPtr, data + offset)
-  p {
-    u4=pair.u4,
-    tag=pair.tag,
-    u8=pair.u8,
-    u16=pair.u16,
-    u32=pair.u32,
-    u64=pair.u64
-  }
   local small = pair.u4
   if pair.tag < 12 then
     return offset + 1, small, pair.tag
   elseif pair.tag == 12 then
-    assert(offset + 1 < len)
+    assert(offset + 1 < last)
     return offset + 2, small, pair.u8
   elseif pair.tag == 13 then
-    assert(offset + 2 < len)
+    assert(offset + 2 < last)
     return offset + 3, small, pair.u16
   elseif pair.tag == 14 then
-    assert(offset + 4 < len)
+    assert(offset + 4 < last)
     return offset + 5, small, pair.u32
   else
-    assert(offset + 8 < len)
+    assert(offset + 8 < last)
     return offset + 9, small, pair.u64
   end
 end
 local parse_pair = Nibs.parse_pair
 
+
+---@generic T : Tibs.List|Tibs.Array
 ---@param data integer[]
 ---@param offset integer
+---@param last integer
 ---@param scope_offset integer?
----@param small integer
----@param big integer
+---@param meta T
+---@return T
+local function parse_list(data, offset, last, scope_offset, meta)
+  local list = setmetatable({}, meta)
+  local i = 0
+  while offset < last do
+    local value
+    offset, value = parse_any(data, offset, last, scope_offset)
+    i = i + 1
+    rawset(list, i, value)
+  end
+  return list
+end
+
+---@generic T : Tibs.Map|Tibs.Trie
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@param scope_offset integer?
+---@param meta T
+---@return T
+local function parse_map(data, offset, last, scope_offset, meta)
+  local map = setmetatable({}, meta)
+  while offset < last do
+    local key, value
+    offset, key = parse_any(data, offset, last, scope_offset)
+    offset, value = parse_any(data, offset, last, scope_offset)
+    rawset(map, key, value)
+  end
+  return map
+end
+
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@param scope_offset integer?
+---@return Tibs.Array
+local function parse_array(data, offset, last, scope_offset)
+  -- Skip the array index
+  local small, big
+  offset, small, big = parse_pair(data, offset, last)
+  offset = offset + small * big
+  -- Reuse array parser
+  return parse_list(data, offset, last, scope_offset, Array)
+end
+
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@param scope_offset integer?
+---@return Tibs.Trie
+local function parse_trie(data, offset, last, scope_offset)
+  -- Skip the trie index
+  local small, big
+  offset, small, big = parse_pair(data, offset, last)
+  offset = offset + small * big
+  -- Reuse array parser
+  return parse_map(data, offset, last, scope_offset, Trie)
+end
+
+---@param data integer[]
+---@param offset integer
+---@param last integer
+---@param scope_offset integer?
 ---@return integer new_offset
 ---@return any? value
-function Nibs.parse_any(data, offset, scope_offset, small, big)
-  p{data=data,offset=offset,scope_offset=scope_offset,small=small,big=big}
+function Nibs.parse_any(data, offset, last, scope_offset)
+  local small, big
+  offset, small, big = parse_pair(data, offset, last)
+
+  -- Inline Types
   if small == ZIGZAG then
     return offset, decode_zigzag(big)
   elseif small == FLOAT then
@@ -177,18 +270,25 @@ function Nibs.parse_any(data, offset, scope_offset, small, big)
     return offset, decode_simple(big)
   elseif small == REF then
     error "TODO: REF"
-  elseif small == BYTES then
-    error "TODO: BYTES"
+  end
+
+  -- Container Types
+  assert(offset + big <= last)
+  last = offset + big
+  if small == BYTES then
+    return last, decode_bytes(data, offset, big)
   elseif small == UTF8 then
-    error "TODO: UTF8"
+    return last, decode_utf8(data, offset, big)
   elseif small == HEXSTRING then
-    error "TODO: HEXSTRING"
+    return last, decode_hexstring(data, offset, big)
   elseif small == LIST then
-    error "TODO: LIST"
+    return last, parse_list(data, offset, last, scope_offset, List)
   elseif small == MAP then
-    error "TODO: MAP"
+    return last, parse_map(data, offset, last, scope_offset, Map)
   elseif small == ARRAY then
-    error "TODO: ARRAY"
+    return last, parse_array(data, offset, last, scope_offset)
+  elseif small == TRIE then
+    return last, parse_trie(data, offset, last, scope_offset)
   elseif small == SCOPE then
     error "TODO: SCOPE"
   end
@@ -197,10 +297,9 @@ end
 parse_any = Nibs.parse_any
 
 ---@param nibs string|ffi.cdata* binary nibs data
----@param filename? string
 ---@return any? value
 ---@return string? error
-function Nibs.decode(nibs, filename)
+function Nibs.decode(nibs)
   local t = type(nibs)
   local len
   if t == "string" then
@@ -212,14 +311,9 @@ function Nibs.decode(nibs, filename)
     error "Input must be string or cdata"
   end
   local data = cast(U8Ptr, nibs)
-  local offset, small, big = parse_pair(data, 0, len)
-  local value
-  offset, value = parse_any(data, offset, nil, small, big)
-  if offset < 0 then
-    return nil, format_syntax_error(nibs, -offset, filename)
-  else
-    return value
-  end
+  local offset, value = parse_any(data, 0, len)
+  assert(offset == len)
+  return value
 end
 
 return Nibs

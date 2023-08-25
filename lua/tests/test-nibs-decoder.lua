@@ -8,7 +8,7 @@ local colorize = require('pretty-print').colorize
 local readFileSync = require('fs').readFileSync
 local filename = module.dir .. "/../../fixtures/decoder-fixtures.tibs"
 local text = assert(readFileSync(filename))
-local allTests = assert(Tibs.decode(text))
+local allTests = assert(Tibs.decode(text, filename))
 
 for _ = 1, 10 do -- Multiple runs to exercise GC more
     collectgarbage("collect")
