@@ -1,12 +1,3 @@
-local dump = require('deps/pretty-print').dump
-
-local Tibs = require 'tibs'
-local ByteWriter = Tibs.ByteWriter
-local List = Tibs.List
-local Map = Tibs.Map
-local Array = Tibs.Array
-local Trie = Tibs.Trie
-
 local ffi = require 'ffi'
 local typeof = ffi.typeof
 local cast = ffi.cast
@@ -79,6 +70,32 @@ local FALSE = 0
 local TRUE  = 1
 local NULL  = 2
 
+---@class Nibs.List
+local List = {
+  __name = "Nibs.List",
+  __is_array_like = true,
+}
+
+---@class Nibs.Map
+local Map = {
+  __name = "Nibs.Map",
+  __is_array_like = false,
+}
+
+---@class Nibs.Array
+local Array = {
+  __name = "Nibs.List",
+  __is_array_like = true,
+  __is_indexed = true,
+}
+
+---@class Nibs.Trie
+local Trie = {
+  __name = "Nibs.Trie",
+  __is_array_like = false,
+  __is_indexed = true,
+}
+
 ---@class Nibs
 local Nibs = {}
 
@@ -128,7 +145,7 @@ local function decode_simple(val)
 end
 
 ---@param val integer
----@param scope? Tibs.Array
+---@param scope? Nibs.Array
 local function decode_ref(val, scope)
   assert(scope)
   return scope[val + 1]
@@ -218,11 +235,11 @@ local function skip_index(data, offset, last)
   return offset
 end
 
----@generic T : Tibs.List|Tibs.Array
+---@generic T : Nibs.List|Nibs.Array
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope? Tibs.Array
+---@param scope? Nibs.Array
 ---@param meta T
 ---@return T
 local function parse_list(data, offset, last, scope, meta)
@@ -237,11 +254,11 @@ local function parse_list(data, offset, last, scope, meta)
   return list
 end
 
----@generic T : Tibs.Map|Tibs.Trie
+---@generic T : Nibs.Map|Nibs.Trie
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope? Tibs.Array
+---@param scope? Nibs.Array
 ---@param meta T
 ---@return T
 local function parse_map(data, offset, last, scope, meta)
@@ -258,7 +275,7 @@ end
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope? Tibs.Array
+---@param scope? Nibs.Array
 local function parse_scope(data, offset, last, scope)
   local value_end = skip_value(data, offset, last)
   scope = parse_list(data, skip_index(data, value_end, last), last, scope, Array)
@@ -271,7 +288,7 @@ end
 ---@param data integer[]
 ---@param offset integer
 ---@param last integer
----@param scope? Tibs.Array
+---@param scope? Nibs.Array
 ---@return integer new_offset
 ---@return any? value
 function Nibs.parse_any(data, offset, last, scope)
