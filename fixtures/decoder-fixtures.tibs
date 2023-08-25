@@ -137,27 +137,27 @@
           {#"name": "Tim",1: 2},
         <ec11 1400218a80 946e616d65 944e696273 21 20>,
           {#"name":"Nibs",true:false}
-    ]
-    // "Refs": [
-    //     <fc0e b4 33 31 32 30 14 00 01 02 03 02 04 06 08>, [4,2,3,1],
-    //     <fa 31 12 00 03 a2 dead a2 beef>, "beef",
-    //     <fa 30 12 00 03 a2 dead a2 beef>, "dead",
-    //     < fc4e                             
-    //         bc35                           
-    //           cc14 30 93726564 31 bc0c     
-    //             32 9a73747261776265727279  
-    //           ca 30 95677265656e 31 b1     
-    //             32                         
-    //           cc12 30 9679656c6c6f77 31 b8 
-    //             32 9662616e616e61          
-    //        1300060d                        
-    //        95 636f6c6f72                   
-    //        96 667275697473                 
-    //        95 6170706c65 >,
-    //     [
-    //         { "color": "red", "fruits": ["apple", "strawberry"] },
-    //         { "color": "green", "fruits": ["apple"] },
-    //         { "color": "yellow", "fruits": ["apple", "banana"] }
-    //     ]
-    // ],
+    ],
+    "Refs": [
+        <fc0e b4 33 31 32 30 14 00 01 02 03 02 04 06 08>, [4,2,3,1],
+        <fa 31 12 00 03 a2 dead a2 beef>, "beef",
+        <fa 30 12 00 03 a2 dead a2 beef>, "dead",
+        < fc4e                             
+            bc35                           
+              cc14 30 93726564 31 bc0c     
+                32 9a73747261776265727279  
+              ca 30 95677265656e 31 b1     
+                32                         
+              cc12 30 9679656c6c6f77 31 b8 
+                32 9662616e616e61          
+           1300060d                        
+           95 636f6c6f72                   
+           96 667275697473                 
+           95 6170706c65 >,
+        [
+            { "color": "red", "fruits": ["apple", "strawberry"] },
+            { "color": "green", "fruits": ["apple"] },
+            { "color": "yellow", "fruits": ["apple", "banana"] }
+        ]
+    ],
 }
