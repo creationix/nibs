@@ -148,7 +148,7 @@ local function next_token(data, offset, len)
       -- Pass punctuation through as-is
       local start = offset
       offset = offset + 1
-      if c == 0x5b and offset < len and data[offset] == 0x23 then -- "#"
+      if (c == 0x5b or c == 0x7b) and offset < len and data[offset] == 0x23 then -- "[#"|"{#"
         offset = offset + 1
       end
       return offset, char(c), start
@@ -278,19 +278,30 @@ local Map = {
   __name = "Map",
   __is_array_like = false,
 }
+Tibs.Map = Map
 
 ---@class Tibs.List
-local ListMeta = {
+local List = {
   __name = "List",
   __is_array_like = true,
 }
+Tibs.List = List
 
 ---@class Tibs.Array
-local ArrayMeta = {
+local Array = {
   __name = "Array",
   __is_array_like = true,
   __is_indexed = true,
 }
+Tibs.Array = Array
+
+---@class Tibs.Trie
+local Trie = {
+  __name = "Trie",
+  __is_array_like = false,
+  __is_indexed = true,
+}
+Tibs.Trie = Trie
 
 ---@class Tibs.Scope
 local ScopeMeta = {
@@ -325,8 +336,8 @@ end
 
 ---@param slice Tibs.ByteWriter
 ---@param val table<any,any>
-local function map_to_tibs(slice, val)
-  slice:write_string('{')
+local function map_to_tibs(slice, val, opener)
+  slice:write_string(opener)
   local need_comma = false
   for k, v in pairs(val) do
     if need_comma then
@@ -368,7 +379,11 @@ function any_to_tibs(slice, val)
         return list_to_tibs(slice, val, "[", "]")
       end
     elseif mt.__is_array_like == false then
-      return map_to_tibs(slice, val)
+      if mt.__is_indexed then
+        return map_to_tibs(slice, val, '{#')
+      else
+        return map_to_tibs(slice, val, "{")
+      end
     end
   end
   local kind = type(val)
@@ -410,7 +425,7 @@ function Tibs.encode(val)
 end
 
 ---@alias Tibs.Bytes integer[] cdata uint8_t[?]
----@alias Tibs.Value Tibs.List|Tibs.Map|Tibs.Array|Tibs.Bytes|number|integer|string|boolean|nil
+---@alias Tibs.Value Tibs.List|Tibs.Map|Tibs.Array|Tibs.Trie|Tibs.Bytes|number|integer|string|boolean|nil
 
 ---@param c integer
 ---@return boolean
@@ -736,13 +751,16 @@ Tibs.format_syntax_error = format_syntax_error
 
 local parse_any
 
+---@generic T : Tibs.List|Tibs.Array|Tibs.Scope
 ---@param data integer[]
 ---@param offset integer
 ---@param len integer
+---@param meta T
+---@param closer "]"|")"
 ---@return integer offset
----@return (Tibs.List|Tibs.Array|Tibs.Scope)? list
-local function parse_list(data, offset, len, TypeMeta, closer)
-  local list = setmetatable({}, TypeMeta)
+---@return T? list
+local function parse_list(data, offset, len, meta, closer)
+  local list = setmetatable({}, meta)
   local token, start, value
   offset, token, start = next_token(data, offset, len)
   local i = 0
@@ -765,13 +783,15 @@ local function parse_list(data, offset, len, TypeMeta, closer)
 end
 
 -- Parse a Tibs Map {x:y, ...}
+---@generic T : Tibs.Map|Tibs.Trie
 ---@param data integer[]
 ---@param offset integer
 ---@param len integer
+---@param meta T
 ---@return integer offset
----@return Tibs.Map? map
-local function parse_map(data, offset, len)
-  local obj = setmetatable({}, Map)
+---@return T? map
+local function parse_map(data, offset, len, meta)
+  local obj = setmetatable({}, meta)
   local token, start, key, value
   offset, token, start = next_token(data, offset, len)
   while token ~= "}" do
@@ -785,7 +805,7 @@ local function parse_map(data, offset, len)
     offset, value = parse_any(data, offset, len, token, start)
     if offset < 0 then return offset end
 
-    obj[key] = value
+    rawset(obj, key, value)
 
     offset, token, start = next_token(data, offset, len)
     if token == "," then
@@ -829,12 +849,16 @@ function parse_any(data, offset, len, token, start)
     return offset, parse_string(data, start, offset)
   elseif token == "[" then
     if offset - start > 1 then
-      return parse_list(data, offset, len, ArrayMeta, "]")
+      return parse_list(data, offset, len, Array, "]")
     else
-      return parse_list(data, offset, len, ListMeta, "]")
+      return parse_list(data, offset, len, List, "]")
     end
   elseif token == "{" then
-    return parse_map(data, offset, len)
+    if offset - start > 1 then
+      return parse_map(data, offset, len, Trie)
+    else
+      return parse_map(data, offset, len, Map)
+    end
   elseif token == "(" then
     return parse_list(data, offset, len, ScopeMeta, ")")
   else
