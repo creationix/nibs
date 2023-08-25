@@ -1,8 +1,7 @@
 local Utils = require 'test-utils'
 
-local NibLib = require 'nib-lib'
-local Tibs = require 'tibs'
-local Nibs = require 'nibs'
+local Tibs = require '../tibs'
+local Nibs = require '../nibs'
 
 local colorize = require('pretty-print').colorize
 
@@ -21,7 +20,7 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
             collectgarbage("collect")
 
             -- Actual decoded value
-            local actual = Nibs.decode(NibLib.bufToStr(input))
+            local actual = Nibs.decode(input)
             collectgarbage("collect")
 
             -- Compare with expected value
@@ -29,7 +28,7 @@ for _ = 1, 10 do -- Multiple runs to exercise GC more
             collectgarbage("collect")
 
             print(string.format("% 40s → %s",
-                NibLib.bufToHexStr(input),
+                Tibs.encode(input),
                 colorize(same and "success" or "failure", Tibs.encode(actual))
             ))
             if not same then
