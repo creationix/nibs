@@ -1527,4 +1527,6 @@ return {
   Trie = Trie,
   Ref = Ref,
   Scope = Scope,
+  encode = Nibs.encode,
+  decode = Nibs.decode,
 }

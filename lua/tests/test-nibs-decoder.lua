@@ -1,7 +1,7 @@
 local Utils = require 'test-utils'
 
-local Tibs = require '../tibs'
 local Nibs = require '../nibs'
+local Tibs = Nibs.Tibs
 
 local colorize = require('pretty-print').colorize
 

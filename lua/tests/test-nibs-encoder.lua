@@ -1,6 +1,6 @@
 local Utils = require 'test-utils'
 local Nibs = require "nibs"
-local Tibs = require 'tibs'
+local Tibs = Nibs.Tibs
 
 local colorize = require('pretty-print').colorize
 local readFileSync = require('fs').readFileSync
