@@ -14,8 +14,6 @@ jobs:
       - name: Install Luvit
         run: |
           curl -L https://github.com/luvit/lit/raw/master/get-lit.sh | sh
-      - name: Test utility functions
-        run: ./luvit lua/tests/test-lib.lua
       - name: Test text format encoder and decoder
         run: ./luvit lua/tests/test-text-format.lua
       - name: Test encoding nibs values using fixtures

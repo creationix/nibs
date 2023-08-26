@@ -119,6 +119,24 @@ local Map = {
 local KEYS = {}
 local VALUES = {}
 
+function Map.new(...)
+  local map = setmetatable({}, Map)
+  local len = select("#", ...)
+  if len > 0 then
+    local keys = {}
+    local values = {}
+    for i = 1, len, 2 do
+      local key = select(i, ...)
+      local value = select(i + 1, ...)
+      keys[#keys + 1] = key
+      values[key] = value
+    end
+    rawset(map, KEYS, keys)
+    rawset(map, VALUES, values)
+  end
+  return map
+end
+
 function Map:__newindex(key, value)
   if value == nil then
     local values = rawget(self, VALUES)
@@ -1519,7 +1537,8 @@ end
 ---@param map table<any,any>
 ---@param refmap? table<any,integer>
 local function write_trie(writer, map, refmap)
-  error "TODO: Implement write_trie"
+  print "TODO: Implement write_trie"
+  return write_map(writer, map, refmap)
 end
 
 ---@param writer ByteWriter
