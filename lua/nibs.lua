@@ -9,9 +9,6 @@ local ffi_string = ffi.string
 local copy = ffi.copy
 
 local U8Ptr = typeof "uint8_t*"
-local U16Ptr = typeof "uint16_t*"
-local U32Ptr = typeof "uint32_t*"
-local U64Ptr = typeof "uint64_t*"
 
 local U8Arr = typeof "uint8_t[?]"
 local U16Arr = typeof "uint16_t[?]"
@@ -443,7 +440,6 @@ end
 ---@param val number
 ---@return integer
 local function encode_float(val)
-  p("encode_float", val)
   -- Use same NaN encoding as used by V8 JavaScript engine
   if val ~= val then
     return 0x7ff8000000000000ULL
@@ -637,7 +633,6 @@ function write_any(writer, val, refmap)
   local mt = getmetatable(val)
   if mt then
     if mt.__is_ref then
-      p("ref", val)
       return write_pair(writer, REF, val[1])
     elseif mt.__is_scope then
       return write_nested_scope(writer, val, refmap)
