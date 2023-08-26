@@ -11,5 +11,6 @@
     ],
     "files.associations": {
         "type_traits": "c"
-    }
+    },
+    "Lua.workspace.checkThirdParty": false
 }
