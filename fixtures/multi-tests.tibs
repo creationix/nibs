@@ -68,5 +68,5 @@
     ], "color", "fruits", "apple" ),
 
     // Test lots of braces and empty byte arrays
-    "braces": [[[[[[[[{||:||}]]]]]]]],
+    "braces": [[[[[[[[{<>:<>}]]]]]]]],
 }

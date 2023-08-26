@@ -1,64 +1,64 @@
-local ffi = require 'ffi'
-local sizeof = ffi.sizeof
-local copy = ffi.copy
-local cast = ffi.cast
-local ffi_string = ffi.string
-local typeof = ffi.typeof
-local istype = ffi.istype
+local ffi          = require 'ffi'
+local sizeof       = ffi.sizeof
+local copy         = ffi.copy
+local cast         = ffi.cast
+local ffi_string   = ffi.string
+local typeof       = ffi.typeof
+local istype       = ffi.istype
 
-local bit = require 'bit'
-local lshift = bit.lshift
-local rshift = bit.rshift
-local bor = bit.bor
-local band = bit.band
-local bxor = bit.bxor
-local arshift = bit.arshift
+local bit          = require 'bit'
+local lshift       = bit.lshift
+local rshift       = bit.rshift
+local bor          = bit.bor
+local band         = bit.band
+local bxor         = bit.bxor
+local arshift      = bit.arshift
 
-local char = string.char
-local byte = string.byte
+local char         = string.char
+local byte         = string.byte
 
 -- Main types
-local ZIGZAG    = 0x0 -- big = zigzag encoded i64
-local FLOAT     = 0x1 -- big = binary encoding of float
-local SIMPLE    = 0x2 -- big = subtype (false, true, null, ...)
-local REF       = 0x3 -- big = reference offset into Scope
+local ZIGZAG       = 0x0 -- big = zigzag encoded i64
+local FLOAT        = 0x1 -- big = binary encoding of float
+local SIMPLE       = 0x2 -- big = subtype (false, true, null, ...)
+local REF          = 0x3 -- big = reference offset into Scope
 -- slots 4-7 reserved
 -- Prefixed length types.
-local BYTES     = 0x8 -- big = len (raw octets)
-local UTF8      = 0x9 -- big = len (utf-8 encoded unicode string)
-local HEXSTRING = 0xa -- big = len (lowercase hex string stored as binary)
-local LIST      = 0xb -- big = len (list of nibs values)
-local MAP       = 0xc -- big = len (list of alternating nibs keys and values)
-local ARRAY     = 0xd -- big = len (array index then list)
+local BYTES        = 0x8 -- big = len (raw octets)
+local UTF8         = 0x9 -- big = len (utf-8 encoded unicode string)
+local HEXSTRING    = 0xa -- big = len (lowercase hex string stored as binary)
+local LIST         = 0xb -- big = len (list of nibs values)
+local MAP          = 0xc -- big = len (list of alternating nibs keys and values)
+local ARRAY        = 0xd -- big = len (array index then list)
 -- small2 = width, big2 = count
-local TRIE      = 0xe -- big = len (trie index then map)
+local TRIE         = 0xe -- big = len (trie index then map)
 -- small2 = width, big2 = count
-local SCOPE     = 0xf -- big = len (wrapped value, then array of refs)
+local SCOPE        = 0xf -- big = len (wrapped value, then array of refs)
 
 -- Simple subtypes
-local FALSE     = 0
-local TRUE      = 1
-local NULL      = 2
+local FALSE        = 0
+local TRUE         = 1
+local NULL         = 2
 
-local U8Ptr = typeof "uint8_t*"
-local U8Arr = typeof "uint8_t[?]"
-local U16Arr = typeof "uint16_t[?]"
-local U32Arr = typeof "uint32_t[?]"
-local U64Arr = typeof "uint64_t[?]"
-local I8 = typeof "int8_t"
-local I16 = typeof "int16_t"
-local I32 = typeof "int32_t"
-local I64 = typeof "int64_t"
-local U8 = typeof "uint8_t"
-local U16 = typeof "uint16_t"
-local U32 = typeof "uint32_t"
-local U64 = typeof "uint64_t"
+local U8Ptr        = typeof "uint8_t*"
+local U8Arr        = typeof "uint8_t[?]"
+local U16Arr       = typeof "uint16_t[?]"
+local U32Arr       = typeof "uint32_t[?]"
+local U64Arr       = typeof "uint64_t[?]"
+local I8           = typeof "int8_t"
+local I16          = typeof "int16_t"
+local I32          = typeof "int32_t"
+local I64          = typeof "int64_t"
+local U8           = typeof "uint8_t"
+local U16          = typeof "uint16_t"
+local U32          = typeof "uint32_t"
+local U64          = typeof "uint64_t"
 
 ---@class ByteWriter
 ---@field capacity integer
 ---@field size integer
 ---@field data integer[]
-local ByteWriter = { __name = "ByteWriter" }
+local ByteWriter   = { __name = "ByteWriter" }
 ByteWriter.__index = ByteWriter
 
 ---@param initial_capacity? integer
@@ -120,21 +120,18 @@ local KEYS = {}
 local VALUES = {}
 
 function Map.new(...)
-  local map = setmetatable({}, Map)
-  local len = select("#", ...)
-  if len > 0 then
-    local keys = {}
-    local values = {}
-    for i = 1, len, 2 do
-      local key = select(i, ...)
-      local value = select(i + 1, ...)
-      keys[#keys + 1] = key
-      values[key] = value
-    end
-    rawset(map, KEYS, keys)
-    rawset(map, VALUES, values)
+  local self = setmetatable({}, Map)
+  local keys = {}
+  local values = {}
+  for i = 1, select("#", ...), 2 do
+    local key = select(i, ...)
+    local value = select(i + 1, ...)
+    rawset(keys, i, key)
+    rawset(values, key, value)
   end
-  return map
+  rawset(self, KEYS, keys)
+  rawset(self, VALUES, values)
+ return self
 end
 
 function Map:__newindex(key, value)
@@ -175,12 +172,12 @@ end
 
 function Map:__pairs()
   local keys = rawget(self, KEYS)
-  if not keys then return function () end end
+  if not keys then return function() end end
   local values = rawget(self, VALUES)
 
   local i = 0
   local len = #keys
-  return function ()
+  return function()
     if i < len then
       i = i + 1
       local key = keys[i]
@@ -195,27 +192,55 @@ local List = {
   __is_array_like = true,
 }
 
+local LEN = {}
+
+function List:__newindex(i, value)
+  local len = math.max(rawget(self, LEN) or 0, i)
+  rawset(self, LEN, len)
+  rawset(self, i, value)
+end
+
+function List:__len()
+  return rawget(self, LEN) or 0
+end
+
+function List:__ipairs()
+  local i = 0
+  local len = #self
+  return function()
+    if i < len then
+      i = i + 1
+      return i, self[i]
+    end
+  end
+end
+
+local function mix_under(a, b)
+  for k, v in pairs(b) do
+    if a[k] == nil then a[k] = v end
+  end
+end
+
 ---@class Array
 local Array = {
   __name = "Array",
-  __is_array_like = true,
   __is_indexed = true,
 }
+mix_under(Array, List)
 
 ---@class Trie
-local Trie = {
+local Trie = setmetatable({
   __name = "Trie",
-  __is_array_like = false,
   __is_indexed = true,
-}
+}, { __index = Map })
 
 ---@class Scope
 local Scope = {
   __name = "Scope",
-  __is_array_like = true,
-  __is_indexed = true,
   __is_scope = true,
 }
+mix_under(Scope, Array)
+
 
 ---@class Ref
 local Ref = {
@@ -493,11 +518,12 @@ local function string_to_tibs(writer, str)
   local start = 0
   local len = #str
   for i = 0, len - 1 do
+    print("I", i, len)
     local c = ptr[i]
-    if c < 0x20 or c > 0x7e then
+    if c < 0x20 or c == 0x5c or c == 0x22 then
       print("flush", start, i)
       if i > start then
-        writer:write_bytes(ptr + start, i-start)
+        writer:write_bytes(ptr + start, i - start)
       end
       start = i + 1
       writer:write_string(escape_char(c))
@@ -505,7 +531,7 @@ local function string_to_tibs(writer, str)
   end
   if len > start then
     print("flush", start, len)
-    writer:write_bytes(ptr + start, len-start)
+    writer:write_bytes(ptr + start, len - start)
   end
   return writer:write_string('"')
 end
@@ -568,10 +594,12 @@ function any_to_tibs(writer, val)
       writer:write_string("-inf")
     elseif tonumber(I64(val)) == val then
       local int_str = tostring(I64(val))
-      writer:write_string(int_str:sub(1,-3))
+      writer:write_string(int_str:sub(1, -3))
     else
       writer:write_string(tostring(val))
     end
+  elseif kind == "nil" then
+    writer:write_string("null")
   else
     writer:write_string(tostring(val))
   end
@@ -965,7 +993,7 @@ local function parse_map(data, offset, len, meta)
     offset, value = tibs_parse_any(data, offset, len, token, start)
     if offset < 0 then return offset end
 
-    map[key]=value
+    map[key] = value
 
     offset, token, start = next_token(data, offset, len)
     if token == "," then
@@ -1242,7 +1270,7 @@ local function nibs_parse_list(data, offset, last, scope, meta)
     local value
     offset, value = nibs_parse_any(data, offset, last, scope)
     i = i + 1
-    list[i]=value
+    list[i] = value
   end
   return list
 end
@@ -1392,7 +1420,7 @@ end
 ---@param writer ByteWriter
 ---@param int integer|ffi.cdata*
 local function write_integer(writer, int)
----@diagnostic disable-next-line: param-type-mismatch
+  ---@diagnostic disable-next-line: param-type-mismatch
   return write_pair(writer, ZIGZAG, encode_zigzag(int))
 end
 
