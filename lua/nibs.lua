@@ -17,7 +17,6 @@ local arshift = bit.arshift
 local char = string.char
 local byte = string.byte
 
-
 -- Main types
 local ZIGZAG    = 0x0 -- big = zigzag encoded i64
 local FLOAT     = 0x1 -- big = binary encoding of float
@@ -42,12 +41,10 @@ local TRUE      = 1
 local NULL      = 2
 
 local U8Ptr = typeof "uint8_t*"
-
 local U8Arr = typeof "uint8_t[?]"
 local U16Arr = typeof "uint16_t[?]"
 local U32Arr = typeof "uint32_t[?]"
 local U64Arr = typeof "uint64_t[?]"
-
 local I8 = typeof "int8_t"
 local I16 = typeof "int16_t"
 local I32 = typeof "int32_t"
@@ -81,7 +78,6 @@ function ByteWriter:ensure(needed)
   repeat
     self.capacity = lshift(self.capacity, 1)
   until needed <= self.capacity
-  -- print("new capacity", self.capacity)
   local new_data = U8Arr(self.capacity)
   copy(new_data, self.data, self.size)
   self.data = new_data
@@ -119,6 +115,61 @@ local Map = {
   __name = "Map",
   __is_array_like = false,
 }
+
+local KEYS = {}
+local VALUES = {}
+
+function Map:__newindex(key, value)
+  if value == nil then
+    local values = rawget(self, VALUES)
+    if not values then return end
+    if values[key] ~= nil then
+      local keys = rawget(self, KEYS)
+      if not keys then return end
+      for i, k in ipairs(keys) do
+        if k == key then
+          table.remove(keys, i)
+          break
+        end
+      end
+    end
+    return
+  end
+  local values = rawget(self, VALUES)
+  if not values then
+    values = {}
+    rawset(self, VALUES, values)
+  end
+  local keys = rawget(self, KEYS)
+  if not keys then
+    keys = {}
+    rawset(self, KEYS, keys)
+  end
+  keys[#keys + 1] = key
+  rawset(values, key, value)
+end
+
+function Map:__index(key)
+  local values = rawget(self, VALUES)
+  if not values then return nil end
+  return rawget(values, key)
+end
+
+function Map:__pairs()
+  local keys = rawget(self, KEYS)
+  if not keys then return function () end end
+  local values = rawget(self, VALUES)
+
+  local i = 0
+  local len = #keys
+  return function ()
+    if i < len then
+      i = i + 1
+      local key = keys[i]
+      return key, rawget(values, key)
+    end
+  end
+end
 
 ---@class List
 local List = {
@@ -798,7 +849,7 @@ local function parse_list(data, offset, len, meta, closer)
     if offset < 0 then return offset end
 
     i = i + 1
-    rawset(list, i, value)
+    list[i] = value
 
     offset, token, start = next_token(data, offset, len)
     if token == "," then
@@ -820,7 +871,7 @@ end
 ---@return integer offset
 ---@return T? map
 local function parse_map(data, offset, len, meta)
-  local obj = setmetatable({}, meta)
+  local map = setmetatable({}, meta)
   local token, start, key, value
   offset, token, start = next_token(data, offset, len)
   while token ~= "}" do
@@ -834,7 +885,7 @@ local function parse_map(data, offset, len, meta)
     offset, value = tibs_parse_any(data, offset, len, token, start)
     if offset < 0 then return offset end
 
-    rawset(obj, key, value)
+    map[key]=value
 
     offset, token, start = next_token(data, offset, len)
     if token == "," then
@@ -844,7 +895,7 @@ local function parse_map(data, offset, len, meta)
     end
   end
 
-  return offset, obj
+  return offset, map
 end
 
 ---comment
@@ -1111,7 +1162,7 @@ local function nibs_parse_list(data, offset, last, scope, meta)
     local value
     offset, value = nibs_parse_any(data, offset, last, scope)
     i = i + 1
-    rawset(list, i, value)
+    list[i]=value
   end
   return list
 end
@@ -1129,7 +1180,7 @@ local function nibs_parse_map(data, offset, last, scope, meta)
     local key, value
     offset, key = nibs_parse_any(data, offset, last, scope)
     offset, value = nibs_parse_any(data, offset, last, scope)
-    rawset(map, key, value)
+    map[key] = value
   end
   return map
 end
