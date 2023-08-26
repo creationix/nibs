@@ -14,7 +14,7 @@
 inf
 -inf
 nan
-|0123456789abcdef|
+<0123456789abcdef>
 "hello world"
 "\r\n\r\n"
 "\\\t\"\t"
@@ -28,3 +28,4 @@ nan
 ([&0,null],2,null)
 [#null,2,null]
 {1:2,3:4,5:null}
+{#1:2,3:4,5:null}

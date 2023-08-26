@@ -442,6 +442,56 @@ local function bytes_to_tibs(writer, val)
   writer:write_string(">")
 end
 
+local json_escapes = {
+  [0x08] = "\\b",
+  [0x09] = "\\t",
+  [0x0a] = "\\n",
+  [0x0c] = "\\f",
+  [0x0d] = "\\r",
+  [0x22] = "\\\"",
+  [0x2f] = "\\/",
+  [0x5c] = "\\\\",
+}
+
+local function escape_char(c)
+  return json_escapes[c] or string.format("\\u%04x", c)
+end
+
+local function string_to_tibs(writer, str)
+  local is_plain = true
+  for i = 1, #str do
+    if byte(str, i) < 0x20 or byte(str, i) > 0x7e then
+      is_plain = false
+      break
+    end
+  end
+  if is_plain then
+    writer:write_string('"')
+    writer:write_string(str)
+    return writer:write_string('"')
+  end
+  writer:write_string('"')
+  local ptr = cast(U8Ptr, str)
+  local start = 0
+  local len = #str
+  for i = 0, len - 1 do
+    local c = ptr[i]
+    if c < 0x20 or c > 0x7e then
+      print("flush", start, i)
+      if i > start then
+        writer:write_bytes(ptr + start, i-start)
+      end
+      start = i + 1
+      writer:write_string(escape_char(c))
+    end
+  end
+  if len > start then
+    print("flush", start, len)
+    writer:write_bytes(ptr + start, len-start)
+  end
+  return writer:write_string('"')
+end
+
 ---@param writer ByteWriter
 ---@param val any
 function any_to_tibs(writer, val)
@@ -490,8 +540,20 @@ function any_to_tibs(writer, val)
       return map_to_tibs(writer, val)
     end
   elseif kind == "string" then
-    -- TODO: use proper JSON escaping if it differs from %q
-    writer:write_string(string.format("%q", val))
+    string_to_tibs(writer, val)
+  elseif kind == "number" then
+    if val ~= val then
+      writer:write_string("nan")
+    elseif val == math.huge then
+      writer:write_string("inf")
+    elseif val == -math.huge then
+      writer:write_string("-inf")
+    elseif tonumber(I64(val)) == val then
+      local int_str = tostring(I64(val))
+      writer:write_string(int_str:sub(1,-3))
+    else
+      writer:write_string(tostring(val))
+    end
   else
     writer:write_string(tostring(val))
   end

@@ -1,7 +1,8 @@
 require 'test-utils'
 
 local readFileSync = require('fs').readFileSync
-local Tibs = require 'tibs'
+local Nibs = require '../nibs'
+local Tibs = Nibs.Tibs
 
 local filename = module.dir .. "/../../fixtures/tibs-fixtures.txt"
 local text = assert(readFileSync(filename))
