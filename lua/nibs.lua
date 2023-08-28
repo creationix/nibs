@@ -1,64 +1,64 @@
-local ffi          = require 'ffi'
-local sizeof       = ffi.sizeof
-local copy         = ffi.copy
-local cast         = ffi.cast
-local ffi_string   = ffi.string
-local typeof       = ffi.typeof
-local istype       = ffi.istype
+local ffi = require 'ffi'
+local sizeof = ffi.sizeof
+local copy = ffi.copy
+local cast = ffi.cast
+local ffi_string = ffi.string
+local typeof = ffi.typeof
+local istype = ffi.istype
 
-local bit          = require 'bit'
-local lshift       = bit.lshift
-local rshift       = bit.rshift
-local bor          = bit.bor
-local band         = bit.band
-local bxor         = bit.bxor
-local arshift      = bit.arshift
+local bit = require 'bit'
+local lshift = bit.lshift
+local rshift = bit.rshift
+local bor = bit.bor
+local band = bit.band
+local bxor = bit.bxor
+local arshift = bit.arshift
 
-local char         = string.char
-local byte         = string.byte
+local char = string.char
+local byte = string.byte
 
 -- Main types
-local ZIGZAG       = 0x0 -- big = zigzag encoded i64
-local FLOAT        = 0x1 -- big = binary encoding of float
-local SIMPLE       = 0x2 -- big = subtype (false, true, null, ...)
-local REF          = 0x3 -- big = reference offset into Scope
+local ZIGZAG = 0x0 -- big = zigzag encoded i64
+local FLOAT = 0x1  -- big = binary encoding of float
+local SIMPLE = 0x2 -- big = subtype (false, true, null, ...)
+local REF = 0x3    -- big = reference offset into Scope
 -- slots 4-7 reserved
 -- Prefixed length types.
-local BYTES        = 0x8 -- big = len (raw octets)
-local UTF8         = 0x9 -- big = len (utf-8 encoded unicode string)
-local HEXSTRING    = 0xa -- big = len (lowercase hex string stored as binary)
-local LIST         = 0xb -- big = len (list of nibs values)
-local MAP          = 0xc -- big = len (list of alternating nibs keys and values)
-local ARRAY        = 0xd -- big = len (array index then list)
+local BYTES = 0x8     -- big = len (raw octets)
+local UTF8 = 0x9      -- big = len (utf-8 encoded unicode string)
+local HEXSTRING = 0xa -- big = len (lowercase hex string stored as binary)
+local LIST = 0xb      -- big = len (list of nibs values)
+local MAP = 0xc       -- big = len (list of alternating nibs keys and values)
+local ARRAY = 0xd     -- big = len (array index then list)
 -- small2 = width, big2 = count
-local TRIE         = 0xe -- big = len (trie index then map)
+local TRIE = 0xe      -- big = len (trie index then map)
 -- small2 = width, big2 = count
-local SCOPE        = 0xf -- big = len (wrapped value, then array of refs)
+local SCOPE = 0xf     -- big = len (wrapped value, then array of refs)
 
 -- Simple subtypes
-local FALSE        = 0
-local TRUE         = 1
-local NULL         = 2
+local FALSE = 0
+local TRUE = 1
+local NULL = 2
 
-local U8Ptr        = typeof "uint8_t*"
-local U8Arr        = typeof "uint8_t[?]"
-local U16Arr       = typeof "uint16_t[?]"
-local U32Arr       = typeof "uint32_t[?]"
-local U64Arr       = typeof "uint64_t[?]"
-local I8           = typeof "int8_t"
-local I16          = typeof "int16_t"
-local I32          = typeof "int32_t"
-local I64          = typeof "int64_t"
-local U8           = typeof "uint8_t"
-local U16          = typeof "uint16_t"
-local U32          = typeof "uint32_t"
-local U64          = typeof "uint64_t"
+local U8Ptr = typeof "uint8_t*"
+local U8Arr = typeof "uint8_t[?]"
+local U16Arr = typeof "uint16_t[?]"
+local U32Arr = typeof "uint32_t[?]"
+local U64Arr = typeof "uint64_t[?]"
+local I8 = typeof "int8_t"
+local I16 = typeof "int16_t"
+local I32 = typeof "int32_t"
+local I64 = typeof "int64_t"
+local U8 = typeof "uint8_t"
+local U16 = typeof "uint16_t"
+local U32 = typeof "uint32_t"
+local U64 = typeof "uint64_t"
 
 ---@class ByteWriter
 ---@field capacity integer
 ---@field size integer
 ---@field data integer[]
-local ByteWriter   = { __name = "ByteWriter" }
+local ByteWriter = { __name = "ByteWriter" }
 ByteWriter.__index = ByteWriter
 
 ---@param initial_capacity? integer
@@ -131,7 +131,7 @@ function Map.new(...)
   end
   rawset(self, KEYS, keys)
   rawset(self, VALUES, values)
- return self
+  return self
 end
 
 function Map:__newindex(key, value)
@@ -249,6 +249,7 @@ local Ref = {
 }
 
 ---@class Tibs
+---@field deref boolean set to true to deref scope/ref on decode
 local Tibs = {}
 
 ---@alias LexerSymbols "{"|"}"|"["|"]"|":"|","|"("|")
@@ -518,10 +519,8 @@ local function string_to_tibs(writer, str)
   local start = 0
   local len = #str
   for i = 0, len - 1 do
-    print("I", i, len)
     local c = ptr[i]
     if c < 0x20 or c == 0x5c or c == 0x22 then
-      print("flush", start, i)
       if i > start then
         writer:write_bytes(ptr + start, i - start)
       end
@@ -530,7 +529,6 @@ local function string_to_tibs(writer, str)
     end
   end
   if len > start then
-    print("flush", start, len)
     writer:write_bytes(ptr + start, len - start)
   end
   return writer:write_string('"')
@@ -1073,6 +1071,87 @@ function Tibs.decode(tibs, filename)
   end
 end
 
+--- Scan a JSON string for duplicated strings and large numbers
+--- @param data string|integer[] input json document to parse
+--- @param offset? integer
+--- @param len? integer
+--- @return (string|number)[]|nil
+function Tibs.find_dups(data, offset, len)
+  offset = offset or 0
+  if type(data) == "string" then
+    len = len or #data
+    data = cast(U8Ptr, data)
+  end
+  assert(type(data) == 'cdata')
+  len = len or assert(sizeof(data))
+  local counts = {}
+  local depth = 0
+  while offset < len do
+    local token, start
+    offset, token, start = next_token(data, offset, len)
+    if token == 'eos' then break end
+    assert(offset and start)
+    assert(offset <= len)
+    local possible_dup
+    if token == "{" or token == "[" then
+      depth = depth + 1
+    elseif token == "}" or token == "]" then
+      depth = depth - 1
+    elseif token == "string" and offset - start > 4 then
+      possible_dup = parse_string(data, start, offset)
+    elseif token == "number" and offset - start > 4 then
+      possible_dup = parse_number(data, start, offset)
+    end
+    if possible_dup then
+      local count = counts[possible_dup]
+      if count then
+        counts[possible_dup] = count + 1
+      else
+        counts[possible_dup] = 1
+      end
+    end
+    if depth == 0 then break end
+  end
+
+  -- Extract all repeated values
+  local dup_counts = {}
+  local count = 0
+  for val, freq in pairs(counts) do
+    if freq > 3 then
+      count = count + 1
+      dup_counts[count] = { val, freq }
+    end
+  end
+
+  if count == 0 then return end
+
+  -- sort by frequency descending first, then by type, then ordered normally
+  table.sort(dup_counts, function(a, b)
+    if a[2] == b[2] then
+      local t1 = type(a[1])
+      local t2 = type(b[1])
+      if t1 == t2 then
+        return a[1] < b[1]
+      else
+        return t1 > t2
+      end
+    else
+      return a[2] > b[2]
+    end
+  end)
+
+  -- Fill in dups array and return it
+  local dups = {}
+  for i, p in ipairs(dup_counts) do
+    print(string.format("% 3d %s", p[2],p[1]))
+    dups[i] = p[1]
+  end
+
+  print("Dup count", count)
+
+  return dups
+end
+
 ffi.cdef [[
   #pragma pack(1)
   struct nibs_pair {
@@ -1167,8 +1246,12 @@ end
 ---@param val integer
 ---@param scope? Array
 local function decode_ref(val, scope)
-  assert(scope)
-  return scope[val + 1]
+  if Tibs.deref then
+    assert(scope)
+    return scope[val + 1]
+  else
+    return setmetatable({ val }, Ref)
+  end
 end
 
 local function decode_bytes(data, offset, len)
@@ -1298,12 +1381,26 @@ end
 ---@param last integer
 ---@param scope? Array
 local function parse_scope(data, offset, last, scope)
-  local value_end = skip_value(data, offset, last)
-  scope = nibs_parse_list(data, skip_index(data, value_end, last), last, scope, Array)
-  local value
-  offset, value = nibs_parse_any(data, offset, value_end, scope)
-  assert(offset == value_end)
-  return value
+  if Nibs.deref then
+    local value_end = skip_value(data, offset, last)
+    scope = nibs_parse_list(data, skip_index(data, value_end, last), last, scope, Array)
+    local value
+    offset, value = nibs_parse_any(data, offset, value_end, scope)
+    assert(offset == value_end)
+    return value
+  else
+    local value
+    offset, value = nibs_parse_any(data, offset, last)
+    offset = skip_index(data, offset, last)
+    local scope_val = { value }
+    local i = 1
+    while offset < last do
+      i = i + 1
+      offset, value = nibs_parse_any(data, offset, last)
+      rawset(scope_val, i, value)
+    end
+    return setmetatable(scope_val, Scope)
+  end
 end
 
 ---@param data integer[]
@@ -1353,9 +1450,14 @@ end
 nibs_parse_any = Nibs.parse_any
 
 ---@param nibs string|ffi.cdata* binary nibs data
+---@param options? {deref?:boolean}
 ---@return any? value
 ---@return string? error
-function Nibs.decode(nibs)
+function Nibs.decode(nibs, options)
+  local original_deref = Nibs.deref
+  if options and options.deref ~= nil then
+    Nibs.deref = options.deref
+  end
   local t = type(nibs)
   local len
   if t == "string" then
@@ -1369,6 +1471,7 @@ function Nibs.decode(nibs)
   local data = cast(U8Ptr, nibs)
   local offset, value = nibs_parse_any(data, 0, len)
   assert(offset == len)
+  Nibs.deref = original_deref
   return value
 end
 
@@ -1570,22 +1673,25 @@ local function write_trie(writer, map, refmap)
 end
 
 ---@param writer ByteWriter
----@param combined_scope any[]
+---@param val any
+---@param refs any[]
 ---@param refmap? table<any,integer>
-local function write_nested_scope(writer, combined_scope, refmap)
+---@param skip_first? boolean
+local function write_scope(writer, val, refs, refmap, skip_first)
   local subwriter = ByteWriter.new(1024)
   local subrefmap = {}
   ---@type integer[]
   local indices = {}
-  for i = 2, #combined_scope do
-    local value = combined_scope[i]
-    indices[i - 1] = subwriter.size
-    subrefmap[value] = i - 2
+  local start_index = skip_first and 2 or 1
+  for i = start_index, #refs do
+    local value = refs[i]
+    indices[i - start_index + 1] = subwriter.size
+    subrefmap[value] = i - start_index
     write_any(subwriter, value, refmap)
   end
 
   local subwriter2 = ByteWriter.new(1024)
-  write_any(subwriter2, combined_scope[1], subrefmap)
+  write_any(subwriter2, val, subrefmap)
 
   local width, count, index = encode_index(indices)
   local index_size = width * count
@@ -1596,6 +1702,8 @@ local function write_nested_scope(writer, combined_scope, refmap)
   return writer:write_bytes(subwriter.data, subwriter.size)
 end
 
+
+
 ---@param writer ByteWriter
 ---@param val any
 ---@param refmap? table<any,integer>
@@ -1605,7 +1713,7 @@ function write_any(writer, val, refmap)
     if mt.__is_ref then
       return write_pair(writer, REF, val[1])
     elseif mt.__is_scope then
-      return write_nested_scope(writer, val, refmap)
+      return write_scope(writer, val[1], val, refmap, true)
     elseif mt.__is_array_like == true then
       if mt.__is_indexed then
         return write_array(writer, val, refmap)
@@ -1659,21 +1767,17 @@ function write_any(writer, val, refmap)
   error("Unable to encode type " .. kind)
 end
 
----@param writer ByteWriter
----@param val any
----@param refs any[]
----@return table<any,integer> refmap
-local function encode_scope(writer, val, refs)
-  error "TODO: encode_scope"
-end
-
 ---comment
 ---@param val any
 ---@param refs? any[]
 ---@return ffi.cdata*
 function Nibs.encode(val, refs)
   local writer = ByteWriter.new(1024)
-  write_any(writer, val, refs and encode_scope(writer, val, refs))
+  if refs then
+    write_scope(writer, val, refs)
+  else
+    write_any(writer, val)
+  end
   return writer:to_bytes()
 end
 
