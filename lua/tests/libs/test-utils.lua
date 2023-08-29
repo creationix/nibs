@@ -38,6 +38,12 @@ function TestUtils.fromMemory(data)
     end
 end
 
+local function strip_special(s)
+    return s:gsub(".", function(c) 
+        local b = string.byte(c)
+        return (b < 0x20 or b >= 0x80) and "." or c end)
+end
+
 ---print a colorful hexdump of a string
 ---@param buf string
 function TestUtils.hex_dump(buf)
@@ -51,7 +57,7 @@ function TestUtils.hex_dump(buf)
             table.insert(parts, ' ')
         end
         if i % 16 == 0 then
-            table.insert(parts, colorize('braces', buf:sub(i - 16 + 1, i):gsub('%c', '.') .. '\n'))
+            table.insert(parts, colorize('braces', strip_special(buf:sub(i - 16 + 1, i)) .. '\n'))
         end
     end
     print(table.concat(parts))
