@@ -2,7 +2,7 @@
     "empty_list": [],
     "empty_map": {},
     "empty_array": [#],
-    "mixedtypes": [0,-10,100,true,false,null,|123456|,"Hello","123456"],
+    "mixedtypes": [0,-10,100,true,false,null,<123456>,"Hello","123456"],
     "repeated": ["1234","5678","1234",true,false,"5678","1234","5678","1234","5678"],
     "integer": 1234,
     "integers": [1,10,100,1000,10000,100000,1000000,10000000],
@@ -12,11 +12,11 @@
     "array": [1,2,3,4],
     "small-object": {0:1,2:3,4:5},
 
-    // These both contain |deadbeef| in their serializations
+    // These both contain <deadbeef> in their serializations
     "hamburgers": [2011125487,"deadbeef"],
 
-    // These all contain |000102030405| in their serializations
-    "counters": [0,-1,1,-2,2,-3,"000102030405",|000102030405|],
+    // These all contain <000102030405> in their serializations
+    "counters": [0,-1,1,-2,2,-3,"000102030405",<000102030405>],
 
     // Basic object sample with a few primitive types
     "object": {
@@ -31,8 +31,8 @@
         {"color":"yellow","fruits":["apple","banana"]}
     ],
 
-    // Wide map, used to be for trie type, but now is just mini map test
-    "wide map": {
+    // Wide trie
+    "wide trie": {
       0:-1,1:-2,2:-3,3:-4,4:-5,5:-6,6:-7,7:-8,8:-9,9:-10,10:-11,11:-12,12:-13,13:-14,14:-15,15:-16
     },
 
@@ -58,7 +58,7 @@
       ] },
       { &0: "🟩", &1: [
         &2, "pear", "lime", "honeydew", "grape", "fig", "watermelon"
-      ] }
+      ] },
       { &0: "🟦", &1: [
         "blueberry", "blackberry", "fig", "currant"
       ] },
