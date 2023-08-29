@@ -457,7 +457,10 @@ end
 ---@param scope {[1]:Value,[2]:List}
 local function scope_to_tibs(writer, scope)
   local val, dups = scope[1], scope[2]
-  assert(val and type(dups) == 'table')
+  if not val or type(dups) ~= "table" then
+    p { val = val, dups = dups }
+    error "Unexpected scope type"
+  end
 
   writer:write_string "("
   any_to_tibs(writer, val)
@@ -1599,14 +1602,15 @@ local function parse_scope(data, offset, last, scope)
     local value
     offset, value = nibs_parse_any(data, offset, last)
     offset = skip_index(data, offset, last)
-    local scope_val = { value }
-    local i = 1
+    local i = 0
+    local dups = setmetatable({}, List)
     while offset < last do
       i = i + 1
-      offset, value = nibs_parse_any(data, offset, last)
-      rawset(scope_val, i, value)
+      local dup
+      offset, dup = nibs_parse_any(data, offset, last)
+      dups[i] = dup
     end
-    return setmetatable(scope_val, { __is_scope = true })
+    return setmetatable({ value, dups }, { __is_scope = true })
   end
 end
 
