@@ -110,82 +110,6 @@ function ByteWriter:to_bytes()
   return buf
 end
 
----@class Map
-local Map = {
-  __name = "Map",
-  __is_array_like = false,
-}
-
-local KEYS = {}
-local VALUES = {}
-
-function Map.new(...)
-  local self = setmetatable({}, Map)
-  local keys = {}
-  local values = {}
-  for i = 1, select("#", ...), 2 do
-    local key = select(i, ...)
-    local value = select(i + 1, ...)
-    rawset(keys, i, key)
-    rawset(values, key, value)
-  end
-  rawset(self, KEYS, keys)
-  rawset(self, VALUES, values)
-  return self
-end
-
-function Map:__newindex(key, value)
-  if value == nil then
-    local values = rawget(self, VALUES)
-    if not values then return end
-    if values[key] ~= nil then
-      local keys = rawget(self, KEYS)
-      if not keys then return end
-      for i, k in ipairs(keys) do
-        if k == key then
-          table.remove(keys, i)
-          break
-        end
-      end
-    end
-    return
-  end
-  local values = rawget(self, VALUES)
-  if not values then
-    values = {}
-    rawset(self, VALUES, values)
-  end
-  local keys = rawget(self, KEYS)
-  if not keys then
-    keys = {}
-    rawset(self, KEYS, keys)
-  end
-  keys[#keys + 1] = key
-  rawset(values, key, value)
-end
-
-function Map:__index(key)
-  local values = rawget(self, VALUES)
-  if not values then return nil end
-  return rawget(values, key)
-end
-
-function Map:__pairs()
-  local keys = rawget(self, KEYS)
-  if not keys then return function() end end
-  local values = rawget(self, VALUES)
-
-  local i = 0
-  local len = #keys
-  return function()
-    if i < len then
-      i = i + 1
-      local key = keys[i]
-      return key, rawget(values, key)
-    end
-  end
-end
-
 ---@class List
 local List = {
   __name = "List",
@@ -215,32 +139,105 @@ function List:__ipairs()
   end
 end
 
-local function mix_under(a, b)
-  for k, v in pairs(b) do
-    if a[k] == nil then a[k] = v end
+---@class Map
+local Map = {
+  __name = "Map",
+  __is_array_like = false,
+}
+
+local KEYS = setmetatable({}, { __name = "KEYS" })
+local VALUES = setmetatable({}, { __name = "VALUES" })
+local NIL = setmetatable({}, { __name = "NIL" })
+
+function Map.new(...)
+  local self = setmetatable({}, Map)
+  local keys = {}
+  local values = {}
+  for i = 1, select("#", ...), 2 do
+    local key = select(i, ...)
+    local value = select(i + 1, ...)
+    if value == nil then value = NIL end
+    rawset(keys, i, key)
+    rawset(values, key, value)
+  end
+  rawset(self, KEYS, keys)
+  rawset(self, VALUES, values)
+  return self
+end
+
+function Map:__newindex(key, value)
+  local values = rawget(self, VALUES)
+  if not values then
+    values = {}
+    rawset(self, VALUES, values)
+  end
+  local old_value = rawget(values, key)
+  if old_value == nil then
+    local keys = rawget(self, KEYS)
+    if not keys then
+      keys = {}
+      rawset(self, KEYS, keys)
+    end
+    rawset(keys, #keys + 1, key)
+  end
+  if value == nil then value = NIL end
+  rawset(values, key, value)
+end
+
+function Map:__index(key)
+  local values = rawget(self, VALUES)
+  if not values then return nil end
+  local value = rawget(values, key)
+  if value == NIL then value = nil end
+  return value
+end
+
+function Map:__pairs()
+  local keys = rawget(self, KEYS)
+  if not keys then return function() end end
+  local values = rawget(self, VALUES)
+
+  local i = 0
+  local len = #keys
+  return function()
+    if i < len then
+      i = i + 1
+      local key = keys[i]
+      local value = rawget(values, key)
+      if value == NIL then value = nil end
+      return key, value
+    end
   end
 end
 
----@class Array
+local function mixin(a, b)
+  for k, v in next, b do
+    if rawget(a, k) == nil then
+      rawset(a, k, v)
+    end
+  end
+end
+
+---@class Array : List
 local Array = {
   __name = "Array",
   __is_indexed = true,
 }
-mix_under(Array, List)
+mixin(Array, List)
 
----@class Trie
+---@class Trie : Map
 local Trie = setmetatable({
   __name = "Trie",
   __is_indexed = true,
 }, { __index = Map })
+mixin(Trie, Map)
 
----@class Scope
+---@class Scope : Array
 local Scope = {
   __name = "Scope",
   __is_scope = true,
 }
-mix_under(Scope, Array)
-
+mixin(Scope, Array)
 
 ---@class Ref
 local Ref = {
@@ -496,6 +493,16 @@ local json_escapes = {
   [0x2f] = "\\/",
   [0x5c] = "\\\\",
 }
+local json_unescapes = {
+  [0x62] = "\b",
+  [0x74] = "\t",
+  [0x6e] = "\n",
+  [0x66] = "\f",
+  [0x72] = "\r",
+  [0x22] = "\"",
+  [0x2f] = "/",
+  [0x5c] = "\\",
+}
 
 local function escape_char(c)
   return json_escapes[c] or string.format("\\u%04x", c)
@@ -670,14 +677,6 @@ local function utf8_encode(c)
   end
 end
 
-local json_escapes = {
-  [0x62] = "\b",
-  [0x66] = "\f",
-  [0x6e] = "\n",
-  [0x72] = "\r",
-  [0x74] = "\t",
-}
-
 local function parse_advanced_string(data, first, last)
   local writer = ByteWriter.new(last - first)
   local allowHigh
@@ -750,7 +749,7 @@ local function parse_advanced_string(data, first, last)
           start = first
         end
       else
-        local escape = json_escapes[c]
+        local escape = json_unescapes[c]
         if escape then
           writer:write_string(escape)
           first = first + 1
@@ -1071,7 +1070,7 @@ function Tibs.decode(tibs, filename)
   end
 end
 
---- Scan a JSON string for duplicated strings and large numbers
+--- Scan a JSON string for plicated strings and large numbers
 --- @param data string|integer[] input json document to parse
 --- @param offset? integer
 --- @param len? integer
@@ -1143,11 +1142,8 @@ function Tibs.find_dups(data, offset, len)
   -- Fill in dups array and return it
   local dups = {}
   for i, p in ipairs(dup_counts) do
-    print(string.format("% 3d %s", p[2],p[1]))
     dups[i] = p[1]
   end
-
-  print("Dup count", count)
 
   return dups
 end
@@ -1475,29 +1471,6 @@ function Nibs.decode(nibs, options)
   return value
 end
 
----@param writer ByteWriter
----@param small integer
----@param big integer
-local function write_pair(writer, small, big)
-  if big < 12 then
-    return writer:write_bytes(Nibs4(big, small))
-  elseif big < 0x100 then
-    return writer:write_bytes(Nibs8(12, small, big))
-  elseif big < 0x10000 then
-    return writer:write_bytes(Nibs16(13, small, big))
-  elseif big < 0x100000000 then
-    return writer:write_bytes(Nibs32(14, small, big))
-  else
-    return writer:write_bytes(Nibs64(15, small, big))
-  end
-end
-
----@param big integer
----@return integer size
-local function measure_pair(big)
-  return big < 10 and 1 or big < 0x100 and 2 or big < 0x10000 and 3 or big < 0x100000000 and 5 or 9
-end
-
 --- Convert a signed 64 bit integer to an unsigned 64 bit integer using zigzag encoding
 ---@param num integer
 ---@return integer
@@ -1520,29 +1493,6 @@ local function encode_float(val)
   return converter.i
 end
 
----@param writer ByteWriter
----@param int integer|ffi.cdata*
-local function write_integer(writer, int)
-  ---@diagnostic disable-next-line: param-type-mismatch
-  return write_pair(writer, ZIGZAG, encode_zigzag(int))
-end
-
----@param writer ByteWriter
----@param num number
-local function write_float(writer, num)
-  return write_pair(writer, FLOAT, encode_float(num))
-end
-
----@param writer ByteWriter
----@param num number
-local function write_number(writer, num)
-  local inum = I64(num)
-  if tonumber(inum) == num then
-    return write_integer(writer, inum)
-  end
-  return write_float(writer, num)
-end
-
 --- Convert ascii hex digit to a nibble
 --- Assumes input is valid character [0-9a-f]
 ---@param code integer ascii code for hex digit
@@ -1550,46 +1500,6 @@ end
 local function from_hex_code(code)
   return code - (code >= 0x61 and 0x57 or 0x30)
 end
-
----@param writer ByteWriter
----@param hex string
-local function write_hex_string(writer, hex)
-  local len = #hex
-  local size = rshift(len, 1)
-  local buf = U8Arr(size)
-  local offset = 0
-  for i = 1, len, 2 do
-    buf[offset] = bor(
-      lshift(from_hex_code(byte(hex, i)), 4),
-      from_hex_code(byte(hex, i + 1))
-    )
-    offset = offset + 1
-  end
-  write_pair(writer, HEXSTRING, size)
-  return writer:write_bytes(buf)
-end
-
----@param writer ByteWriter
----@param str string
-local function write_string(writer, str)
-  local len = #str
-  if len > 0 and len % 2 == 0 and string.match(str, "^[0-9a-f]*$") then
-    return write_hex_string(writer, str)
-  end
-  write_pair(writer, UTF8, len)
-  return writer:write_string(str)
-end
-
----@param writer ByteWriter
----@param buf ffi.cdata*
-local function write_bytes(writer, buf)
-  local size = assert(sizeof(buf))
-  write_pair(writer, BYTES, size)
-  return writer:write_bytes(buf)
-end
-
-local write_any
-
 
 local widthmap = {
   [1] = U8Arr,
@@ -1617,137 +1527,260 @@ local function encode_index(indices)
   return width, count, index
 end
 
----@param writer ByteWriter
----@param list any[]
----@param refmap? table<any,integer>
-local function write_list(writer, list, refmap)
-  if #list == 0 then
-    return write_pair(writer, LIST, 0)
+---@alias Parts (string|integer[]|true)[]
+
+---@parts parts Parts
+---@param small integer
+---@param big integer
+---@param slot? integer
+---@return integer
+local function fill_pair(parts, small, big, slot)
+  slot = slot or #parts + 1
+  if big < 12 then
+    parts[slot] = Nibs4(big, small)
+    return 1
+  elseif big < 0x100 then
+    parts[slot] = Nibs8(12, small, big)
+    return 2
+  elseif big < 0x10000 then
+    parts[slot] = Nibs16(13, small, big)
+    return 3
+  elseif big < 0x100000000 then
+    parts[slot] = Nibs32(14, small, big)
+    return 5
+  else
+    parts[slot] = Nibs64(15, small, big)
+    return 9
   end
-  local subwriter = ByteWriter.new(1024)
-  for _, value in ipairs(list) do
-    write_any(subwriter, value, refmap)
-  end
-  write_pair(writer, LIST, subwriter.size)
-  return writer:write_bytes(subwriter.data, subwriter.size)
 end
 
----@param writer ByteWriter
+---@param parts Parts
+---@param hex string
+---@return integer bytes_added
+local function fill_hex_string(parts, hex)
+  local len = #hex
+  local size = rshift(len, 1)
+  local buf = U8Arr(size)
+  local offset = 0
+  for i = 1, len, 2 do
+    buf[offset] = bor(
+      lshift(from_hex_code(byte(hex, i)), 4),
+      from_hex_code(byte(hex, i + 1))
+    )
+    offset = offset + 1
+  end
+  local header_size = fill_pair(parts, HEXSTRING, size)
+  parts[#parts + 1] = buf
+  return header_size + size
+end
+
+---@param parts Parts
+---@param str string
+---@return integer bytes_added
+local function fill_string(parts, str)
+  local size = #str
+  if size > 0 and size % 2 == 0 and string.match(str, "^[0-9a-f]*$") then
+    return fill_hex_string(parts, str)
+  end
+  local header_size = fill_pair(parts, UTF8, size)
+  parts[#parts + 1] = str
+  return header_size + size
+end
+
+---@param parts Parts
+---@param buf ffi.cdata*
+local function fill_bytes(parts, buf)
+  local size = assert(sizeof(buf))
+  local header_size = fill_pair(parts, BYTES, size)
+  parts[#parts + 1] = buf
+  return header_size + size
+end
+
+---@param parts Parts
+---@param int integer|ffi.cdata*
+local function fill_integer(parts, int)
+  ---@diagnostic disable-next-line: param-type-mismatch
+  return fill_pair(parts, ZIGZAG, encode_zigzag(int))
+end
+
+---@param parts Parts
+---@param num number
+local function fill_float(parts, num)
+  return fill_pair(parts, FLOAT, encode_float(num))
+end
+
+---@param parts Parts
+---@param num number
+local function fill_number(parts, num)
+  local inum = I64(num)
+  if tonumber(inum) == num then
+    return fill_integer(parts, inum)
+  end
+  return fill_float(parts, num)
+end
+
+local fill_any
+
+---@param parts Parts
 ---@param list any[]
 ---@param refmap? table<any,integer>
-local function write_array(writer, list, refmap)
-  local subwriter = ByteWriter.new(1024)
+local function fill_list(parts, list, refmap)
+  local header_slot = #parts + 1
+  parts[header_slot] = true
+  local total = 0
+  for _, value in ipairs(list) do
+    total = total + fill_any(parts, value, refmap)
+  end
+  return fill_pair(parts, LIST, total, header_slot) + total
+end
+
+---@param parts Parts
+---@param map table<any,any>
+---@param refmap? table<any,integer>
+local function fill_map(parts, map, refmap)
+  local header_slot = #parts + 1
+  parts[header_slot] = true
+  local total = 0
+  for key, value in pairs(map) do
+    total = total + fill_any(parts, key, refmap)
+    total = total + fill_any(parts, value, refmap)
+  end
+  return fill_pair(parts, MAP, total, header_slot) + total
+end
+
+---@param parts Parts
+---@param list any[]
+---@param refmap? table<any,integer>
+local function fill_array(parts, list, refmap)
+  local header_slot = #parts + 1
+  parts[header_slot] = true
+  local index_header_slot = #parts + 1
+  parts[index_header_slot] = true
+  local index_slot = #parts + 1
+  parts[index_slot] = true
+
+  -- Write the values
+  local offset = 0
   ---@type integer[]
   local indices = {}
   for i, value in ipairs(list) do
-    indices[i] = subwriter.size
-    write_any(subwriter, value, refmap)
+    indices[i] = offset
+    offset = offset + fill_any(parts, value, refmap)
   end
+
+  -- Write the index
   local width, count, index = encode_index(indices)
-  local index_size = width * count
-  write_pair(writer, ARRAY, measure_pair(count) + index_size + subwriter.size)
-  write_pair(writer, width, count)
-  writer:write_bytes(index, index_size)
-  return writer:write_bytes(subwriter.data, subwriter.size)
+  local index_total = width * count
+  parts[index_slot] = index
+
+  -- Write the index header
+  index_total = index_total + fill_pair(parts, width, count, index_header_slot)
+
+  local total = index_total + offset
+  return fill_pair(parts, ARRAY, total, header_slot) + total
 end
 
----@param writer ByteWriter
+---@param parts Parts
 ---@param map table<any,any>
 ---@param refmap? table<any,integer>
-local function write_map(writer, map, refmap)
-  local subwriter = ByteWriter.new(1024)
-  for key, value in pairs(map) do
-    write_any(subwriter, key, refmap)
-    write_any(subwriter, value, refmap)
-  end
-  write_pair(writer, MAP, subwriter.size)
-  return writer:write_bytes(subwriter.data, subwriter.size)
+local function fill_trie(parts, map, refmap)
+  print "TODO: Implement trie encoder"
+  return fill_map(parts, map, refmap)
 end
 
----@param writer ByteWriter
----@param map table<any,any>
+---@param parts Parts
+---@param scope any[] list of refs with nested value at either 0 or 1 index
 ---@param refmap? table<any,integer>
-local function write_trie(writer, map, refmap)
-  print "TODO: Implement write_trie"
-  return write_map(writer, map, refmap)
-end
+local function fill_scope(parts, scope, refmap)
+  -- Reserve several slots
+  local header_slot = #parts + 1
+  parts[header_slot] = true
+  local subparts = {}
+  parts[#parts + 1] = subparts
+  local index_header_slot = #parts + 1
+  parts[index_header_slot] = true
+  local index_slot = #parts + 1
+  parts[index_slot] = true
 
----@param writer ByteWriter
----@param val any
----@param refs any[]
----@param refmap? table<any,integer>
----@param skip_first? boolean
-local function write_scope(writer, val, refs, refmap, skip_first)
-  local subwriter = ByteWriter.new(1024)
+  -- Write the dups and record indices
   local subrefmap = {}
   ---@type integer[]
   local indices = {}
-  local start_index = skip_first and 2 or 1
-  for i = start_index, #refs do
-    local value = refs[i]
-    indices[i - start_index + 1] = subwriter.size
+  local val = scope[0]
+  local start_index = 1
+  if val == nil then
+    val = scope[1]
+    start_index = 2
+  end
+  local dups_total = 0
+  for i = start_index, #scope do
+    local value = scope[i]
+    indices[i - start_index + 1] = dups_total
     subrefmap[value] = i - start_index
-    write_any(subwriter, value, refmap)
+    dups_total = dups_total + fill_any(parts, value, refmap)
   end
 
-  local subwriter2 = ByteWriter.new(1024)
-  write_any(subwriter2, val, subrefmap)
-
+  -- Write the index
   local width, count, index = encode_index(indices)
-  local index_size = width * count
-  write_pair(writer, SCOPE, subwriter2.size + measure_pair(count) + index_size + subwriter.size)
-  writer:write_bytes(subwriter2.data, subwriter2.size)
-  write_pair(writer, width, count)
-  writer:write_bytes(index, index_size)
-  return writer:write_bytes(subwriter.data, subwriter.size)
+  local index_total = width * count
+  parts[index_slot] = index
+
+  -- Write the index header
+  index_total = index_total + fill_pair(parts, width, count, index_header_slot)
+
+  -- Write the value
+  local value_len = fill_any(subparts, val, subrefmap)
+
+  local scope_total = value_len + index_total + dups_total
+  return fill_pair(parts, SCOPE, scope_total, header_slot) + scope_total
 end
 
 
-
----@param writer ByteWriter
+---@param parts Parts
 ---@param val any
 ---@param refmap? table<any,integer>
-function write_any(writer, val, refmap)
+---@return integer bytes_added
+function fill_any(parts, val, refmap)
   local mt = getmetatable(val)
   if mt then
     if mt.__is_ref then
-      return write_pair(writer, REF, val[1])
+      return fill_pair(parts, REF, val[1])
     elseif mt.__is_scope then
-      return write_scope(writer, val[1], val, refmap, true)
+      return fill_scope(parts, val, refmap)
     elseif mt.__is_array_like == true then
       if mt.__is_indexed then
-        return write_array(writer, val, refmap)
+        return fill_array(parts, val, refmap)
       else
-        return write_list(writer, val, refmap)
+        return fill_list(parts, val, refmap)
       end
     elseif mt.__is_array_like == false then
       if mt.__is_indexed then
-        return write_trie(writer, val, refmap)
+        return fill_trie(parts, val, refmap)
       else
-        return write_map(writer, val, refmap)
+        return fill_map(parts, val, refmap)
       end
     end
   end
   if refmap then
     local ref_id = refmap[val]
     if ref_id then
-      return write_pair(writer, REF, ref_id)
+      return fill_pair(parts, REF, ref_id)
     end
   end
   local kind = type(val)
   if kind == "number" then
-    return write_number(writer, val)
+    return fill_number(parts, val)
   elseif kind == "string" then
-    return write_string(writer, val)
+    return fill_string(parts, val)
   elseif kind == "boolean" then
-    return write_pair(writer, SIMPLE, val and TRUE or FALSE)
+    return fill_pair(parts, SIMPLE, val and TRUE or FALSE)
   elseif kind == "nil" then
-    return write_pair(writer, SIMPLE, NULL)
+    return fill_pair(parts, SIMPLE, NULL)
   elseif kind == "cdata" then
     if is_cdata_integer(val) then
-      return write_integer(writer, val)
+      return fill_integer(parts, val)
     end
-    return write_bytes(writer, val)
+    return fill_bytes(parts, val)
   elseif kind == "table" then
     local i = 0
     local is_array = true
@@ -1759,26 +1792,47 @@ function write_any(writer, val, refmap)
       end
     end
     if is_array then
-      return write_list(writer, val, refmap)
+      return fill_list(parts, val, refmap)
     else
-      return write_map(writer, val, refmap)
+      return fill_map(parts, val, refmap)
     end
   end
   error("Unable to encode type " .. kind)
 end
 
----comment
----@param val any
----@param refs? any[]
----@return ffi.cdata*
 function Nibs.encode(val, refs)
-  local writer = ByteWriter.new(1024)
   if refs then
-    write_scope(writer, val, refs)
-  else
-    write_any(writer, val)
+    val = setmetatable({ [0] = val }, {
+      __index = refs,
+      __len = function() return #refs end,
+      __is_scope = true,
+    })
   end
-  return writer:to_bytes()
+  local parts = {}
+  local total = fill_any(parts, val)
+  local buf = U8Arr(total)
+  local offset = 0
+  local function fill(part)
+    local kind = type(part)
+    if kind == "string" then
+      local len = #part
+      copy(buf + offset, part, len)
+      offset = offset + len
+    elseif kind == "cdata" then
+      local len = assert(sizeof(part))
+      copy(buf + offset, part, len)
+      offset = offset + len
+    elseif kind == "table" then
+      for i = 1, #part do
+        fill(part[i])
+      end
+    else
+      error("Invalid part type " .. kind)
+    end
+  end
+  fill(parts)
+  assert(offset == total)
+  return buf
 end
 
 return {
