@@ -454,6 +454,22 @@ local function list_to_tibs(writer, val, opener, closer)
 end
 
 ---@param writer ByteWriter
+---@param scope {[1]:Value,[2]:List}
+local function scope_to_tibs(writer, scope)
+  local val, dups = scope[1], scope[2]
+  assert(val and type(dups) == 'table')
+
+  writer:write_string "("
+  any_to_tibs(writer, val)
+  for _, v in ipairs(dups) do
+    writer:write_string ","
+    any_to_tibs(writer, v)
+  end
+  writer:write_string ")"
+end
+
+---@param writer ByteWriter
+---@param opener "{"|"{#"
 ---@param val table<any,any>
 local function map_to_tibs(writer, val, opener)
   writer:write_string(opener)
@@ -487,7 +503,7 @@ local json_escapes = {
   [0x0c] = "\\f",
   [0x0d] = "\\r",
   [0x22] = "\\\"",
-  [0x2f] = "\\/",
+  -- [0x2f] = "\\/",
   [0x5c] = "\\\\",
 }
 local json_unescapes = {
@@ -508,7 +524,8 @@ end
 local function string_to_tibs(writer, str)
   local is_plain = true
   for i = 1, #str do
-    if byte(str, i) < 0x20 or byte(str, i) > 0x7e then
+    local c = byte(str, i)
+    if c < 0x20 or json_escapes[c] then
       is_plain = false
       break
     end
@@ -524,7 +541,7 @@ local function string_to_tibs(writer, str)
   local len = #str
   for i = 0, len - 1 do
     local c = ptr[i]
-    if c < 0x20 or c == 0x5c or c == 0x22 then
+    if c < 0x20 or json_escapes[c] then
       if i > start then
         writer:write_bytes(ptr + start, i - start)
       end
@@ -548,7 +565,7 @@ function any_to_tibs(writer, val)
       writer:write_string(tostring(val[1]))
       return
     elseif mt.__is_scope then
-      return list_to_tibs(writer, val, "(", ")")
+      return scope_to_tibs(writer, val)
     elseif mt.__is_array_like == true then
       if mt.__is_indexed then
         return list_to_tibs(writer, val, "[#", "]")
@@ -583,7 +600,7 @@ function any_to_tibs(writer, val)
     if is_array then
       return list_to_tibs(writer, val, "[", "]")
     else
-      return map_to_tibs(writer, val)
+      return map_to_tibs(writer, val, "{")
     end
   elseif kind == "string" then
     string_to_tibs(writer, val)
