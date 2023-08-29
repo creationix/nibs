@@ -27,10 +27,15 @@ export function decode(str, filename = '(string)') {
 
     /** @returns {string} */
     function nextToken() {
+        let in_comment = false
         for (; ;) {
             const c = str[offset]
             if (!c) return syntaxError()
-            if (c !== '\t' && c !== '\n' && c !== '\r' && c !== ' ') {
+            if (in_comment) {
+                if (c === '\n') in_comment = false
+            } else if (c == '/' && str[offset + 1] == '/') {
+                in_comment = true
+            } else if (c !== '\t' && c !== '\n' && c !== '\r' && c !== ' ') {
                 return c
             }
             offset++
