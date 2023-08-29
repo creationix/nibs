@@ -232,13 +232,6 @@ local Trie = setmetatable({
 }, { __index = Map })
 mixin(Trie, Map)
 
----@class Scope : Array
-local Scope = {
-  __name = "Scope",
-  __is_scope = true,
-}
-mixin(Scope, Array)
-
 ---@class Ref
 local Ref = {
   __name = "Ref",
@@ -785,7 +778,7 @@ end
 --- @param first integer
 --- @param last integer
 --- @return string
-local function parse_string(data, first, last)
+local function tibs_parse_string(data, first, last)
   -- Quickly scan for any escape characters or surrogate pairs
   for i = first + 1, last - 1 do
     local c = data[i]
@@ -796,7 +789,7 @@ local function parse_string(data, first, last)
   -- Return as-is if it's simple
   return ffi_string(data + first + 1, last - first - 2)
 end
-Tibs.parse_string = parse_string
+Tibs.parse_string = tibs_parse_string
 
 --- @param data integer[]
 --- @param first integer
@@ -828,7 +821,7 @@ end
 --- @param first integer
 --- @param last integer
 --- @return number num
-local function parse_number(data, first, last)
+local function tibs_parse_number(data, first, last)
   if is_integer(data, first, last) then
     -- sign is reversed since we need to use the negative range of I64 for full precision
     -- notice that the big value accumulated is always negative.
@@ -849,7 +842,7 @@ local function parse_number(data, first, last)
     return tonumber(ffi_string(data + first, last - first), 10)
   end
 end
-Tibs.parse_number = parse_number
+Tibs.parse_number = tibs_parse_number
 
 -- Parse a Tibs Bytes Literal <xx xx ...>
 ---@param data integer[]
@@ -857,7 +850,7 @@ Tibs.parse_number = parse_number
 ---@param last integer
 ---@return integer offset
 ---@return Bytes? buf
-local function parse_bytes(data, first, last)
+local function tibs_parse_bytes(data, first, last)
   local nibble_count = 0
   local i = first + 1
   while i < last - 1 do
@@ -902,8 +895,8 @@ end
 ---@param first integer
 ---@param last integer
 ---@return Ref
-local function parse_ref(data, first, last)
-  return setmetatable({ parse_number(data, first + 1, last) }, Ref)
+local function tibs_parse_ref(data, first, last)
+  return setmetatable({ tibs_parse_number(data, first + 1, last) }, Ref)
 end
 
 -- Format a Tibs Syntax Error
@@ -936,7 +929,7 @@ Tibs.format_syntax_error = format_syntax_error
 
 local tibs_parse_any
 
----@generic T : List|Array|Scope
+---@generic T : List|Array
 ---@param data integer[]
 ---@param offset integer
 ---@param len integer
@@ -944,7 +937,7 @@ local tibs_parse_any
 ---@param closer "]"|")"
 ---@return integer offset
 ---@return T? list
-local function parse_list(data, offset, len, meta, closer)
+local function tibs_parse_list(data, offset, len, meta, closer)
   local list = setmetatable({}, meta)
   local token, start, value
   offset, token, start = next_token(data, offset, len)
@@ -967,6 +960,27 @@ local function parse_list(data, offset, len, meta, closer)
   return offset, list
 end
 
+---@param data integer[]
+---@param offset integer
+---@param len integer
+local function tibs_parse_scope(data, offset, len)
+  local token, start
+  offset, token, start = next_token(data, offset, len)
+  local value
+  offset, value = tibs_parse_any(data, offset, len, token, start)
+  offset, token = next_token(data, offset, len)
+  local dups
+  if token == "," then
+    offset, dups = tibs_parse_list(data, offset, len, List, ")")
+  elseif token == ")" then
+    dups = setmetatable({}, List)
+  else
+    return -offset
+  end
+  return offset, setmetatable({ value, dups }, { __is_scope = true })
+end
+
+
 -- Parse a Tibs Map {x:y, ...}
 ---@generic T : Map|Trie
 ---@param data integer[]
@@ -975,7 +989,7 @@ end
 ---@param meta T
 ---@return integer offset
 ---@return T? map
-local function parse_map(data, offset, len, meta)
+local function tibs_parse_map(data, offset, len, meta)
   local map = setmetatable({}, meta)
   local token, start, key, value
   offset, token, start = next_token(data, offset, len)
@@ -1013,7 +1027,7 @@ end
 ---@return any? value unset when error
 function tibs_parse_any(data, offset, len, token, start)
   if token == "number" then
-    return offset, parse_number(data, start, offset)
+    return offset, tibs_parse_number(data, start, offset)
   elseif token == "nan" then
     return offset, 0 / 0
   elseif token == "inf" then
@@ -1027,25 +1041,25 @@ function tibs_parse_any(data, offset, len, token, start)
   elseif token == "null" then
     return offset, nil
   elseif token == "ref" then
-    return offset, parse_ref(data, start, offset)
+    return offset, tibs_parse_ref(data, start, offset)
   elseif token == "bytes" then
-    return parse_bytes(data, start, offset)
+    return tibs_parse_bytes(data, start, offset)
   elseif token == "string" then
-    return offset, parse_string(data, start, offset)
+    return offset, tibs_parse_string(data, start, offset)
   elseif token == "[" then
     if offset - start > 1 then
-      return parse_list(data, offset, len, Array, "]")
+      return tibs_parse_list(data, offset, len, Array, "]")
     else
-      return parse_list(data, offset, len, List, "]")
+      return tibs_parse_list(data, offset, len, List, "]")
     end
   elseif token == "{" then
     if offset - start > 1 then
-      return parse_map(data, offset, len, Trie)
+      return tibs_parse_map(data, offset, len, Trie)
     else
-      return parse_map(data, offset, len, Map)
+      return tibs_parse_map(data, offset, len, Map)
     end
   elseif token == "(" then
-    return parse_list(data, offset, len, Scope, ")")
+    return tibs_parse_scope(data, offset, len)
   else
     return -start
   end
@@ -1097,9 +1111,9 @@ function Tibs.find_dups(data, offset, len)
     elseif token == "}" or token == "]" then
       depth = depth - 1
     elseif token == "string" and offset - start > 4 then
-      possible_dup = parse_string(data, start, offset)
+      possible_dup = tibs_parse_string(data, start, offset)
     elseif token == "number" and offset - start > 4 then
-      possible_dup = parse_number(data, start, offset)
+      possible_dup = tibs_parse_number(data, start, offset)
     end
     if possible_dup then
       local count = counts[possible_dup]
@@ -1395,7 +1409,7 @@ local function parse_scope(data, offset, last, scope)
       offset, value = nibs_parse_any(data, offset, last)
       rawset(scope_val, i, value)
     end
-    return setmetatable(scope_val, Scope)
+    return setmetatable(scope_val, { __is_scope = true })
   end
 end
 
@@ -1692,6 +1706,7 @@ end
 ---@param scope any[] list of refs with nested value at either 0 or 1 index
 ---@param refmap? table<any,integer>
 local function fill_scope(parts, scope, refmap)
+  local val, dups = scope[1], scope[2]
   -- Reserve several slots
   local header_slot = #parts + 1
   parts[header_slot] = true
@@ -1706,18 +1721,11 @@ local function fill_scope(parts, scope, refmap)
   local subrefmap = {}
   ---@type integer[]
   local indices = {}
-  local val = scope[0]
-  local start_index = 1
-  if val == nil then
-    val = scope[1]
-    start_index = 2
-  end
   local dups_total = 0
-  for i = start_index, #scope do
-    local value = scope[i]
-    indices[i - start_index + 1] = dups_total
-    subrefmap[value] = i - start_index
-    dups_total = dups_total + fill_any(parts, value, refmap)
+  for i, dup in ipairs(dups) do
+    indices[i ] = dups_total
+    subrefmap[dup] = i - 1
+    dups_total = dups_total + fill_any(parts, dup, refmap)
   end
 
   -- Write the index
@@ -1802,11 +1810,7 @@ end
 
 function Nibs.encode(val, refs)
   if refs then
-    val = setmetatable({ [0] = val }, {
-      __index = refs,
-      __len = function() return #refs end,
-      __is_scope = true,
-    })
+    val = setmetatable({ val, refs }, { __is_scope = true })
   end
   local parts = {}
   local total = fill_any(parts, val)
@@ -1844,7 +1848,6 @@ return {
   Array = Array,
   Trie = Trie,
   Ref = Ref,
-  Scope = Scope,
   encode = Nibs.encode,
   decode = Nibs.decode,
 }
