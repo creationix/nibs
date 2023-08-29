@@ -71,4 +71,8 @@ for name, input in pairs(tests) do
     else
         print("No dups found in reref!")
     end
+
+    local expected_tibs = Tibs.encode(input)
+    local actual_tibs = Tibs.encode(Nibs.decode(Nibs.encode(Tibs.decode(expected_tibs)),{deref=false}))
+    assert(expected_tibs == actual_tibs, "Tibs encode/decode roundtrip failed!")
 end
