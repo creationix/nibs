@@ -87,7 +87,7 @@ export function decode(str, filename = '(string)') {
             case '[':
                 return decodeListOrArray()
             case '{':
-                return decodeMap()
+                return decodeMapOrTrie()
             case '(':
                 return decodeScope()
             default:
@@ -289,7 +289,7 @@ export function decode(str, filename = '(string)') {
     }
 
     /** @returns {object} */
-    function decodeMap() {
+    function decodeMapOrTrie() {
         let obj = new Map()
         let allStrings = true
         let hasIndex = false
@@ -416,7 +416,7 @@ export function encode(val) {
     const c = Object.prototype.toString.call(val)
     switch (c) {
         case '[object Map]':
-            return '{' +
+            return '{' + (val[isIndexed] ? "#" : "") +
                 Array.from(val.entries())
                     .map((([k, v]) => encode(k) + ":" + encode(v)))
                     .join(',') +

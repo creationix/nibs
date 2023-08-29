@@ -1,3 +1,5 @@
+import { inspect } from 'node:util'
+import { xxh64 } from "./xxhash64.js"
 import { isRef, isScope, isIndexed } from "./symbols.js"
 
 const ZIGZAG = 0
@@ -10,6 +12,7 @@ const HEXSTRING = 10
 const LIST = 11
 const MAP = 12
 const ARRAY = 13
+const TRIE = 14
 const SCOPE = 15
 const FALSE = 0
 const TRUE = 1
@@ -251,6 +254,217 @@ function encodeMap(val) {
 }
 
 /**
+ * @param {Map<any,any>} val
+ * @returns {[number,...any]}
+ */
+function encodeTrie(val) {
+    let totalLen = 0
+    /** @type {Map<Uint8Array,number>} */
+    const offsets = new Map()
+    const parts = []
+    let last = 0
+    for (const [key, value] of val) {
+        last = totalLen
+        const [keyLen, ...keyparts] = encodeAny(key)
+        const encodedKey = flatten(keyLen, keyparts)
+        parts.push(encodedKey)
+        offsets.set(encodedKey, totalLen)
+        totalLen += keyLen
+        const [valueLen, ...valueparts] = encodeAny(value)
+        totalLen += valueLen
+        parts.push(...valueparts)
+    }
+
+    const { count, width, index } = encodeHamt(offsets)
+
+    totalLen += count * width
+
+    const [plen, ...pparts] = encodePair(width, count)
+    totalLen += plen
+
+    const [len, ...pair] = encodePair(TRIE, totalLen)
+
+    return [len + totalLen, [...pair, ...pparts, index, ...parts]]
+
+}
+
+class TriePointer {
+    /**
+     * @param {bigint} hash
+     * @param {number} target
+     */
+    constructor(hash, target) {
+        this.hash = hash
+        this.target = target
+    }
+}
+
+class TrieNode {
+    /**
+     * @param {number} power bits for each path segment
+     */
+    constructor(power) {
+        this.power = power
+    }
+
+    /**
+     * @param {TriePointer} pointer
+     * @param {number} depth
+     * @returns {number} nodes created
+     */
+    insert(pointer, depth) {
+        const segment = Number((pointer.hash >> BigInt(depth * this.power)) & BigInt((1 << this.power) - 1))
+        /** @type {TrieNode|TriePointer|undefined} */
+        const existing = this[segment]
+        if (existing) {
+            if (existing instanceof TrieNode) {
+                return existing.insert(pointer, depth + 1)
+            } else if (existing instanceof TriePointer) {
+
+                const child = new TrieNode(this.power)
+                this[segment] = child
+                return 1 + child.insert(existing, depth + 1)
+                    + child.insert(pointer, depth + 1)
+            }
+            throw new TypeError("Unknown type")
+        }
+        this[segment] = pointer
+        return 1
+    }
+
+    /**
+     * @param {(word?:number)=>number} write
+     * @returns {number|undefined}
+     */
+    serialize(write) {
+        // Serialize subnodes first
+        const targets = {}
+        const top = (1 << this.power) - 1
+        for (let i = top; i >= 0; i--) {
+            /** @type {TriePointer|TrieNode|undefined} */
+            const entry = this[i]
+            if (entry && entry instanceof TrieNode) {
+                const serialized = entry.serialize(write)
+                if (!serialized) return
+                targets[i] = serialized
+            }
+        }
+        const high = 1 << ((1 << this.power) - 1)
+
+        let bitfield = 0
+        let current = write()
+        // Write our own table now
+        for (let i = top; i >= 0; i--) {
+            /** @type {TriePointer|TrieNode|undefined} */
+            const entry = this[i]
+            if (!entry) continue
+            bitfield |= 1 << i
+            if (entry instanceof TrieNode) {
+                const offset = current - targets[i]
+                if (offset >= high) return // overflow
+                current = write(offset)
+            } else if (entry instanceof TriePointer) {
+                const target = entry.target
+                if (target >= high) return // overflow
+                current = write(high | target)
+            }
+        }
+        return write(bitfield)
+    }
+}
+
+/**
+ * @param {Map<Uint8Array,number>} map
+ * @param {number} optimize
+ * @returns {{count:number,width:number,index:Uint8Array|Uint16Array|Uint32Array|BigUint64Array}}
+*/
+function encodeHamt(map, optimize = -1) {
+    // Calculate largest output target...
+    let maxTarget = 0
+    let count = 0
+    for (const v of map.values()) {
+        count++
+        maxTarget = Math.max(maxTarget, v)
+    }
+
+    // ... and use that for the smallest possible start power that works
+    let startPower = maxTarget < 0x100 ? 3 :
+        maxTarget < 0x10000 ? 4 :
+            maxTarget < 0x100000000 ? 5 : 6
+
+    // Try to set a sane default optimization level if not specified
+    if (optimize === -1) {
+        optimize = Math.max(2, Math.min(255, 1000 / (count * count)))
+    }
+
+    // Try several combinations of parameters to find the smallest encoding.
+    let win = null
+    // The size of the currently winning index
+    let min = 1 / 0
+    // Brute force all hash seeds in the 8-bit keyspace.
+    for (let seed = 0; seed <= optimize; seed++) {
+        // Precompute the hashes outside of the bitsize loop to save CPU.
+        const hashes = new Map()
+        for (const k of map.keys()) {
+            hashes.set(k, xxh64(k, BigInt(seed)))
+        }
+        // Try bit sizes small first and break of first successful encoding.
+        for (let power = startPower; power <= 6; power++) {
+
+            // Create a new Trie and insert the data
+            const trie = new TrieNode(power)
+            // Count number of rows in the index
+            let count = 1
+            for (const [k, v] of map.entries()) {
+                const hash = hashes.get(k)
+                count += trie.insert(new TriePointer(hash, v), 0)
+            }
+
+            // Reserve a slot for the seed
+            count++
+
+            // Width of pointers in bytes
+            const width = 1 << (power - 3)
+            // Total byte size of index if generated
+            const size = count * width
+
+            // Abort if the size is not smaller than the current winner
+            if (size >= min) continue
+
+            const index =
+                power === 3 ? new Uint8Array(count) :
+                    power === 4 ? new Uint16Array(count) :
+                        power === 5 ? new Uint32Array(count) :
+                            new BigUint64Array(count)
+
+            let i = 0
+            /** @type {(word?:number)=>number} */
+            const write = word => {
+                if (word !== undefined) {
+                    i++
+                    if (index instanceof BigUint64Array) {
+                        index[count - i] = BigInt(word)
+                    } else {
+                        index[count - i] = word
+                    }
+                }
+                return (i - 1) * width
+            }
+
+            const success = trie.serialize(write)
+            write(seed)
+            if (typeof (success) === 'number') {
+                min = size
+                win = { count, width, index }
+                break
+            }
+        }
+    }
+    if (!win) throw new Error("There was no winner")
+    return win
+}
+
+/**
  * @param {any} val
  * @returns {[number,...any]}
  */
@@ -291,10 +505,16 @@ function encodeAny(val) {
             return encodeList(val)
         }
         if (val instanceof Map) {
+            if (val[isIndexed]) {
+                return encodeTrie(val)
+            }
             return encodeMap(val)
         }
         if (typeof (val[isRef]) === 'number') {
             return encodePair(REF, val[isRef])
+        }
+        if (val[isIndexed]) {
+            return encodeTrie(new Map(Object.entries(val)))
         }
         return encodeMap(new Map(Object.entries(val)))
     }
@@ -466,7 +686,7 @@ function decodeList(data, alpha, omega, scope) {
         alpha = makeLazy(list, i++, data, alpha, scope)
     }
     list.length = i
-    if (alpha !== omega) throw new Error("Extra data in map")
+    if (alpha !== omega) throw new Error("Extra data in map/trie")
     return [list, omega]
 }
 
@@ -514,8 +734,23 @@ function decodeMap(data, alpha, omega, scope) {
 
         alpha = skip(data, index)
     }
-    if (alpha !== omega) throw new Error("Extra data in map")
+    if (alpha !== omega) throw new Error("Extra data in map/trie")
 
+    return [map, omega]
+}
+
+/**
+ * @param {DataView} data
+ * @param {number} alpha
+ * @param {number} omega
+ * @param {RefScope} scope
+ * @returns {[Object<string,any>, number]}
+ */
+function decodeTrie(data, alpha, omega, scope) {
+    const { little, big, newoffset } = decodePair(data, alpha)
+    alpha = newoffset + little * Number(big)
+    const [map] = decodeMap(data, alpha, omega, scope)
+    Object.defineProperty(map, isIndexed, { value: true })
     return [map, omega]
 }
 
@@ -569,6 +804,8 @@ function decodeAny(data, alpha, scope) {
             return decodeMap(data, alpha, alpha + Number(big), scope)
         case ARRAY:
             return decodeArray(data, alpha, alpha + Number(big), scope)
+        case TRIE:
+            return decodeTrie(data, alpha, alpha + Number(big), scope)
         case SCOPE:
             return decodeScope(data, alpha, alpha + Number(big))
     }
@@ -685,7 +922,7 @@ export function optimize(doc, indexLimit = 12, refs = undefined, skipRefCheck = 
         }
         doc = copy
     }
-    if (Array.isArray(doc) && count >= indexLimit) {
+    if (count >= indexLimit) {
         Object.defineProperty(doc, isIndexed, { value: true })
     }
     return doc
