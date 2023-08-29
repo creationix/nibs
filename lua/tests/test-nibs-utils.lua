@@ -4,7 +4,7 @@ local TestUtils = require 'test-utils'
 local hex_dump = TestUtils.hex_dump
 
 
-local Nibs = require 'nibs'
+local Nibs = require '../nibs'
 local Tibs = Nibs.Tibs
 local readFileSync = require('fs').readFileSync
 
