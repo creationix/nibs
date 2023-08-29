@@ -13,6 +13,8 @@ local bor = bit.bor
 local band = bit.band
 local bxor = bit.bxor
 local arshift = bit.arshift
+local rol = bit.rol
+local tobit = bit.tobit
 
 local char = string.char
 local byte = string.byte
@@ -41,6 +43,8 @@ local TRUE = 1
 local NULL = 2
 
 local U8Ptr = typeof "uint8_t*"
+local U32Ptr = typeof "uint32_t*"
+local U64Ptr = typeof "uint64_t*"
 local U8Arr = typeof "uint8_t[?]"
 local U16Arr = typeof "uint16_t[?]"
 local U32Arr = typeof "uint32_t[?]"
@@ -1162,6 +1166,182 @@ function Tibs.find_dups(data, offset, len)
   return dups
 end
 
+local xxh32
+do
+  local PRIME32_1 = tobit(0x9E3779B1)
+  local PRIME32_2 = tobit(0x85EBCA77)
+  local PRIME32_3 = tobit(0xC2B2AE3D)
+  local PRIME32_4 = tobit(0x27D4EB2F)
+  local PRIME32_5 = tobit(0x165667B1)
+
+  local function imul32(a, b)
+    return tobit(U64(U32(a)) * U64(U32(b)))
+  end
+
+  local function round32(acc, lane)
+    acc = tobit(acc + imul32(lane, PRIME32_2))
+    acc = rol(acc, 13)
+    acc = imul32(acc, PRIME32_1)
+    return acc
+  end
+
+  ---@param ptr ffi.cdata* bytes
+  ---@param len integer
+  ---@param seed integer u32
+  function xxh32(ptr, len, seed)
+    local last = cast(U32Ptr, ptr + len)
+    ptr = cast(U32Ptr, ptr)
+    ---@diagnostic disable-next-line: param-type-mismatch
+    seed = tobit(U32(seed))
+
+    local h32
+    if len >= 16 then
+      local acc1 = tobit(seed + PRIME32_1 + PRIME32_2)
+      local acc2 = tobit(seed + PRIME32_2)
+      local acc3 = tobit(seed)
+      local acc4 = tobit(seed - PRIME32_1)
+
+      -- For every chunk of 4 words, so 4 * 32bits = 16 bytes
+      local limit = last - 4
+      repeat
+        acc1 = round32(acc1, ptr[0])
+        acc2 = round32(acc2, ptr[1])
+        acc3 = round32(acc3, ptr[2])
+        acc4 = round32(acc4, ptr[3])
+        ptr = ptr + 4
+      until ptr > limit
+
+      -- Convergence
+      h32 = tobit(rol(acc1, 1) + rol(acc2, 7) + rol(acc3, 12) + rol(acc4, 18) + len)
+    else -- when input is smaller than 16 bytes
+      h32 = tobit(seed + len + PRIME32_5)
+    end
+
+    -- For the remaining words not covered above, either 0, 1, 2 or 3
+    while ptr + 1 <= last do
+      h32 = imul32(rol(tobit(h32 + imul32(ptr[0], PRIME32_3)), 17), PRIME32_4)
+      ptr = ptr + 1
+    end
+
+    -- For the remaining bytes that didn't make a whole word,
+    -- either 0, 1, 2 or 3 bytes, as 4bytes = 32bits = 1 word.
+    ptr = cast(U8Ptr, ptr)
+    last = cast(U8Ptr, last)
+    while ptr < last do
+      h32 = imul32(rol(tobit(h32 + imul32(ptr[0], PRIME32_5)), 11), PRIME32_1)
+      ptr = ptr + 1
+    end
+
+    -- Finalize
+    h32 = imul32(bxor(h32, rshift(h32, 15)), PRIME32_2)
+    h32 = imul32(bxor(h32, rshift(h32, 13)), PRIME32_3)
+    h32 = bxor(h32, rshift(h32, 16))
+    return tonumber(U32(h32))
+  end
+end
+
+---@type fun(ptr: integer[], len: integer, seed: integer): integer
+local xxh64
+do
+  local PRIME64_1 = 0x9E3779B185EBCA87ULL
+  local PRIME64_2 = 0xC2B2AE3D27D4EB4FULL
+  local PRIME64_3 = 0x165667B19E3779F9ULL
+  local PRIME64_4 = 0x85EBCA77C2B2AE63ULL
+  local PRIME64_5 = 0x27D4EB2F165667C5ULL
+
+  local function round64(acc, value)
+    acc = acc + value * PRIME64_2
+    acc = rol(acc, 31)
+    acc = acc * PRIME64_1
+    return acc
+  end
+
+  local function merge_round64(acc, val)
+    val = round64(0, val)
+    acc = bxor(acc, val)
+    acc = acc * PRIME64_1 + PRIME64_4
+    return acc
+  end
+
+  ---@param ptr ffi.cdata* *u8
+  ---@param len integer
+  ---@param seed integer u64
+  function xxh64(ptr, len, seed)
+    local last = cast(U64Ptr, ptr + len)
+    ptr = cast(U64Ptr, ptr)
+    ---@type integer
+    ---@diagnostic disable-next-line: assign-type-mismatch
+    seed = U64(seed)
+
+    local h64
+    if len >= 32 then
+      ---@type integer
+      local acc1 = seed + PRIME64_1 + PRIME64_2
+      ---@type integer
+      local acc2 = seed + PRIME64_2
+      ---@type integer
+      local acc3 = seed
+      ---@type integer
+      local acc4 = seed - PRIME64_1
+
+      -- For every chunk of 4 words, so 4 * 64bits = 32 bytes
+      local limit = last - 4
+      repeat
+        acc1 = round64(acc1, ptr[0])
+        acc2 = round64(acc2, ptr[1])
+        acc3 = round64(acc3, ptr[2])
+        acc4 = round64(acc4, ptr[3])
+        ptr = ptr + 4
+      until ptr > limit
+
+      -- Convergence
+      h64 = rol(acc1, 1) + rol(acc2, 7)
+          + rol(acc3, 12) + rol(acc4, 18)
+
+      h64 = merge_round64(h64, acc1)
+      h64 = merge_round64(h64, acc2)
+      h64 = merge_round64(h64, acc3)
+      h64 = merge_round64(h64, acc4)
+    else -- when input is smaller than 32 bytes
+      h64 = seed + PRIME64_5
+    end
+
+    h64 = h64 + len
+
+    -- For the remaining words not covered above, either 0, 1, 2 or 3
+    while ptr + 1 <= last do
+      h64 = rol(bxor(h64, round64(0, ptr[0])), 27) * PRIME64_1 + PRIME64_4
+      ptr = ptr + 1
+    end
+
+    -- For the remaining half word. That is when there are more than 32bits
+    -- remaining which didn't make a whole word.
+    ptr = cast(U32Ptr, ptr)
+    last = cast(U32Ptr, last)
+    if ptr + 1 <= last then
+      h64 = rol(bxor(h64, ptr[0] * PRIME64_1), 23) * PRIME64_2 + PRIME64_3
+      ptr = ptr + 1
+    end
+
+    -- For the remaining bytes that didn't make a half a word (32bits),
+    -- either 0, 1, 2 or 3 bytes, as 4bytes = 32bits = 1/2 word.
+    ptr = cast(U8Ptr, ptr)
+    last = cast(U8Ptr, last)
+    while ptr < last do
+      h64 = rol(bxor(h64, ptr[0] * PRIME64_5), 11) * PRIME64_1
+      ptr = ptr + 1
+    end
+
+    -- Finalize
+    h64 = bxor(h64, rshift(h64, 33))
+    h64 = h64 * PRIME64_2
+    h64 = bxor(h64, rshift(h64, 29))
+    h64 = h64 * PRIME64_3
+    h64 = bxor(h64, rshift(h64, 32))
+    return h64
+  end
+end
+
 ffi.cdef [[
   #pragma pack(1)
   struct nibs_pair {
@@ -1723,7 +1903,7 @@ local function fill_scope(parts, scope, refmap)
   local indices = {}
   local dups_total = 0
   for i, dup in ipairs(dups) do
-    indices[i ] = dups_total
+    indices[i] = dups_total
     subrefmap[dup] = i - 1
     dups_total = dups_total + fill_any(parts, dup, refmap)
   end
@@ -1848,6 +2028,10 @@ return {
   Array = Array,
   Trie = Trie,
   Ref = Ref,
+  xxh32 = xxh32,
+  xxh64 = xxh64,
   encode = Nibs.encode,
   decode = Nibs.decode,
+  from_tibs = Tibs.decode,
+  to_tibs = Tibs.decode,
 }
