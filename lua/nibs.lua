@@ -143,6 +143,8 @@ function List:__ipairs()
   end
 end
 
+List.__pairs = List.__ipairs
+
 ---@class Map
 local Map = {
   __name = "Map",
@@ -240,6 +242,13 @@ mixin(Trie, Map)
 local Ref = {
   __name = "Ref",
   __is_ref = true,
+}
+
+---@class Scope
+local Scope = {
+  __name = "Scope",
+  __is_scope = true,
+  __is_array_like = true,
 }
 
 ---@class Tibs
@@ -1001,7 +1010,7 @@ local function tibs_parse_scope(data, offset, len)
   else
     return -offset
   end
-  return offset, setmetatable({ value, dups }, { __is_scope = true })
+  return offset, setmetatable({ value, dups }, Scope)
 end
 
 
@@ -1110,13 +1119,18 @@ end
 
 --- Scan a JSON string for plicated strings and large numbers
 --- @param data string|integer[] input json document to parse
---- @param offset? integer
---- @param len? integer
+--- @param options? {min_freq:integer,min_str_len?:integer,min_num_len?:integer}
 --- @return (string|number)[]|nil
-function Tibs.find_dups(data, offset, len)
-  offset = offset or 0
+function Tibs.find_dups(data, options)
+  options = options or {}
+  local min_freq = options.min_freq or 3
+  local min_str_len = options.min_str_len or 2
+  local min_num_len = options.min_num_len or 4
+  local offset = 0
+  ---@type integer
+  local len
   if type(data) == "string" then
-    len = len or #data
+    len = #data
     data = cast(U8Ptr, data)
   end
   assert(type(data) == 'cdata')
@@ -1134,9 +1148,9 @@ function Tibs.find_dups(data, offset, len)
       depth = depth + 1
     elseif token == "}" or token == "]" then
       depth = depth - 1
-    elseif token == "string" and offset - start > 4 then
+    elseif token == "string" and offset - start >= min_str_len + 2 then
       possible_dup = tibs_parse_string(data, start, offset)
-    elseif token == "number" and offset - start > 4 then
+    elseif token == "number" and offset - start >= min_num_len then
       possible_dup = tibs_parse_number(data, start, offset)
     end
     if possible_dup then
@@ -1154,7 +1168,7 @@ function Tibs.find_dups(data, offset, len)
   local dup_counts = {}
   local count = 0
   for val, freq in pairs(counts) do
-    if freq > 3 then
+    if freq >= min_freq then
       count = count + 1
       dup_counts[count] = { val, freq }
     end
@@ -1456,7 +1470,7 @@ end
 ---@param val integer
 ---@param scope? Array
 local function decode_ref(val, scope)
-  if Tibs.deref then
+  if Nibs.deref then
     assert(scope)
     return scope[val + 1]
   else
@@ -1610,7 +1624,7 @@ local function parse_scope(data, offset, last, scope)
       offset, dup = nibs_parse_any(data, offset, last)
       dups[i] = dup
     end
-    return setmetatable({ value, dups }, { __is_scope = true })
+    return setmetatable({ value, dups }, Scope)
   end
 end
 
@@ -2011,7 +2025,7 @@ end
 
 function Nibs.encode(val, refs)
   if refs then
-    val = setmetatable({ val, refs }, { __is_scope = true })
+    val = setmetatable({ val, refs }, Scope)
   end
   local parts = {}
   local total = fill_any(parts, val)
