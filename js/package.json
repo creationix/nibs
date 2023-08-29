@@ -10,5 +10,8 @@
         "test": "ls tests/test-*.js | xargs -n1 node"
     },
     "type": "module",
-    "main": "index.js"
+    "main": "index.js",
+    "dependencies": {
+        "@node-rs/xxhash": "^1.4.0"
+    }
 }
