@@ -572,25 +572,26 @@ end
 ---@param as_json? boolean if truthy, encode as JSON only
 ---@param val any
 function any_to_tibs(writer, val, as_json)
+  local as_tibs = not as_json
   local mt = getmetatable(val)
   if mt then
-    if not as_json and mt.__is_ref then
+    if as_tibs and mt.__is_ref then
       writer:write_string("&")
       writer:write_string(tostring(val[1]))
       return
-    elseif not as_json and mt.__is_scope then
+    elseif as_tibs and mt.__is_scope then
       return scope_to_tibs(writer, val)
     elseif mt.__is_array_like == true then
-      if not as_json and mt.__is_indexed then
+      if as_tibs and mt.__is_indexed then
         return list_to_tibs(writer, val, "[#", "]")
       else
-        return list_to_tibs(writer, val, "[", "]")
+        return list_to_tibs(writer, val, "[", "]", as_json)
       end
     elseif mt.__is_array_like == false then
-      if not as_json and mt.__is_indexed then
+      if as_tibs and mt.__is_indexed then
         return map_to_tibs(writer, val, '{#')
       else
-        return map_to_tibs(writer, val, "{")
+        return map_to_tibs(writer, val, "{", as_json)
       end
     end
   end
@@ -598,7 +599,9 @@ function any_to_tibs(writer, val, as_json)
   if kind == "cdata" then
     if is_cdata_integer(val) then
       writer:write_string(tostring(val):gsub("[IUL]+", ""))
-    elseif not as_json then
+    elseif as_json then
+      return string_to_tibs(writer, ffi.string(val, sizeof(val)))
+    else
       return bytes_to_tibs(writer, val)
     end
   elseif kind == "table" then
@@ -619,11 +622,11 @@ function any_to_tibs(writer, val, as_json)
   elseif kind == "string" then
     string_to_tibs(writer, val)
   elseif kind == "number" then
-    if not as_json and val ~= val then
+    if as_tibs and val ~= val then
       writer:write_string("nan")
-    elseif not as_json and val == math.huge then
+    elseif as_tibs and val == math.huge then
       writer:write_string("inf")
-    elseif not as_json and val == -math.huge then
+    elseif as_tibs and val == -math.huge then
       writer:write_string("-inf")
     elseif tonumber(I64(val)) == val then
       local int_str = tostring(I64(val))
