@@ -489,11 +489,12 @@ local function scope_to_tibs(writer, scope)
   end
 
   writer:write_string "("
-  local err = any_to_tibs(writer, val)
+  -- scope_to_tibs will never happen in the as_json=true path
+  local err = any_to_tibs(writer, val, false)
   if err then return err end
   for _, v in ipairs_smart(dups) do
     writer:write_string ","
-    err = any_to_tibs(writer, v)
+    err = any_to_tibs(writer, v, false)
     if err then return err end
   end
   writer:write_string ")"
@@ -520,10 +521,10 @@ local function map_to_tibs(writer, val, opener, as_json)
         return "Invalid " .. kind .. " as object key when using JSON encode mode"
       end
     end
-    local err = any_to_tibs(writer, k)
+    local err = any_to_tibs(writer, k, as_json)
     if err then return err end
     writer:write_string(":")
-    err = any_to_tibs(writer, v)
+    err = any_to_tibs(writer, v, as_json)
     if err then return err end
   end
   writer:write_string('}')
