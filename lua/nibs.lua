@@ -653,8 +653,10 @@ function any_to_tibs(writer, val, as_json)
     end
   elseif kind == "nil" then
     writer:write_string("null")
+  elseif kind == "boolean" then
+    writer:write_string(val and "true" or "false")
   else
-    writer:write_string(tostring(val))
+    return "Unsupported type: " .. kind
   end
 end
 

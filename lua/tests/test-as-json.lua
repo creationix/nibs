@@ -14,6 +14,7 @@ local tests = {
     { { [true] = false },                     '{"true":false}' },
     { assert(Tibs.decode '[<012345>]'),       '["\\u0001#E"]' },
     { { [{}] = true },                        nil },
+    { { print },                              nil },
 }
 
 for _, test in ipairs(tests) do
