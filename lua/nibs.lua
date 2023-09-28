@@ -497,7 +497,7 @@ local function map_to_tibs(writer, val, opener, as_json)
     need_comma = true
     if as_json then
       local kind = type(k)
-      if kind == "number" or kind == "boolean" or kind == "nil" then
+      if kind == "number" or kind == "boolean" then
         k = tostring(k)
       elseif kind ~= "string" then
         return "Invalid " .. kind .. " as object key when using JSON encode mode"
