@@ -451,13 +451,14 @@ local any_to_tibs
 ---@param val any[]
 ---@param opener string
 ---@param closer string
-local function list_to_tibs(writer, val, opener, closer)
+---@param as_json? boolean if truthy, encode as JSON only
+local function list_to_tibs(writer, val, opener, closer, as_json)
   writer:write_string(opener)
   for i, v in ipairs(val) do
     if i > 1 then
       writer:write_string(",")
     end
-    any_to_tibs(writer, v)
+    any_to_tibs(writer, v, as_json)
   end
   writer:write_string(closer)
 end
@@ -483,7 +484,8 @@ end
 ---@param writer ByteWriter
 ---@param opener "{"|"{#"
 ---@param val table<any,any>
-local function map_to_tibs(writer, val, opener)
+---@param as_json? boolean if truthy, encode as JSON only
+local function map_to_tibs(writer, val, opener, as_json)
   writer:write_string(opener)
   local need_comma = false
   for k, v in pairs(val) do
@@ -491,7 +493,7 @@ local function map_to_tibs(writer, val, opener)
       writer:write_string(",")
     end
     need_comma = true
-    any_to_tibs(writer, k)
+    any_to_tibs(writer, as_json and tostring(k) or k)
     writer:write_string(":")
     any_to_tibs(writer, v)
   end
@@ -568,24 +570,25 @@ local function string_to_tibs(writer, str)
 end
 
 ---@param writer ByteWriter
+---@param as_json? boolean if truthy, encode as JSON only
 ---@param val any
-function any_to_tibs(writer, val)
+function any_to_tibs(writer, val, as_json)
   local mt = getmetatable(val)
   if mt then
-    if mt.__is_ref then
+    if not as_json and mt.__is_ref then
       writer:write_string("&")
       writer:write_string(tostring(val[1]))
       return
-    elseif mt.__is_scope then
+    elseif not as_json and mt.__is_scope then
       return scope_to_tibs(writer, val)
     elseif mt.__is_array_like == true then
-      if mt.__is_indexed then
+      if not as_json and mt.__is_indexed then
         return list_to_tibs(writer, val, "[#", "]")
       else
         return list_to_tibs(writer, val, "[", "]")
       end
     elseif mt.__is_array_like == false then
-      if mt.__is_indexed then
+      if not as_json and mt.__is_indexed then
         return map_to_tibs(writer, val, '{#')
       else
         return map_to_tibs(writer, val, "{")
@@ -593,7 +596,7 @@ function any_to_tibs(writer, val)
     end
   end
   local kind = type(val)
-  if kind == "cdata" then
+  if not as_json and kind == "cdata" then
     if is_cdata_integer(val) then
       writer:write_string(tostring(val):gsub("[IUL]+", ""))
     else
@@ -610,18 +613,18 @@ function any_to_tibs(writer, val)
       end
     end
     if is_array then
-      return list_to_tibs(writer, val, "[", "]")
+      return list_to_tibs(writer, val, "[", "]", as_json)
     else
-      return map_to_tibs(writer, val, "{")
+      return map_to_tibs(writer, val, "{", as_json)
     end
   elseif kind == "string" then
     string_to_tibs(writer, val)
   elseif kind == "number" then
-    if val ~= val then
+    if not as_json and val ~= val then
       writer:write_string("nan")
-    elseif val == math.huge then
+    elseif not as_json and val == math.huge then
       writer:write_string("inf")
-    elseif val == -math.huge then
+    elseif not as_json and val == -math.huge then
       writer:write_string("-inf")
     elseif tonumber(I64(val)) == val then
       local int_str = tostring(I64(val))
@@ -637,10 +640,11 @@ function any_to_tibs(writer, val)
 end
 
 ---@param val any
+---@param as_json? boolean if truthy, encode as JSON only
 ---@return string
-function Tibs.encode(val)
+function Tibs.encode(val, as_json)
   local writer = ByteWriter.new(0x10000)
-  any_to_tibs(writer, val)
+  any_to_tibs(writer, val, as_json)
   return writer:to_string()
 end
 
