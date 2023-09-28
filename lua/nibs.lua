@@ -447,6 +447,18 @@ end
 
 local any_to_tibs
 
+--- ipairs that uses metamethods for __len and __index instead of using rawlen and rawget
+local function ipairs_smart(t)
+  local i = 0
+  local l = #t
+  return function()
+    if i < l then
+      i = i + 1
+      return i, t[i]
+    end
+  end
+end
+
 ---@param writer ByteWriter
 ---@param val any[]
 ---@param opener string
@@ -455,7 +467,9 @@ local any_to_tibs
 ---@return string? error
 local function list_to_tibs(writer, val, opener, closer, as_json)
   writer:write_string(opener)
-  for i, v in ipairs(val) do
+  local mt = getmetatable(val)
+  local ipair_auto = mt and (mt.__ipairs or mt.__pairs) or ipairs_smart
+  for i, v in ipair_auto(val) do
     if i > 1 then
       writer:write_string(",")
     end
@@ -477,7 +491,7 @@ local function scope_to_tibs(writer, scope)
   writer:write_string "("
   local err = any_to_tibs(writer, val)
   if err then return err end
-  for _, v in ipairs(dups) do
+  for _, v in ipairs_smart(dups) do
     writer:write_string ","
     err = any_to_tibs(writer, v)
     if err then return err end
