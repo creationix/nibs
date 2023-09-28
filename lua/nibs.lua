@@ -596,10 +596,10 @@ function any_to_tibs(writer, val, as_json)
     end
   end
   local kind = type(val)
-  if not as_json and kind == "cdata" then
+  if kind == "cdata" then
     if is_cdata_integer(val) then
       writer:write_string(tostring(val):gsub("[IUL]+", ""))
-    else
+    elseif not as_json then
       return bytes_to_tibs(writer, val)
     end
   elseif kind == "table" then
