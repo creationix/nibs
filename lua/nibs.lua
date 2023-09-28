@@ -468,7 +468,6 @@ end
 local function scope_to_tibs(writer, scope)
   local val, dups = scope[1], scope[2]
   if not val or type(dups) ~= "table" then
-    p { val = val, dups = dups }
     error "Unexpected scope type"
   end
 
@@ -2079,5 +2078,6 @@ return {
   encode = Nibs.encode,
   decode = Nibs.decode,
   from_tibs = Tibs.decode,
-  to_tibs = Tibs.decode,
+  to_tibs = Tibs.encode,
+  to_json = Tibs.encode_json,
 }
