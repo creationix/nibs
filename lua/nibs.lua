@@ -458,7 +458,8 @@ local function list_to_tibs(writer, val, opener, closer, as_json)
     if i > 1 then
       writer:write_string(",")
     end
-    any_to_tibs(writer, v, as_json)
+    local err = any_to_tibs(writer, v, as_json)
+    if err then return err end
   end
   writer:write_string(closer)
 end
@@ -472,10 +473,12 @@ local function scope_to_tibs(writer, scope)
   end
 
   writer:write_string "("
-  any_to_tibs(writer, val)
+  local err = any_to_tibs(writer, val)
+  if err then return err end
   for _, v in ipairs(dups) do
     writer:write_string ","
-    any_to_tibs(writer, v)
+    err = any_to_tibs(writer, v)
+    if err then return err end
   end
   writer:write_string ")"
 end
@@ -492,9 +495,19 @@ local function map_to_tibs(writer, val, opener, as_json)
       writer:write_string(",")
     end
     need_comma = true
-    any_to_tibs(writer, as_json and tostring(k) or k)
+    if as_json then
+      local kind = type(k)
+      if kind == "number" or kind == "boolean" or kind == "nil" then
+        k = tostring(k)
+      elseif kind ~= "string" then
+        return "Invalid " .. kind .. " as object key when using JSON encode mode"
+      end
+    end
+    local err = any_to_tibs(writer, k)
+    if err then return err end
     writer:write_string(":")
-    any_to_tibs(writer, v)
+    err = any_to_tibs(writer, v)
+    if err then return err end
   end
   writer:write_string('}')
 end
@@ -642,18 +655,22 @@ function any_to_tibs(writer, val, as_json)
 end
 
 ---@param val any
----@return string tibs encoded string
+---@return string? tibs encoded string
+---@return string? error message
 function Tibs.encode(val)
   local writer = ByteWriter.new(0x10000)
-  any_to_tibs(writer, val)
+  local err = any_to_tibs(writer, val)
+  if err then return nil, err end
   return writer:to_string()
 end
 
 ---@param val any
----@return string json encoded string
+---@return string? json encoded string
+---@return string? error message
 function Tibs.encode_json(val)
   local writer = ByteWriter.new(0x10000)
-  any_to_tibs(writer, val, true)
+  local err = any_to_tibs(writer, val, true)
+  if err then return nil, err end
   return writer:to_string()
 end
 
