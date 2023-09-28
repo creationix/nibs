@@ -4,17 +4,20 @@ local Nibs = require '../nibs'
 local Tibs = Nibs.Tibs
 
 local tests = {
-    { { 1, 2, 3 },                            '[1,2,3]' },
-    { { 1, 2, more = 3 },                     '{"1":1,"2":2,"more":3}' },
-    { { { 1, 2, more = 3 } },                 '[{"1":1,"2":2,"more":3}]' },
-    { assert(Tibs.decode '[null,<00>,null]'), '[null,"\\u0000",null]' },
-    { -9223372036854775807LL,                 '-9223372036854775807' },
-    { 9223372036854775807LL,                  '9223372036854775807' },
-    { -9223372036854775808LL,                 '-9223372036854775808' },
-    { { [true] = false },                     '{"true":false}' },
-    { assert(Tibs.decode '[<012345>]'),       '["\\u0001#E"]' },
-    { { [{}] = true },                        nil },
-    { { print },                              nil },
+    { { 1, 2, 3 },                                   '[1,2,3]' },
+    { { 1, 2, more = 3 },                            '{"1":1,"2":2,"more":3}' },
+    { { { 1, 2, more = 3 } },                        '[{"1":1,"2":2,"more":3}]' },
+    { assert(Tibs.decode '[null,<00>,null]'),        '[null,"\\u0000",null]' },
+    { -9223372036854775807LL,                        '-9223372036854775807' },
+    { 9223372036854775807LL,                         '9223372036854775807' },
+    { -9223372036854775808LL,                        '-9223372036854775808' },
+    { { [true] = false },                            '{"true":false}' },
+    { assert(Tibs.decode '[<012345>]'),              '["\\u0001#E"]' },
+    { { [{}] = true },                               nil },
+    { { print },                                     nil },
+    { setmetatable({}, { __is_array_like = false }), '{}' },
+    { setmetatable({}, { __is_array_like = true }),  '[]' },
+    { {},                                            '{}' },
 }
 
 for _, test in ipairs(tests) do

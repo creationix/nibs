@@ -624,14 +624,16 @@ function any_to_tibs(writer, val, as_json)
   elseif kind == "table" then
     local i = 0
     local is_array = true
+    local is_empty = true
     for k in pairs(val) do
+      is_empty = false
       i = i + 1
       if k ~= i then
         is_array = false
         break
       end
     end
-    if is_array then
+    if is_array and not is_empty then
       return list_to_tibs(writer, val, "[", "]", as_json)
     else
       return map_to_tibs(writer, val, "{", as_json)
