@@ -13,7 +13,7 @@ local tests = {
 for i = 1, #tests, 2 do
     local input = tests[i]
     local expected = tests[i + 1]
-    local actual = Tibs.encode(input, true)
+    local actual = Tibs.encode_json(input)
     p(input, expected, actual)
     assert(expected == actual)
 end

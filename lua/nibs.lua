@@ -640,11 +640,18 @@ function any_to_tibs(writer, val, as_json)
 end
 
 ---@param val any
----@param as_json? boolean if truthy, encode as JSON only
----@return string
-function Tibs.encode(val, as_json)
+---@return string tibs encoded string
+function Tibs.encode(val)
   local writer = ByteWriter.new(0x10000)
-  any_to_tibs(writer, val, as_json)
+  any_to_tibs(writer, val)
+  return writer:to_string()
+end
+
+---@param val any
+---@return string json encoded string
+function Tibs.encode_json(val)
+  local writer = ByteWriter.new(0x10000)
+  any_to_tibs(writer, val, true)
   return writer:to_string()
 end
 
