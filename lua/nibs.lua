@@ -452,6 +452,7 @@ local any_to_tibs
 ---@param opener string
 ---@param closer string
 ---@param as_json? boolean if truthy, encode as JSON only
+---@return string? error
 local function list_to_tibs(writer, val, opener, closer, as_json)
   writer:write_string(opener)
   for i, v in ipairs(val) do
@@ -466,6 +467,7 @@ end
 
 ---@param writer ByteWriter
 ---@param scope {[1]:Value,[2]:List}
+---@return string? error
 local function scope_to_tibs(writer, scope)
   local val, dups = scope[1], scope[2]
   if not val or type(dups) ~= "table" then
@@ -487,6 +489,7 @@ end
 ---@param opener "{"|"{#"
 ---@param val table<any,any>
 ---@param as_json? boolean if truthy, encode as JSON only
+---@return string? error
 local function map_to_tibs(writer, val, opener, as_json)
   writer:write_string(opener)
   local need_comma = false
@@ -584,6 +587,7 @@ end
 ---@param writer ByteWriter
 ---@param as_json? boolean if truthy, encode as JSON only
 ---@param val any
+---@return string? error
 function any_to_tibs(writer, val, as_json)
   local as_tibs = not as_json
   local mt = getmetatable(val)
