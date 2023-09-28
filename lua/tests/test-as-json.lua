@@ -18,7 +18,49 @@ local tests = {
     { setmetatable({}, { __is_array_like = false }), '{}' },
     { setmetatable({}, { __is_array_like = true }),  '[]' },
     { {},                                            '{}' },
+    { setmetatable({}, { -- virtual table that acts like an array when using __len and __index only
+        __is_array_like = true,
+        __index = function(_, k) return k end,
+        __len = function() return 10 end,
+    }), '[1,2,3,4,5,6,7,8,9,10]' },
+    { setmetatable({}, { -- virtual table that acts like an array using __ipairs only
+        __is_array_like = true,
+        __ipairs = function()
+            local i = 0
+            return function()
+                if i < 10 then
+                    i = i + 1
+                    return i, i
+                end
+            end
+        end,
+    }), '[1,2,3,4,5,6,7,8,9,10]' },
+    { setmetatable({}, { -- virtual table that acts like an object using __pairs only
+        __is_array_like = false,
+        __pairs = function()
+            local i = 0
+            return function()
+                if i < 5 then
+                    i = i + 1
+                    return i, i
+                end
+            end
+        end,
+    }), '{"1":1,"2":2,"3":3,"4":4,"5":5}' },
+    { setmetatable({}, { -- virtual table that acts like an array using __pairs only
+        __pairs = function()
+            local i = 0
+            return function()
+                if i < 5 then
+                    i = i + 1
+                    return i, i
+                end
+            end
+        end,
+    }), '[1,2,3,4,5]' },
 }
+
+
 
 for _, test in ipairs(tests) do
     local input = test[1]
