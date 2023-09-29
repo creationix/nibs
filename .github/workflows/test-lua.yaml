@@ -18,6 +18,8 @@ jobs:
         run: ./luvit lua/tests/test-xxhash.lua
       - name: Test text format encoder and decoder
         run: ./luvit lua/tests/test-text-format.lua
+      - name: Test text format encoder json mode
+        run: ./luvit lua/tests/test-as-json.lua
       - name: Test encoding nibs values using fixtures
         run: ./luvit lua/tests/test-nibs-encoder.lua
       - name: Test decoding nibs values using fixtures
