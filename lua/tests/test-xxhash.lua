@@ -1,11 +1,11 @@
 require 'test-utils'
-local NibLib = require 'nib-lib'
-local U8Ptr = NibLib.U8Ptr
 local ffi = require 'ffi'
+local U8Ptr = ffi.typeof "uint8_t*"
 local cast = ffi.cast
 
-local xxh64 = require 'xxhash64'
-local xxh32 = require 'xxhash32'
+local Nibs = require '../nibs'
+local xxh64 = Nibs.xxh64
+local xxh32 = Nibs.xxh32
 local color = require('pretty-print').color
 
 local tests = {

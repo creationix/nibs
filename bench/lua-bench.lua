@@ -1,10 +1,11 @@
+local p = require('pretty-print').prettyPrint
 local uv = require 'uv'
 local readFileSync = require('fs').readFileSync
 local Nibs = require '../lua/nibs'
 local JSON = require 'json'
 
-local json = readFileSync("data.json")
-local nibs = readFileSync("data.nibs")
+local json = assert(readFileSync("data.json"))
+local nibs = assert(readFileSync("data.nibs"))
 
 
 local function bench(name, action, fn)
@@ -22,17 +23,17 @@ local function bench(name, action, fn)
     return rps
 end
 
-local function walk(data, i)
-    return {
-        City = data.weather[i + 1].Station.City,
-        State = data.weather[i + 1].Station.State,
-    }
-end
+-- local function walk(data, i)
+--     return {
+--         City = data.weather[i + 1].Station.City,
+--         State = data.weather[i + 1].Station.State,
+--     }
+-- end
 
-for i = 1, 5 do
+for _ = 1, 5 do
     bench("nibs", "decode", function() Nibs.decode(nibs) end)
-    local nibsData = Nibs.decode(nibs)
-    bench("nibs", "walk", function(i) walk(nibsData, i % 100) end)
+    -- local nibsData = Nibs.decode(nibs)
+    -- bench("nibs", "walk", function(i) walk(nibsData, i % 100) end)
     bench("json", "parse", function() JSON.parse(json) end)
     local data = JSON.parse(json)
     bench("json", "encode", function() return JSON.stringify(data) end)
