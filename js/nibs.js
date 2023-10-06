@@ -1,4 +1,3 @@
-import { inspect } from 'node:util'
 import { xxh64 } from "./xxhash64.js"
 import { isRef, isScope, isIndexed } from "./symbols.js"
 
