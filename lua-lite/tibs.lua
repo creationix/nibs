@@ -869,6 +869,10 @@ do
       if not (istype(F32, num) or istype(F64, num)) then
         return (tostring(num):gsub("[IUL]+", ""))
       end
+    elseif num == 1 / 0 then
+      return 'inf'
+    elseif num == -1 / 0 then
+      return '-inf'
     elseif math.floor(num) == num then
       return (tostring(I64(num)):gsub("[IUL]+", ""))
     end
