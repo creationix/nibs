@@ -518,7 +518,8 @@ function encodeAny(val) {
         }
         return encodeMap(new Map(Object.entries(val)))
     }
-    throw "TODO, encode more types"
+    console.error({unexpected_value: val})
+    throw new TypeError("Unsupported type " + typeof(val))
 }
 
 /**
