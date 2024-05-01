@@ -141,6 +141,7 @@ function encodeList(val) {
     let totalLen = 0
     const parts = []
     for (const part of val) {
+        if (val === undefined) continue
         const [subLen, ...subparts] = encodeAny(part)
         totalLen += subLen
         parts.push(...subparts)
@@ -203,6 +204,7 @@ function encodeArray(val) {
     const offsets = []
     let last = 0
     for (const part of val) {
+        if (val === undefined) continue
         const [subLen, ...subparts] = encodeAny(part)
         offsets.push(totalLen)
         last = totalLen
@@ -241,6 +243,7 @@ function encodeMap(val) {
     let totalLen = 0
     const parts = []
     for (let [key, value] of val) {
+        if (value === undefined) continue
         const [keyLen, ...keyparts] = encodeAny(key)
         const encodedKey = flatten(keyLen, keyparts)
         parts.push(encodedKey)
@@ -264,6 +267,7 @@ function encodeTrie(val) {
     const parts = []
     let last = 0
     for (const [key, value] of val) {
+        if (value === undefined) continue
         last = totalLen
         const [keyLen, ...keyparts] = encodeAny(key)
         const encodedKey = flatten(keyLen, keyparts)
