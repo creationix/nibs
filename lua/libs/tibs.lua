@@ -257,7 +257,7 @@ end
 --- Class used to store references when encoding.
 ---@class Ref
 ---@field index number
-local Ref = { __name = "Ref" }
+local Ref = { __name = "Ref", __is_ref = true }
 Tibs.Ref = Ref
 do
     ---Construct a nibs ref instance from a ref index
@@ -274,14 +274,14 @@ end
 
 --- Scope used to encode references.
 ---@class Scope
-local Scope = { __name = "Scope", __is_array_like = true, __is_indexed = true }
+local Scope = { __name = "Scope", __is_array_like = true, __is_scope = true }
 Tibs.Scope = Scope
 do
 
     ---Construct a nibs ref scope from a list of values to be referenced and a child value
-    ---@param list Value[] list of values that can be referenced with value as last
-    function Scope.new(list)
-        return setmetatable(List.fromTable(list), Scope)
+    ---@param ... Value[] list of values that can be referenced with value as last
+    function Scope.new(...)
+        return setmetatable(List.new(...), Scope)
     end
 
     function Scope:__tojson(inner)
@@ -618,6 +618,48 @@ do
         return bytes, index + 1
     end
 
+    local function parseList(json, index, array, expected)
+        local i = 1
+        while true do
+            local b
+            -- Read the next token
+            b, index = nextToken(json, index)
+            if not b then return Fail, index end
+
+            -- Exit the loop if it's a closing brace
+            if b == expected then
+                index = index + 1
+                break
+            end
+
+            -- Consume a comma if we're not on the first loop
+            if i > 1 then
+                if b ~= 44 then return Fail, index end -- `,`
+                index = index + 1
+            end
+
+            b, index = nextToken(json, index)
+            if not b then return Fail, index end
+
+            -- Allow trailing commas by checking agin for closing brace
+            if b == expected then
+                index = index + 1
+                break
+            end
+
+            -- Parse a single value and add to the array
+            local value
+            value, index = parseAny(json, index)
+            if value == Fail then
+                return Fail, index
+            end
+            array[i] = value
+            i = i + 1
+        end
+        return array, index
+
+    end
+
     function parseArray(json, index)
         local b
         -- Consume opening square bracket
@@ -634,44 +676,7 @@ do
         end
 
         local array = indexed and Tibs.Array.new() or Tibs.List.new()
-        local i = 1
-        while true do
-            -- Read the next token
-            b, index = nextToken(json, index)
-            if not b then return Fail, index end
-
-            -- Exit the loop if it's a closing square bracket
-            if b == 93 then -- `]`
-                index = index + 1
-                break
-            end
-
-            -- Consume a comma if we're not on the first loop
-            if i > 1 then
-                if b ~= 44 then return Fail, index end -- `,`
-                index = index + 1
-            end
-
-            b, index = nextToken(json, index)
-            if not b then return Fail, index end
-
-            -- Allow trailing commas by checking agin for closing brace
-            if b == 93 then -- `]`
-                index = index + 1
-                break
-            end
-
-
-            -- Parse a single value and add to the array
-            local value
-            value, index = parseAny(json, index)
-            if value == Fail then
-                return Fail, index
-            end
-            array[i] = value
-            i = i + 1
-        end
-        return array, index
+        return parseList(json, index, array, 93) -- ']'
     end
 
     function parseObject(json, index)
@@ -745,45 +750,13 @@ do
 
     function parseScope(json, index)
         local b
-        -- Consume opening paren brace
+        -- Consume opening square bracket
         b, index = nextToken(json, index)
         if b ~= 40 then return Fail, index end -- `(`
         index = index + 1
 
-        -- Parse a single value as child
-        local child
-        child, index = parseAny(json, index)
-        if child == Fail then
-            return Fail, index
-        end
-
-        local scope = Tibs.List.new(child)
-        local i = 1
-        while true do
-            -- Read the next token
-            b, index = nextToken(json, index)
-            if not b then return Fail, index end
-
-            -- Exit the loop if it's a closing paren
-            if b == 41 then -- `)`
-                index = index + 1
-                break
-            end
-
-            -- Consume a comma
-            if b ~= 44 then return Fail, index end -- `,`
-            index = index + 1
-
-            local ref
-            ref, index = parseAny(json, index)
-            if ref == Fail then
-                return Fail, index
-            end
-            i = i + 1
-            scope[i] = ref
-
-        end
-        return Tibs.Scope.new(scope), index
+        local array = Tibs.Scope.new()
+        return parseList(json, index, array, 41) -- ')'
     end
 
     function parseRef(json, index)
