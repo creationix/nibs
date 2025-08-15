@@ -41,7 +41,7 @@ export function xxh64(data, seed) {
             acc3 = round64(acc3, view.getBigUint64(ptr + 16, true))
             acc4 = round64(acc4, view.getBigUint64(ptr + 24, true))
             ptr += 32
-        } while (ptr < limit)
+        } while (ptr <= limit)
 
         // Convergence
         h64 = iadd64(rotl64(acc1, 1n), rotl64(acc2, 7n), rotl64(acc3, 12n), rotl64(acc4, 18n))
